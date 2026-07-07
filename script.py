@@ -42,18 +42,15 @@ def auto_categorize(complaint):
 if page == "Log New Ticket":
     st.header("📋 Log New Ticket")
     
-    # Initialize session state variables to track dynamic success states
     if "ticket_submitted" not in st.session_state:
         st.session_state.ticket_submitted = False
     if "last_ticket_info" not in st.session_state:
         st.session_state.last_ticket_info = {}
 
-    # Clear acknowledgment screen trigger
     if st.session_state.ticket_submitted:
         info = st.session_state.last_ticket_info
         st.success("🎉 **TICKET SUBMITTED SUCCESSFULLY!**")
         
-        # Display an elegant summary box of the submitted data
         with st.container(border=True):
             col_a, col_b, col_c = st.columns(3)
             col_a.markdown(f"**Ticket ID:** #{info['id']}")
@@ -68,7 +65,6 @@ if page == "Log New Ticket":
             st.rerun()
             
     else:
-        # Form UI
         with st.form("ticket_form", clear_on_submit=True):
             col1, col2 = st.columns(2)
             with col1:
@@ -76,7 +72,6 @@ if page == "Log New Ticket":
                 department = st.text_input("Department *")
                 location = st.text_input("Location/Sector")
             with col2:
-                # Back-date feature: selection tool defaults to today, but unlocks past calendar dates
                 ticket_date = st.date_input("Ticket Date *", value=datetime.now().date())
                 attended_by = st.selectbox("Attended By", ["Satish", "Priyanshu", "Amit", "Ranjan", "Manish"])
                 status = st.selectbox("Status", ["Open", "In Progress", "Resolved"], index=0)
@@ -90,18 +85,13 @@ if page == "Log New Ticket":
                     cat = auto_categorize(complaint)
                     formatted_date = ticket_date.strftime("%Y-%m-%d")
                     
-                    # Write to database
                     c.execute("""INSERT INTO tickets (date, user_name, department, complaint, location, attended_by, status, category)
                                  VALUES (?,?,?,?,?,?,?,?)""", 
                               (formatted_date, user_name, department, complaint, location, attended_by, status, cat))
                     conn.commit()
                     
-                    # Track newly auto-generated row ID
-                    new_id = c.lastrowid
-                    
-                    # Stash submission stats into the state engine to persist past page refresh
                     st.session_state.last_ticket_info = {
-                        "id": new_id,
+                        "id": c.lastrowid,
                         "date": formatted_date,
                         "category": cat,
                         "user": user_name,
@@ -119,25 +109,43 @@ elif page == "View & Edit Tickets":
     
     if not df.empty:
         st.dataframe(df, use_container_width=True)
-        st.markdown("---")
-        st.subheader("Update Ticket Status")
         
-        col1, col2 = st.columns([1, 2])
-        with col1:
-            ticket_id = st.selectbox("Select Ticket ID to Update", df['id'].tolist())
+        # UI Split columns for Managing Status vs Deleting Tickets
+        col_edit, col_del = st.columns(2)
         
-        current_status = df[df['id'] == ticket_id]['status'].values[0]
-        status_options = ["Open", "In Progress", "Resolved"]
-        default_index = status_options.index(current_status) if current_status in status_options else 0
-        
-        with col2:
-            new_status = st.selectbox("New Status", status_options, index=default_index)
+        with col_edit:
+            st.markdown("### 🔄 Update Ticket Status")
+            ticket_id = st.selectbox("Select Ticket ID to Update", df['id'].tolist(), key="status_select")
             
-        if st.button("Update Status", type="primary"):
-            c.execute("UPDATE tickets SET status = ? WHERE id = ?", (new_status, ticket_id))
-            conn.commit()
-            st.success(f"✅ Ticket #{ticket_id} updated to **{new_status}**!")
-            st.rerun()
+            current_status = df[df['id'] == ticket_id]['status'].values[0]
+            status_options = ["Open", "In Progress", "Resolved"]
+            default_index = status_options.index(current_status) if current_status in status_options else 0
+            
+            new_status = st.selectbox("New Status", status_options, index=default_index)
+                
+            if st.button("Update Status", type="primary"):
+                c.execute("UPDATE tickets SET status = ? WHERE id = ?", (new_status, ticket_id))
+                conn.commit()
+                st.success(f"✅ Ticket #{ticket_id} updated to **{new_status}**!")
+                st.rerun()
+                
+        with col_del:
+            st.markdown("### 🚨 Delete Mistaken Entry")
+            del_ticket_id = st.selectbox("Select Ticket ID to Delete", df['id'].tolist(), key="delete_select")
+            
+            # Fetch target ticket info contextually for safety reference
+            target_user = df[df['id'] == del_ticket_id]['user_name'].values[0]
+            st.warning(f"Warning: You are selecting Ticket #{del_ticket_id} logged by user: **{target_user}**.")
+            
+            # Safety Gatekeeper Checkbox
+            confirm_delete = st.checkbox("I confirm that I want to delete this ticket permanently.")
+            
+            if confirm_delete:
+                if st.button("❌ Permanently Delete Ticket", type="secondary"):
+                    c.execute("DELETE FROM tickets WHERE id = ?", (del_ticket_id,))
+                    conn.commit()
+                    st.error(f"🗑️ Ticket #{del_ticket_id} has been permanently deleted.")
+                    st.rerun()
     else:
         st.info("No tickets recorded yet.")
 
