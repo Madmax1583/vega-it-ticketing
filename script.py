@@ -43,11 +43,16 @@ def load_data():
             df = pd.DataFrame(response.data)
             df['id'] = pd.to_numeric(df['id'], errors='coerce')
             df['resolution_time'] = pd.to_numeric(df['resolution_time'], errors='coerce').fillna(0).astype(int)
+            # Safeguard text fields for newer columns
+            if 'remarks' not in df.columns:
+                df['remarks'] = ""
+            else:
+                df['remarks'] = df['remarks'].fillna("")
             return df
         return pd.DataFrame(columns=[
             'id', 'date', 'user_name', 'department', 'complaint', 
             'location', 'attended_by', 'status', 'category', 
-            'start_time', 'close_time', 'resolution_time'
+            'start_time', 'close_time', 'resolution_time', 'remarks'
         ])
     except Exception as e:
         st.error(f"⚠️ Failed to fetch live data from Supabase Cloud: {e}")
@@ -90,7 +95,7 @@ if page == "Log New Ticket":
             col_c.markdown(f"**Category:** {info['category']}")
             st.markdown(f"**User:** {info['user']} ({info['dept']}) | **Handled By:** {info['tech']} | **Location:** {info['loc']}")
             st.caption(f"**Status:** {info['status']} | **Start:** {info['start']} | **End:** {info['close']} ({info['duration']} mins)")
-            st.caption(f"**Description:** {info['desc']}")
+            st.markdown(f"**Action/Remarks:** {info['remarks']}")
             
         if st.button("Log Another Ticket", type="primary"):
             st.session_state.ticket_submitted = False
@@ -109,6 +114,7 @@ if page == "Log New Ticket":
                 status = st.selectbox("Status", ["Open", "In Progress", "Resolved"], index=0)
             
             complaint = st.text_area("Complaint Description *", height=100)
+            remarks = st.text_area("Technician Action / Resolution Remarks (Optional)", height=80, help="What steps did you take to fix this issue?")
             
             st.markdown("🕒 **Time Tracking Options (For back-dated entries):**")
             col_t1, col_t2 = st.columns(2)
@@ -146,7 +152,8 @@ if page == "Log New Ticket":
                         'date': formatted_date, 'user_name': user_name,
                         'department': department, 'complaint': complaint, 'location': location,
                         'attended_by': attended_by, 'status': status, 'category': cat,
-                        'start_time': start_val, 'close_time': close_val, 'resolution_time': duration_mins
+                        'start_time': start_val, 'close_time': close_val, 'resolution_time': duration_mins,
+                        'remarks': remarks
                     }
                     
                     response = supabase.table("tickets").insert(new_row).execute()
@@ -158,7 +165,7 @@ if page == "Log New Ticket":
                         "loc": location, "desc": complaint, "status": status,
                         "start": start_val if start_val else "—", 
                         "close": close_val if close_val else "—", 
-                        "duration": duration_mins
+                        "duration": duration_mins, "remarks": remarks if remarks else "No remarks left."
                     }
                     st.session_state.ticket_submitted = True
                     st.rerun()
@@ -181,20 +188,23 @@ elif page == "View & Edit Tickets":
         col_edit, col_del = st.columns(2)
         
         with col_edit:
-            st.markdown("### 🔄 Update Ticket Status")
+            st.markdown("### 🔄 Update Ticket Status & Action Remarks")
             ticket_id = st.selectbox("Select Ticket ID to Update", df_live['id'].astype(int).tolist(), key="status_select")
             
             ticket_row = df_live[df_live['id'] == ticket_id].iloc[0]
             current_status = ticket_row['status']
             db_start_time = ticket_row['start_time']
+            current_remarks = ticket_row['remarks']
             
             status_options = ["Open", "In Progress", "Resolved"]
             default_index = status_options.index(current_status) if current_status in status_options else 0
             new_status = st.selectbox("New Status", status_options, index=default_index)
             
-            if st.button("Update Status", type="primary"):
+            new_remarks = st.text_area("Update Action Remarks", value=current_remarks, height=80)
+            
+            if st.button("Update Status & Remarks", type="primary"):
                 now_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                update_fields = {"status": new_status}
+                update_fields = {"status": new_status, "remarks": new_remarks}
                 
                 if new_status == "In Progress":
                     update_fields["start_time"] = now_timestamp
@@ -210,13 +220,9 @@ elif page == "View & Edit Tickets":
                     update_fields["start_time"] = final_start.split(".")[0]
                     update_fields["close_time"] = now_timestamp
                     update_fields["resolution_time"] = duration_mins
-                else:
-                    update_fields["start_time"] = ""
-                    update_fields["close_time"] = ""
-                    update_fields["resolution_time"] = 0
-                    
+                
                 supabase.table("tickets").update(update_fields).eq("id", ticket_id).execute()
-                st.success("✅ Status updated on cloud database successfully!")
+                st.success("✅ Status and Remarks successfully synced to cloud storage!")
                 st.rerun()
                 
         with col_del:
