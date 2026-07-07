@@ -76,7 +76,7 @@ if page == "Log New Ticket":
             col_b.markdown(f"**Date Assigned:** {info['date']}")
             col_c.markdown(f"**Category:** {info['category']}")
             st.markdown(f"**User:** {info['user']} ({info['dept']}) | **Handled By:** {info['tech']} | **Location:** {info['loc']}")
-            st.caption(f"**Initial Status Set:** {info['status']}")
+            st.caption(f"**Status:** {info['status']} | **Start:** {info['start']} | **End:** {info['close']} ({info['duration']} mins)")
             st.caption(f"**Description:** {info['desc']}")
             
         if st.button("Log Another Ticket", type="primary"):
@@ -95,7 +95,15 @@ if page == "Log New Ticket":
                 attended_by = st.selectbox("Attended By", ["Satish", "Priyanshu", "Amit", "Ranjan", "Manish"])
                 status = st.selectbox("Status", ["Open", "In Progress", "Resolved"], index=0)
             
-            complaint = st.text_area("Complaint Description *", height=150)
+            complaint = st.text_area("Complaint Description *", height=100)
+            
+            # --- BACK-DATED TIME FIELDS ---
+            st.markdown("🕒 **Time Tracking Options (For back-dated entries):**")
+            col_t1, col_t2 = st.columns(2)
+            with col_t1:
+                custom_start = st.time_input("What time did you START working on this?", value=datetime.now().time())
+            with col_t2:
+                custom_close = st.time_input("What time did you RESOLVE this? (Only applies if status is Resolved)", value=datetime.now().time())
             
             if st.form_submit_button("Submit Ticket"):
                 if not user_name or not complaint or not department or not location:
@@ -104,15 +112,31 @@ if page == "Log New Ticket":
                     cat = auto_categorize(complaint)
                     formatted_date = ticket_date.strftime("%Y-%m-%d")
                     
-                    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    start_val = now_str if status == "In Progress" else ""
-                    close_val = now_str if status == "Resolved" else ""
+                    # Formatting logic based on the status selected
+                    if status == "Open":
+                        start_val = ""
+                        close_val = ""
+                        duration_mins = 0
+                    elif status == "In Progress":
+                        start_val = f"{formatted_date} {custom_start.strftime('%H:%M:%S')}"
+                        close_val = ""
+                        duration_mins = 0
+                    elif status == "Resolved":
+                        start_val = f"{formatted_date} {custom_start.strftime('%H:%M:%S')}"
+                        close_val = f"{formatted_date} {custom_close.strftime('%H:%M:%S')}"
+                        
+                        # Calculate duration based on the custom input times
+                        t1 = datetime.combine(ticket_date, custom_start)
+                        t2 = datetime.combine(ticket_date, custom_close)
+                        duration_mins = int((t2 - t1).total_seconds() / 60)
+                        if duration_mins < 0:  # Safeguard if times span past midnight
+                            duration_mins = 1
                     
                     new_row = {
                         'date': formatted_date, 'user_name': user_name,
                         'department': department, 'complaint': complaint, 'location': location,
                         'attended_by': attended_by, 'status': status, 'category': cat,
-                        'start_time': start_val, 'close_time': close_val, 'resolution_time': 0
+                        'start_time': start_val, 'close_time': close_val, 'resolution_time': duration_mins
                     }
                     
                     # Securely write payload directly onto Supabase project cluster
@@ -122,11 +146,13 @@ if page == "Log New Ticket":
                     st.session_state.last_ticket_info = {
                         "id": new_id, "date": formatted_date, "category": cat,
                         "user": user_name, "dept": department, "tech": attended_by,
-                        "loc": location, "desc": complaint, "status": status
+                        "loc": location, "desc": complaint, "status": status,
+                        "start": start_val if start_val else "—", 
+                        "close": close_val if close_val else "—", 
+                        "duration": duration_mins
                     }
                     st.session_state.ticket_submitted = True
                     st.rerun()
-
 # ===================== VIEW & EDIT TICKETS =====================
 elif page == "View & Edit Tickets":
     st.header("📋 All Tickets")
