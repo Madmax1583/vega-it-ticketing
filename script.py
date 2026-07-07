@@ -108,13 +108,19 @@ elif page == "View & Edit Tickets":
     df = pd.read_sql_query("SELECT * FROM tickets ORDER BY id DESC", conn)
     
     if not df.empty:
-        st.dataframe(df, use_container_width=True)
+        # Create a clean visual copy and insert a dynamic visual counter (S.No.)
+        df_display = df.copy()
+        df_display.insert(0, 'S.No.', range(1, len(df_display) + 1))
+        
+        # Display the modified table and hide the messy Pandas index (0, 1, 2...)
+        st.dataframe(df_display, use_container_width=True, hide_index=True)
         
         # UI Split columns for Managing Status vs Deleting Tickets
         col_edit, col_del = st.columns(2)
         
         with col_edit:
             st.markdown("### 🔄 Update Ticket Status")
+            # We still use the real database 'id' here behind the scenes for accuracy
             ticket_id = st.selectbox("Select Ticket ID to Update", df['id'].tolist(), key="status_select")
             
             current_status = df[df['id'] == ticket_id]['status'].values[0]
@@ -133,11 +139,9 @@ elif page == "View & Edit Tickets":
             st.markdown("### 🚨 Delete Mistaken Entry")
             del_ticket_id = st.selectbox("Select Ticket ID to Delete", df['id'].tolist(), key="delete_select")
             
-            # Fetch target ticket info contextually for safety reference
             target_user = df[df['id'] == del_ticket_id]['user_name'].values[0]
             st.warning(f"Warning: You are selecting Ticket #{del_ticket_id} logged by user: **{target_user}**.")
             
-            # Safety Gatekeeper Checkbox
             confirm_delete = st.checkbox("I confirm that I want to delete this ticket permanently.")
             
             if confirm_delete:
