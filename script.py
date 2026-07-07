@@ -4,13 +4,28 @@ from datetime import datetime
 from supabase import create_client, Client
 
 # Page Configuration
-st.set_page_config(page_title="Vega IT System", layout="wide")
-st.title("🛠️ Vega Group IT Ticketing & Analysis System")
+st.set_page_config(page_title="Vega & Knitpro IT Ticketing", layout="wide")
+
+# ===================== LOGO & TITLE SECTION =====================
+log_col1, log_col2, log_spacer1, log_spacer2 = st.columns([1, 1, 2, 2])
+
+with log_col1:
+    try:
+        st.image("vega_logo.png", width=150)
+    except Exception:
+        st.caption("🔺 [Vega Logo]")
+
+with log_col2:
+    try:
+        st.image("knitpro_logo.png", width=150)
+    except Exception:
+        st.caption("🔺 [Knitpro Logo]")
+
+st.title("🛠️ Vega & Knitpro IT Ticketing & Analysis System")
 
 # ===================== SUPABASE CONNECTION =====================
 @st.cache_resource
 def init_supabase() -> Client:
-    # Safely fetches your exact credentials from st.secrets dynamically
     url: str = st.secrets["supabase"]["url"]
     key: str = st.secrets["supabase"]["key"]
     return create_client(url, key)
@@ -23,7 +38,6 @@ except Exception as e:
 
 def load_data():
     try:
-        # Fetch all rows from your Supabase cloud 'tickets' table
         response = supabase.table("tickets").select("*").execute()
         if response.data:
             df = pd.DataFrame(response.data)
@@ -39,7 +53,6 @@ def load_data():
         st.error(f"⚠️ Failed to fetch live data from Supabase Cloud: {e}")
         return pd.DataFrame()
 
-# Load live database data 
 df_live = load_data()
 
 # Sidebar Navigation
@@ -97,7 +110,6 @@ if page == "Log New Ticket":
             
             complaint = st.text_area("Complaint Description *", height=100)
             
-            # --- BACK-DATED TIME FIELDS ---
             st.markdown("🕒 **Time Tracking Options (For back-dated entries):**")
             col_t1, col_t2 = st.columns(2)
             with col_t1:
@@ -112,7 +124,6 @@ if page == "Log New Ticket":
                     cat = auto_categorize(complaint)
                     formatted_date = ticket_date.strftime("%Y-%m-%d")
                     
-                    # Formatting logic based on the status selected
                     if status == "Open":
                         start_val = ""
                         close_val = ""
@@ -125,11 +136,10 @@ if page == "Log New Ticket":
                         start_val = f"{formatted_date} {custom_start.strftime('%H:%M:%S')}"
                         close_val = f"{formatted_date} {custom_close.strftime('%H:%M:%S')}"
                         
-                        # Calculate duration based on the custom input times
                         t1 = datetime.combine(ticket_date, custom_start)
                         t2 = datetime.combine(ticket_date, custom_close)
                         duration_mins = int((t2 - t1).total_seconds() / 60)
-                        if duration_mins < 0:  # Safeguard if times span past midnight
+                        if duration_mins < 0:
                             duration_mins = 1
                     
                     new_row = {
@@ -139,7 +149,6 @@ if page == "Log New Ticket":
                         'start_time': start_val, 'close_time': close_val, 'resolution_time': duration_mins
                     }
                     
-                    # Securely write payload directly onto Supabase project cluster
                     response = supabase.table("tickets").insert(new_row).execute()
                     new_id = response.data[0]['id']
                     
@@ -153,17 +162,16 @@ if page == "Log New Ticket":
                     }
                     st.session_state.ticket_submitted = True
                     st.rerun()
+
 # ===================== VIEW & EDIT TICKETS =====================
 elif page == "View & Edit Tickets":
     st.header("📋 All Tickets")
     
     if not df_live.empty:
-        # Sorting layout descending using primary indexing keys
         df_sorted = df_live.sort_values(by='id', ascending=False).reset_index(drop=True)
         df_display = df_sorted.copy()
         df_display.insert(0, 'S.No.', range(1, len(df_display) + 1))
         
-        # Format dates visually for clean tracking layouts
         for col in ['start_time', 'close_time']:
             if col in df_display.columns:
                 df_display[col] = pd.to_datetime(df_display[col], errors='coerce').dt.strftime('%d-%m-%Y %H:%M').fillna('—')
