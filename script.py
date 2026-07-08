@@ -43,23 +43,26 @@ def load_data():
             df = pd.DataFrame(response.data)
             df['id'] = pd.to_numeric(df['id'], errors='coerce')
             df['resolution_time'] = pd.to_numeric(df['resolution_time'], errors='coerce').fillna(0).astype(int)
-            # Safeguard text fields for newer columns
-            if 'remarks' not in df.columns:
-                df['remarks'] = ""
-            else:
-                df['remarks'] = df['remarks'].fillna("")
+            
+            # Convert text dates into actual datetime objects for advanced reporting
+            df['date'] = pd.to_datetime(df['date'], errors='coerce')
+            
+            # Safeguards for newer tracking columns
+            if 'remarks' not in df.columns: df['remarks'] = ""
+            else: df['remarks'] = df['remarks'].fillna("")
+                
+            if 'technician_id' not in df.columns: df['technician_id'] = ""
+            else: df['technician_id'] = df['technician_id'].fillna("")
+                
             return df
         return pd.DataFrame(columns=[
             'id', 'date', 'user_name', 'department', 'complaint', 
             'location', 'attended_by', 'status', 'category', 
-            'start_time', 'close_time', 'resolution_time', 'remarks'
+            'start_time', 'close_time', 'resolution_time', 'remarks', 'technician_id'
         ])
     except Exception as e:
         st.error(f"⚠️ Failed to fetch live data from Supabase Cloud: {e}")
         return pd.DataFrame()
-
-df_live = load_data()
-
 # Sidebar Navigation
 page = st.sidebar.selectbox("Navigation", 
     ["Log New Ticket", "View & Edit Tickets", "Analysis Dashboard", "Monthly Report", "Recurring Users"])
@@ -276,24 +279,90 @@ elif page == "Analysis Dashboard":
     else:
         st.info("No metrics mapped yet.")
 
-# ===================== MONTHLY REPORT =====================
+# ===================== CLOUD ENHANCED MONTHLY REPORT =====================
 elif page == "Monthly Report":
-    st.header("📅 Monthly Performance Report")
+    st.header("📅 Cloud Enhanced Performance Reports")
     
     if not df_live.empty:
-        df_live['Month'] = pd.to_datetime(df_live['date']).dt.strftime('%Y-%B')
-        st.bar_chart(df_live.groupby('Month').size())
+        # Generate Month-Year label for filtering
+        df_live['Month_Year'] = df_live['date'].dt.strftime('%Y-%B')
+        unique_months = sorted(df_live['Month_Year'].dropna().unique())
+        
+        # Interactive Filter Widget
+        selected_month = st.selectbox("🎯 Select Reporting Month", ["All Time"] + unique_months)
+        
+        # Filter data dynamically based on selection
+        if selected_month == "All Time":
+            report_df = df_live.copy()
+        else:
+            report_df = df_live[df_live['Month_Year'] == selected_month]
+            
+        # --- Advanced KPI Metrics Block ---
+        st.markdown("### 📊 Month Summary Key Identifiers")
+        m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+        
+        total_m = len(report_df)
+        resolved_m = len(report_df[report_df['status'] == 'Resolved'])
+        pending_m = total_m - resolved_m
+        avg_res_m = int(report_df[report_df['status'] == 'Resolved']['resolution_time'].mean()) if resolved_m > 0 else 0
+        
+        m_col1.metric("Tickets Processed", total_m)
+        m_col2.metric("Tickets Resolved ✅", resolved_m)
+        m_col3.metric("Tickets Pending ⚠️", pending_m)
+        m_col4.metric("Avg Closure Velocity", f"{avg_res_m} Mins")
         
         st.markdown("---")
-        col1, col2 = st.columns(2)
-        with col1:
-            csv = df_live.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Download Full CSV Report", csv, "IT_Report.csv", "text/csv")
-        with col2:
-            summary = df_live.groupby(['Month', 'category', 'status']).size().reset_index(name='Counts')
-            st.download_button("📥 Download Summary Report", summary.to_csv(index=False).encode('utf-8'), "Summary.csv", "text/csv")
+        
+        # --- Visual Split Layout ---
+        v_col1, v_col2 = st.columns(2)
+        
+        with v_col1:
+            st.markdown("#### 📁 Volume by Issue Category")
+            if not report_df.empty:
+                cat_counts = report_df['category'].value_counts()
+                st.bar_chart(cat_counts)
+            else:
+                st.caption("No data available.")
+                
+        with v_col2:
+            st.markdown("#### 🛠️ Team SLA Breakdown (Avg Mins to Resolve)")
+            resolved_subset = report_df[report_df['status'] == 'Resolved']
+            if not resolved_subset.empty:
+                tech_sla = resolved_subset.groupby('attended_by')['resolution_time'].mean()
+                st.bar_chart(tech_sla)
+            else:
+                st.info("No resolved items in this timeframe to compute SLA speed.")
+                
+        st.markdown("---")
+        
+        # --- Data Summary & Export Matrix ---
+        st.markdown("### 📋 Executive Summary Table")
+        
+        # Create a scannable summary matrix
+        summary_table = report_df.groupby(['category', 'status']).size().unstack(fill_value=0)
+        st.dataframe(summary_table, use_container_width=True)
+        
+        st.markdown("#### 📥 Secure Cloud Export")
+        col_dl1, col_dl2 = st.columns(2)
+        
+        with col_dl1:
+            # Clean dataframe layout for CSV export
+            csv_export_df = report_df.copy()
+            csv_export_df['date'] = csv_export_df['date'].dt.strftime('%Y-%m-%d')
+            csv_data = csv_export_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Download Targeted CSV Data Set",
+                data=csv_data,
+                file_name=f"IT_Report_{selected_month.replace('-', '_')}.csv",
+                mime="text/csv",
+                type="primary"
+            )
+            
+        with col_dl2:
+            st.caption("This data set includes automated categories, technician resolution notes, unique user IDs, and timeline metric durations.")
+            
     else:
-        st.info("No logs found.")
+        st.info("No active production tickets detected on cloud nodes to parse reports from.")
 
 # ===================== RECURRING USERS =====================
 elif page == "Recurring Users":
