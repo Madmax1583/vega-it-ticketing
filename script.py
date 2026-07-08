@@ -119,45 +119,37 @@ if page == "Log New Ticket":
             st.rerun()
             
     else:
+        # 🧠 SMART FIELD AUTO-FILL LOGIC
+        # 1. Gather all unique user options
+        if not df_live.empty and 'user_name' in df_live.columns:
+            existing_users = sorted(df_live['user_name'].dropna().astype(str).unique().tolist())
+        else:
+            existing_users = []
+            
+        # 2. Put the selector OUTSIDE the form so it triggers an instant page refresh when a name is clicked
+        selected_user = st.selectbox("💡 Search Existing User Name to Auto-Fill Details", ["New User / Type Below"] + existing_users)
+        
+        # 3. Default fallbacks if "New User" is selected
+        default_user_name = ""
+        default_dept = ""
+        default_loc = ""
+        
+        # 4. If an actual user is selected, pull their most recent department and location
+        if selected_user != "New User / Type Below" and not df_live.empty:
+            default_user_name = selected_user
+            user_history = df_live[df_live['user_name'] == selected_user].sort_values(by='id', ascending=False)
+            if not user_history.empty:
+                default_dept = str(user_history.iloc[0]['department'])
+                default_loc = str(user_history.iloc[0]['location'])
+
+        # Now, standard input form loads with dynamic defaults pre-populated
         with st.form("ticket_form", clear_on_submit=True):
             col1, col2 = st.columns(2)
             
             with col1:
-                # --- SMART AUTO-SUGGEST FOR USER NAME ---
-                if not df_live.empty and 'user_name' in df_live.columns:
-                    existing_users = sorted(df_live['user_name'].dropna().astype(str).unique().tolist())
-                else:
-                    existing_users = []
-                
-                selected_user = st.selectbox("💡 Search Existing User Name", ["New User / Type Below"] + existing_users)
-                if selected_user == "New User / Type Below":
-                    user_name = st.text_input("User Name *", value="")
-                else:
-                    user_name = st.text_input("User Name *", value=selected_user)
-
-                # --- SMART AUTO-SUGGEST FOR DEPARTMENT ---
-                if not df_live.empty and 'department' in df_live.columns:
-                    existing_depts = sorted(df_live['department'].dropna().astype(str).unique().tolist())
-                else:
-                    existing_depts = []
-                
-                selected_dept = st.selectbox("🏢 Search Existing Department", ["New Department / Type Below"] + existing_depts)
-                if selected_dept == "New Department / Type Below":
-                    department = st.text_input("Department *", value="")
-                else:
-                    department = st.text_input("Department *", value=selected_dept)
-
-                # --- SMART AUTO-SUGGEST FOR LOCATION/SECTOR ---
-                if not df_live.empty and 'location' in df_live.columns:
-                    existing_locs = sorted(df_live['location'].dropna().astype(str).unique().tolist())
-                else:
-                    existing_locs = []
-                
-                selected_loc = st.selectbox("📍 Search Existing Location", ["New Location / Type Below"] + existing_locs)
-                if selected_loc == "New Location / Type Below":
-                    location = st.text_input("Location/Sector *", value="")
-                else:
-                    location = st.text_input("Location/Sector *", value=selected_loc)
+                user_name = st.text_input("User Name *", value=default_user_name)
+                department = st.text_input("Department *", value=default_dept)
+                location = st.text_input("Location/Sector *", value=default_loc)
             
             with col2:
                 ticket_date = st.date_input("Ticket Date *", value=datetime.now().date())
