@@ -44,7 +44,7 @@ def load_data():
             df['id'] = pd.to_numeric(df['id'], errors='coerce')
             df['resolution_time'] = pd.to_numeric(df['resolution_time'], errors='coerce').fillna(0).astype(int)
             
-            # Safe date parsing: leave as string if it can't parse
+            # Safe date parsing for advanced reporting calculations
             if 'date' in df.columns:
                 df['date_parsed'] = pd.to_datetime(df['date'], errors='coerce')
             
@@ -65,6 +65,7 @@ def load_data():
         st.error(f"⚠️ Failed to fetch live data from Supabase Cloud: {e}")
         return pd.DataFrame()
 
+# Global cloud data pull
 df_live = load_data()
 
 # Sidebar Navigation
@@ -120,10 +121,44 @@ if page == "Log New Ticket":
     else:
         with st.form("ticket_form", clear_on_submit=True):
             col1, col2 = st.columns(2)
+            
             with col1:
-                user_name = st.text_input("User Name *")
-                department = st.text_input("Department *")
-                location = st.text_input("Location/Sector *")
+                # --- SMART AUTO-SUGGEST FOR USER NAME ---
+                if not df_live.empty and 'user_name' in df_live.columns:
+                    existing_users = sorted(df_live['user_name'].dropna().astype(str).unique().tolist())
+                else:
+                    existing_users = []
+                
+                selected_user = st.selectbox("💡 Search Existing User Name", ["New User / Type Below"] + existing_users)
+                if selected_user == "New User / Type Below":
+                    user_name = st.text_input("User Name *", value="")
+                else:
+                    user_name = st.text_input("User Name *", value=selected_user)
+
+                # --- SMART AUTO-SUGGEST FOR DEPARTMENT ---
+                if not df_live.empty and 'department' in df_live.columns:
+                    existing_depts = sorted(df_live['department'].dropna().astype(str).unique().tolist())
+                else:
+                    existing_depts = []
+                
+                selected_dept = st.selectbox("🏢 Search Existing Department", ["New Department / Type Below"] + existing_depts)
+                if selected_dept == "New Department / Type Below":
+                    department = st.text_input("Department *", value="")
+                else:
+                    department = st.text_input("Department *", value=selected_dept)
+
+                # --- SMART AUTO-SUGGEST FOR LOCATION/SECTOR ---
+                if not df_live.empty and 'location' in df_live.columns:
+                    existing_locs = sorted(df_live['location'].dropna().astype(str).unique().tolist())
+                else:
+                    existing_locs = []
+                
+                selected_loc = st.selectbox("📍 Search Existing Location", ["New Location / Type Below"] + existing_locs)
+                if selected_loc == "New Location / Type Below":
+                    location = st.text_input("Location/Sector *", value="")
+                else:
+                    location = st.text_input("Location/Sector *", value=selected_loc)
+            
             with col2:
                 ticket_date = st.date_input("Ticket Date *", value=datetime.now().date())
                 attended_by = st.selectbox("Attended By", list(TECH_MAP.keys()))
@@ -195,10 +230,9 @@ elif page == "View & Edit Tickets":
         df_display = df_sorted.copy()
         df_display.insert(0, 'S.No.', range(1, len(df_display) + 1))
         
-        # Clean string layout adjustment instead of breaking on conversion loops
         if 'date_parsed' in df_display.columns:
             df_display['date'] = df_display['date_parsed'].dt.strftime('%Y-%m-%d').fillna(df_display['date'])
-            df_display.drop(columns=['date_parsed'], errors='ignore')
+            df_display.drop(columns=['date_parsed'], errors='ignore', inplace=True)
             
         if 'technician_id' in df_display.columns:
             df_display.rename(columns={'technician_id': 'Tech ID'}, inplace=True)
@@ -207,9 +241,7 @@ elif page == "View & Edit Tickets":
             if col in df_display.columns:
                 df_display[col] = df_display[col].fillna('—')
                 
-        # Drop temporary tracking columns from presentation view
-        if 'Month_Year' in df_display.columns: df_display.drop(columns=['Month_Year'], inplace=True)
-        if 'date_parsed' in df_display.columns: df_display.drop(columns=['date_parsed'], inplace=True)
+        if 'Month_Year' in df_display.columns: df_display.drop(columns=['Month_Year'], errors='ignore', inplace=True)
                 
         st.dataframe(df_display, use_container_width=True, hide_index=True)
         
@@ -318,14 +350,12 @@ elif page == "Monthly Report":
     st.header("📅 Cloud Enhanced Performance Reports")
     
     if not df_live.empty:
-        # Generate safe string evaluation for grouping metric dates
         if 'date_parsed' in df_live.columns:
             df_live['Month_Year'] = df_live['date_parsed'].dt.strftime('%Y-%B')
         else:
             df_live['Month_Year'] = "Unknown Month"
             
         unique_months = sorted(df_live['Month_Year'].dropna().unique())
-        
         selected_month = st.selectbox("🎯 Select Reporting Month", ["All Time"] + unique_months)
         
         if selected_month == "All Time":
