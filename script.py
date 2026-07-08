@@ -119,7 +119,7 @@ if page == "Log New Ticket":
             st.rerun()
             
     else:
-        # 🧠 SMART FIELD AUTO-FILL LOGIC
+        # Smart Field Auto-Fill
         if not df_live.empty and 'user_name' in df_live.columns:
             existing_users = sorted(df_live['user_name'].dropna().astype(str).unique().tolist())
         else:
@@ -169,15 +169,15 @@ if page == "Log New Ticket":
                     formatted_date = ticket_date.strftime("%Y-%m-%d")
                     tech_id_val = TECH_MAP.get(attended_by, "")
                     
-                    # FIXED: Send Python None instead of empty string "" for timestamp columns
+                    # FIX: Handle start, close, and resolution_time values rigorously to match database schemas
                     if status == "Open":
                         start_val = None
                         close_val = None
-                        duration_mins = 0
+                        duration_mins = None
                     elif status == "In Progress":
                         start_val = f"{formatted_date} {custom_start.strftime('%H:%M:%S')}"
                         close_val = None
-                        duration_mins = 0
+                        duration_mins = None
                     elif status == "Resolved":
                         start_val = f"{formatted_date} {custom_start.strftime('%H:%M:%S')}"
                         close_val = f"{formatted_date} {custom_close.strftime('%H:%M:%S')}"
@@ -188,26 +188,38 @@ if page == "Log New Ticket":
                         if duration_mins < 0: duration_mins = 1
                     
                     new_row = {
-                        'date': formatted_date, 'user_name': user_name,
-                        'department': department, 'complaint': complaint, 'location': location,
-                        'attended_by': attended_by, 'status': status, 'category': cat,
-                        'start_time': start_val, 'close_time': close_val, 'resolution_time': duration_mins,
-                        'remarks': remarks, 'technician_id': tech_id_val
+                        'date': str(formatted_date), 
+                        'user_name': str(user_name),
+                        'department': str(department), 
+                        'complaint': str(complaint), 
+                        'location': str(location),
+                        'attended_by': str(attended_by), 
+                        'status': str(status), 
+                        'category': str(cat),
+                        'start_time': start_val, 
+                        'close_time': close_val, 
+                        'resolution_time': duration_mins,
+                        'remarks': str(remarks), 
+                        'technician_id': str(tech_id_val)
                     }
                     
-                    response = supabase.table("tickets").insert(new_row).execute()
-                    new_id = response.data[0]['id']
-                    
-                    st.session_state.last_ticket_info = {
-                        "id": new_id, "date": formatted_date, "category": cat,
-                        "user": user_name, "dept": department, "tech": attended_by, "tech_id": tech_id_val,
-                        "loc": location, "desc": complaint, "status": status,
-                        "start": start_val if start_val else "—", 
-                        "close": close_val if close_val else "—", 
-                        "duration": duration_mins, "remarks": remarks if remarks else "No remarks left."
-                    }
-                    st.session_state.ticket_submitted = True
-                    st.rerun()
+                    try:
+                        response = supabase.table("tickets").insert(new_row).execute()
+                        new_id = response.data[0]['id']
+                        
+                        st.session_state.last_ticket_info = {
+                            "id": new_id, "date": formatted_date, "category": cat,
+                            "user": user_name, "dept": department, "tech": attended_by, "tech_id": tech_id_val,
+                            "loc": location, "desc": complaint, "status": status,
+                            "start": start_val if start_val else "—", 
+                            "close": close_val if close_val else "—", 
+                            "duration": duration_mins if duration_mins is not None else 0, 
+                            "remarks": remarks if remarks else "No remarks left."
+                        }
+                        st.session_state.ticket_submitted = True
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Database Submission Error: {e}")
 
 # ===================== VIEW & EDIT TICKETS =====================
 elif page == "View & Edit Tickets":
@@ -257,10 +269,10 @@ elif page == "View & Edit Tickets":
                 tech_id_val = TECH_MAP.get(new_tech, "")
                 
                 update_fields = {
-                    "status": new_status, 
-                    "remarks": new_remarks, 
-                    "attended_by": new_tech,
-                    "technician_id": tech_id_val
+                    "status": str(new_status), 
+                    "remarks": str(new_remarks), 
+                    "attended_by": str(new_tech),
+                    "technician_id": str(tech_id_val)
                 }
                 
                 if new_status == "In Progress":
