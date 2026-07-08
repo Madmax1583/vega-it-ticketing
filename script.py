@@ -52,14 +52,11 @@ def load_data():
             if 'remarks' not in df.columns: df['remarks'] = ""
             else: df['remarks'] = df['remarks'].fillna("")
                 
-            if 'technician_id' not in df.columns: df['technician_id'] = ""
-            else: df['technician_id'] = df['technician_id'].fillna("")
-                
             return df
         return pd.DataFrame(columns=[
             'id', 'date', 'user_name', 'department', 'complaint', 
             'location', 'attended_by', 'status', 'category', 
-            'start_time', 'close_time', 'resolution_time', 'remarks', 'technician_id'
+            'start_time', 'close_time', 'resolution_time', 'remarks'
         ])
     except Exception as e:
         st.error(f"⚠️ Failed to fetch live data from Supabase Cloud: {e}")
@@ -169,7 +166,6 @@ if page == "Log New Ticket":
                     formatted_date = ticket_date.strftime("%Y-%m-%d")
                     tech_id_val = TECH_MAP.get(attended_by, "")
                     
-                    # FIX: Handle start, close, and resolution_time values rigorously to match database schemas
                     if status == "Open":
                         start_val = None
                         close_val = None
@@ -187,6 +183,7 @@ if page == "Log New Ticket":
                         duration_mins = int((t2 - t1).total_seconds() / 60)
                         if duration_mins < 0: duration_mins = 1
                     
+                    # REMOVED technician_id from database row write object
                     new_row = {
                         'date': str(formatted_date), 
                         'user_name': str(user_name),
@@ -199,8 +196,7 @@ if page == "Log New Ticket":
                         'start_time': start_val, 
                         'close_time': close_val, 
                         'resolution_time': duration_mins,
-                        'remarks': str(remarks), 
-                        'technician_id': str(tech_id_val)
+                        'remarks': str(remarks)
                     }
                     
                     try:
@@ -234,8 +230,9 @@ elif page == "View & Edit Tickets":
             df_display['date'] = df_display['date_parsed'].dt.strftime('%Y-%m-%d').fillna(df_display['date'])
             df_display.drop(columns=['date_parsed'], errors='ignore', inplace=True)
             
-        if 'technician_id' in df_display.columns:
-            df_display.rename(columns={'technician_id': 'Tech ID'}, inplace=True)
+        # Dynamically append Tech ID column visually from our local dictionary mapping!
+        if 'attended_by' in df_display.columns:
+            df_display['Tech ID'] = df_display['attended_by'].map(TECH_MAP).fillna("—")
         
         for col in ['start_time', 'close_time']:
             if col in df_display.columns:
@@ -266,13 +263,11 @@ elif page == "View & Edit Tickets":
             
             if st.button("Update Status & Remarks", type="primary"):
                 now_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                tech_id_val = TECH_MAP.get(new_tech, "")
                 
                 update_fields = {
                     "status": str(new_status), 
                     "remarks": str(new_remarks), 
-                    "attended_by": str(new_tech),
-                    "technician_id": str(tech_id_val)
+                    "attended_by": str(new_tech)
                 }
                 
                 if new_status == "In Progress":
@@ -291,7 +286,7 @@ elif page == "View & Edit Tickets":
                     update_fields["resolution_time"] = duration_mins
                 
                 supabase.table("tickets").update(update_fields).eq("id", ticket_id).execute()
-                st.success("✅ Status, Tech ID, and Remarks successfully synced!")
+                st.success("✅ Status and Remarks successfully synced!")
                 st.rerun()
                 
         with col_del:
