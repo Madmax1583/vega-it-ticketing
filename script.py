@@ -44,8 +44,9 @@ def load_data():
             df['id'] = pd.to_numeric(df['id'], errors='coerce')
             df['resolution_time'] = pd.to_numeric(df['resolution_time'], errors='coerce').fillna(0).astype(int)
             
-            # Convert text dates into actual datetime objects for advanced reporting
-            df['date'] = pd.to_datetime(df['date'], errors='coerce')
+            # Safe date parsing: leave as string if it can't parse
+            if 'date' in df.columns:
+                df['date_parsed'] = pd.to_datetime(df['date'], errors='coerce')
             
             # Safeguards for newer tracking columns
             if 'remarks' not in df.columns: df['remarks'] = ""
@@ -64,7 +65,6 @@ def load_data():
         st.error(f"⚠️ Failed to fetch live data from Supabase Cloud: {e}")
         return pd.DataFrame()
 
-# CRITICAL FIX: Explicitly loading global dataframe here so it's accessible everywhere
 df_live = load_data()
 
 # Sidebar Navigation
@@ -171,3 +171,232 @@ if page == "Log New Ticket":
                         'start_time': start_val, 'close_time': close_val, 'resolution_time': duration_mins,
                         'remarks': remarks, 'technician_id': tech_id_val
                     }
+                    
+                    response = supabase.table("tickets").insert(new_row).execute()
+                    new_id = response.data[0]['id']
+                    
+                    st.session_state.last_ticket_info = {
+                        "id": new_id, "date": formatted_date, "category": cat,
+                        "user": user_name, "dept": department, "tech": attended_by, "tech_id": tech_id_val,
+                        "loc": location, "desc": complaint, "status": status,
+                        "start": start_val if start_val else "—", 
+                        "close": close_val if close_val else "—", 
+                        "duration": duration_mins, "remarks": remarks if remarks else "No remarks left."
+                    }
+                    st.session_state.ticket_submitted = True
+                    st.rerun()
+
+# ===================== VIEW & EDIT TICKETS =====================
+elif page == "View & Edit Tickets":
+    st.header("📋 All Tickets")
+    
+    if not df_live.empty:
+        df_sorted = df_live.sort_values(by='id', ascending=False).reset_index(drop=True)
+        df_display = df_sorted.copy()
+        df_display.insert(0, 'S.No.', range(1, len(df_display) + 1))
+        
+        # Clean string layout adjustment instead of breaking on conversion loops
+        if 'date_parsed' in df_display.columns:
+            df_display['date'] = df_display['date_parsed'].dt.strftime('%Y-%m-%d').fillna(df_display['date'])
+            df_display.drop(columns=['date_parsed'], errors='ignore')
+            
+        if 'technician_id' in df_display.columns:
+            df_display.rename(columns={'technician_id': 'Tech ID'}, inplace=True)
+        
+        for col in ['start_time', 'close_time']:
+            if col in df_display.columns:
+                df_display[col] = df_display[col].fillna('—')
+                
+        # Drop temporary tracking columns from presentation view
+        if 'Month_Year' in df_display.columns: df_display.drop(columns=['Month_Year'], inplace=True)
+        if 'date_parsed' in df_display.columns: df_display.drop(columns=['date_parsed'], inplace=True)
+                
+        st.dataframe(df_display, use_container_width=True, hide_index=True)
+        
+        col_edit, col_del = st.columns(2)
+        
+        with col_edit:
+            st.markdown("### 🔄 Update Ticket Status & Action Remarks")
+            ticket_id = st.selectbox("Select Ticket ID to Update", df_live['id'].astype(int).tolist(), key="status_select")
+            
+            ticket_row = df_live[df_live['id'] == ticket_id].iloc[0]
+            current_status = ticket_row['status']
+            db_start_time = ticket_row['start_time']
+            current_remarks = ticket_row['remarks']
+            current_tech = ticket_row['attended_by']
+            
+            status_options = ["Open", "In Progress", "Resolved"]
+            default_index = status_options.index(current_status) if current_status in status_options else 0
+            new_status = st.selectbox("New Status", status_options, index=default_index)
+            
+            new_tech = st.selectbox("Reassign Technician (Optional)", list(TECH_MAP.keys()), index=list(TECH_MAP.keys()).index(current_tech) if current_tech in TECH_MAP else 0)
+            new_remarks = st.text_area("Update Action Remarks", value=current_remarks, height=80)
+            
+            if st.button("Update Status & Remarks", type="primary"):
+                now_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                tech_id_val = TECH_MAP.get(new_tech, "")
+                
+                update_fields = {
+                    "status": new_status, 
+                    "remarks": new_remarks, 
+                    "attended_by": new_tech,
+                    "technician_id": tech_id_val
+                }
+                
+                if new_status == "In Progress":
+                    update_fields["start_time"] = now_timestamp
+                elif new_status == "Resolved":
+                    final_start = db_start_time if (pd.notna(db_start_time) and db_start_time != "") else now_timestamp
+                    try:
+                        t1 = datetime.strptime(final_start, "%Y-%m-%d %H:%M:%S")
+                    except Exception:
+                        t1 = datetime.now()
+                    t2 = datetime.strptime(now_timestamp, "%Y-%m-%d %H:%M:%S")
+                    duration_mins = max(1, int((t2 - t1).total_seconds() / 60))
+                    
+                    update_fields["start_time"] = final_start.split(".")[0]
+                    update_fields["close_time"] = now_timestamp
+                    update_fields["resolution_time"] = duration_mins
+                
+                supabase.table("tickets").update(update_fields).eq("id", ticket_id).execute()
+                st.success("✅ Status, Tech ID, and Remarks successfully synced!")
+                st.rerun()
+                
+        with col_del:
+            st.markdown("### 🚨 Delete Mistaken Entry")
+            del_ticket_id = st.selectbox("Select Ticket ID to Delete", df_live['id'].astype(int).tolist(), key="delete_select")
+            target_user = df_live[df_live['id'] == del_ticket_id]['user_name'].values[0]
+            st.warning(f"Warning: You are selecting Ticket #{del_ticket_id} logged by user: **{target_user}**.")
+            
+            confirm_delete = st.checkbox("I confirm that I want to delete this ticket permanently.")
+            if confirm_delete:
+                if st.button("❌ Permanently Delete Ticket", type="secondary"):
+                    supabase.table("tickets").delete().eq("id", del_ticket_id).execute()
+                    st.error("🗑️ Ticket purged from Supabase.")
+                    st.rerun()
+    else:
+        st.info("No tickets recorded yet.")
+
+# ===================== ANALYTICS DASHBOARD =====================
+elif page == "Analysis Dashboard":
+    st.header("📊 Executive Analysis Dashboard")
+    
+    if not df_live.empty:
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Total System Tickets", len(df_live))
+        col2.metric("Active Tickets", len(df_live[df_live['status'] != 'Resolved']))
+        col3.metric("Resolved Tickets", len(df_live[df_live['status'] == 'Resolved']))
+        
+        resolved_df = df_live[df_live['status'] == 'Resolved']
+        avg_time = int(resolved_df['resolution_time'].mean()) if not resolved_df.empty else 0
+        col4.metric("Avg Resolution Time", f"{avg_time} Mins")
+        
+        st.markdown("---")
+        st.subheader("👨‍💻 Technician Workload & Efficiency")
+        tech_col1, tech_col2 = st.columns(2)
+        with tech_col1:
+            st.bar_chart(df_live['attended_by'].value_counts())
+        with tech_col2:
+            if not resolved_df.empty:
+                st.bar_chart(resolved_df.groupby('attended_by')['resolution_time'].mean())
+            else:
+                st.info("No timeline matrix tracked yet.")
+                
+        st.markdown("---")
+        st.subheader("📍 Location Breakdown")
+        loc_col1, loc_col2 = st.columns([2, 1])
+        with loc_col1:
+            st.bar_chart(df_live['location'].value_counts())
+        with loc_col2:
+            if 'Open' in df_live['status'].values or 'In Progress' in df_live['status'].values or 'Resolved' in df_live['status'].values:
+                st.dataframe(df_live.groupby(['location', 'status']).size().unstack(fill_value=0), use_container_width=True)
+    else:
+        st.info("No metrics mapped yet.")
+
+# ===================== CLOUD ENHANCED MONTHLY REPORT =====================
+elif page == "Monthly Report":
+    st.header("📅 Cloud Enhanced Performance Reports")
+    
+    if not df_live.empty:
+        # Generate safe string evaluation for grouping metric dates
+        if 'date_parsed' in df_live.columns:
+            df_live['Month_Year'] = df_live['date_parsed'].dt.strftime('%Y-%B')
+        else:
+            df_live['Month_Year'] = "Unknown Month"
+            
+        unique_months = sorted(df_live['Month_Year'].dropna().unique())
+        
+        selected_month = st.selectbox("🎯 Select Reporting Month", ["All Time"] + unique_months)
+        
+        if selected_month == "All Time":
+            report_df = df_live.copy()
+        else:
+            report_df = df_live[df_live['Month_Year'] == selected_month]
+            
+        st.markdown("### 📊 Month Summary Key Identifiers")
+        m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+        
+        total_m = len(report_df)
+        resolved_m = len(report_df[report_df['status'] == 'Resolved'])
+        pending_m = total_m - resolved_m
+        avg_res_m = int(report_df[report_df['status'] == 'Resolved']['resolution_time'].mean()) if resolved_m > 0 else 0
+        
+        m_col1.metric("Tickets Processed", total_m)
+        m_col2.metric("Tickets Resolved ✅", resolved_m)
+        m_col3.metric("Tickets Pending ⚠️", pending_m)
+        m_col4.metric("Avg Closure Velocity", f"{avg_res_m} Mins")
+        
+        st.markdown("---")
+        
+        v_col1, v_col2 = st.columns(2)
+        with v_col1:
+            st.markdown("#### 📁 Volume by Issue Category")
+            if not report_df.empty:
+                st.bar_chart(report_df['category'].value_counts())
+            else:
+                st.caption("No data available.")
+                
+        with v_col2:
+            st.markdown("#### 🛠️ Team SLA Breakdown (Avg Mins to Resolve)")
+            resolved_subset = report_df[report_df['status'] == 'Resolved']
+            if not resolved_subset.empty:
+                st.bar_chart(resolved_subset.groupby('attended_by')['resolution_time'].mean())
+            else:
+                st.info("No resolved items in this timeframe to compute SLA speed.")
+                
+        st.markdown("---")
+        st.markdown("### 📋 Executive Summary Table")
+        
+        if not report_df.empty:
+            summary_table = report_df.groupby(['category', 'status']).size().unstack(fill_value=0)
+            st.dataframe(summary_table, use_container_width=True)
+        
+        st.markdown("#### 📥 Secure Cloud Export")
+        col_dl1, col_dl2 = st.columns(2)
+        with col_dl1:
+            csv_export_df = report_df.copy()
+            if 'date_parsed' in csv_export_df.columns:
+                csv_export_df.drop(columns=['date_parsed', 'Month_Year'], errors='ignore', inplace=True)
+            csv_data = csv_export_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Download Targeted CSV Data Set",
+                data=csv_data,
+                file_name=f"IT_Report_{selected_month.replace('-', '_')}.csv",
+                mime="text/csv",
+                type="primary"
+            )
+        with col_dl2:
+            st.caption("This data set includes automated categories, technician resolution notes, unique user IDs, and timeline metric durations.")
+    else:
+        st.info("No active production tickets detected on cloud nodes to parse reports from.")
+
+# ===================== RECURRING USERS =====================
+elif page == "Recurring Users":
+    st.header("🔄 Top Recurring Users")
+    if not df_live.empty:
+        st.bar_chart(df_live['user_name'].value_counts().head(15))
+    else:
+        st.info("No analytical user maps matching criteria.")
+
+st.sidebar.markdown("---")
+st.sidebar.success("⚡ Live Cloud Node: Supabase Engine Active")
