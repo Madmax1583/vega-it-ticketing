@@ -120,21 +120,17 @@ if page == "Log New Ticket":
             
     else:
         # 🧠 SMART FIELD AUTO-FILL LOGIC
-        # 1. Gather all unique user options
         if not df_live.empty and 'user_name' in df_live.columns:
             existing_users = sorted(df_live['user_name'].dropna().astype(str).unique().tolist())
         else:
             existing_users = []
             
-        # 2. Put the selector OUTSIDE the form so it triggers an instant page refresh when a name is clicked
         selected_user = st.selectbox("💡 Search Existing User Name to Auto-Fill Details", ["New User / Type Below"] + existing_users)
         
-        # 3. Default fallbacks if "New User" is selected
         default_user_name = ""
         default_dept = ""
         default_loc = ""
         
-        # 4. If an actual user is selected, pull their most recent department and location
         if selected_user != "New User / Type Below" and not df_live.empty:
             default_user_name = selected_user
             user_history = df_live[df_live['user_name'] == selected_user].sort_values(by='id', ascending=False)
@@ -142,7 +138,6 @@ if page == "Log New Ticket":
                 default_dept = str(user_history.iloc[0]['department'])
                 default_loc = str(user_history.iloc[0]['location'])
 
-        # Now, standard input form loads with dynamic defaults pre-populated
         with st.form("ticket_form", clear_on_submit=True):
             col1, col2 = st.columns(2)
             
@@ -174,13 +169,14 @@ if page == "Log New Ticket":
                     formatted_date = ticket_date.strftime("%Y-%m-%d")
                     tech_id_val = TECH_MAP.get(attended_by, "")
                     
+                    # FIXED: Send Python None instead of empty string "" for timestamp columns
                     if status == "Open":
-                        start_val = ""
-                        close_val = ""
+                        start_val = None
+                        close_val = None
                         duration_mins = 0
                     elif status == "In Progress":
                         start_val = f"{formatted_date} {custom_start.strftime('%H:%M:%S')}"
-                        close_val = ""
+                        close_val = None
                         duration_mins = 0
                     elif status == "Resolved":
                         start_val = f"{formatted_date} {custom_start.strftime('%H:%M:%S')}"
@@ -270,15 +266,15 @@ elif page == "View & Edit Tickets":
                 if new_status == "In Progress":
                     update_fields["start_time"] = now_timestamp
                 elif new_status == "Resolved":
-                    final_start = db_start_time if (pd.notna(db_start_time) and db_start_time != "") else now_timestamp
+                    final_start = db_start_time if (pd.notna(db_start_time) and db_start_time != "" and db_start_time != "—") else now_timestamp
                     try:
-                        t1 = datetime.strptime(final_start, "%Y-%m-%d %H:%M:%S")
+                        t1 = datetime.strptime(str(final_start).split(".")[0], "%Y-%m-%d %H:%M:%S")
                     except Exception:
                         t1 = datetime.now()
                     t2 = datetime.strptime(now_timestamp, "%Y-%m-%d %H:%M:%S")
                     duration_mins = max(1, int((t2 - t1).total_seconds() / 60))
                     
-                    update_fields["start_time"] = final_start.split(".")[0]
+                    update_fields["start_time"] = str(final_start).split(".")[0]
                     update_fields["close_time"] = now_timestamp
                     update_fields["resolution_time"] = duration_mins
                 
