@@ -116,7 +116,7 @@ if page == "Log New Ticket":
             st.rerun()
             
     else:
-        # Smart Field Auto-Fill
+        # Smart Field Auto-Fill Name Selection
         if not df_live.empty and 'user_name' in df_live.columns:
             existing_users = sorted(df_live['user_name'].dropna().astype(str).unique().tolist())
         else:
@@ -135,13 +135,45 @@ if page == "Log New Ticket":
                 default_dept = str(user_history.iloc[0]['department'])
                 default_loc = str(user_history.iloc[0]['location'])
 
+        # Master official locations array
+        OFFICIAL_LOCATIONS = [
+            "Sector - 136 Vega",
+            "Knitpro 28-29",
+            "Sector - 155 Vega",
+            "Knitpro - Jaipur",
+            "Knitpro 42",
+            "Knitpro 72-73",
+            "Knitpro 75",
+            "Bharat Composite Sector 80",
+            "Vega Sector 80"
+        ]
+
         with st.form("ticket_form", clear_on_submit=True):
             col1, col2 = st.columns(2)
             
             with col1:
                 user_name = st.text_input("User Name *", value=default_user_name)
                 department = st.text_input("Department *", value=default_dept)
-                location = st.text_input("Location/Sector *", value=default_loc)
+                
+                # Loose matching lookup mapper for user profiles back-references
+                loc_default = default_loc.lower() if default_loc else ""
+                default_index = 0
+                
+                if "136" in loc_default: default_index = 0
+                elif "28" in loc_default or "29" in loc_default: default_index = 1
+                elif "155" in loc_default: default_index = 2
+                elif "jaipur" in loc_default: default_index = 3
+                elif "42" in loc_default: default_index = 4
+                elif "72" in loc_default or "73" in loc_default: default_index = 5
+                elif "75" in loc_default: default_index = 6
+                elif "bharat" in loc_default: default_index = 7
+                elif "vega" in loc_default and "80" in loc_default: default_index = 8
+                
+                location = st.selectbox(
+                    "Location/Sector *", 
+                    options=OFFICIAL_LOCATIONS, 
+                    index=default_index
+                )
             
             with col2:
                 ticket_date = st.date_input("Ticket Date *", value=datetime.now().date())
@@ -183,7 +215,6 @@ if page == "Log New Ticket":
                         duration_mins = int((t2 - t1).total_seconds() / 60)
                         if duration_mins < 0: duration_mins = 1
                     
-                    # REMOVED technician_id from database row write object
                     new_row = {
                         'date': str(formatted_date), 
                         'user_name': str(user_name),
@@ -230,7 +261,6 @@ elif page == "View & Edit Tickets":
             df_display['date'] = df_display['date_parsed'].dt.strftime('%Y-%m-%d').fillna(df_display['date'])
             df_display.drop(columns=['date_parsed'], errors='ignore', inplace=True)
             
-        # Dynamically append Tech ID column visually from our local dictionary mapping!
         if 'attended_by' in df_display.columns:
             df_display['Tech ID'] = df_display['attended_by'].map(TECH_MAP).fillna("—")
         
