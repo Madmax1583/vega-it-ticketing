@@ -78,6 +78,19 @@ TECH_MAP = {
     "Manish": "TECH-05"
 }
 
+# Master official locations array used across the whole app
+OFFICIAL_LOCATIONS = [
+    "Sector - 136 Vega",
+    "Knitpro 28-29",
+    "Sector - 155 Vega",
+    "Knitpro - Jaipur",
+    "Knitpro 42",
+    "Knitpro 72-73",
+    "Knitpro 75",
+    "Bharat Composite Sector 80",
+    "Vega Sector 80"
+]
+
 def auto_categorize(complaint):
     text = str(complaint).lower()
     if any(k in text for k in ['cctv', 'camera', 'nvr']): return 'CCTV/Camera'
@@ -134,19 +147,6 @@ if page == "Log New Ticket":
             if not user_history.empty:
                 default_dept = str(user_history.iloc[0]['department'])
                 default_loc = str(user_history.iloc[0]['location'])
-
-        # Master official locations array
-        OFFICIAL_LOCATIONS = [
-            "Sector - 136 Vega",
-            "Knitpro 28-29",
-            "Sector - 155 Vega",
-            "Knitpro - Jaipur",
-            "Knitpro 42",
-            "Knitpro 72-73",
-            "Knitpro 75",
-            "Bharat Composite Sector 80",
-            "Vega Sector 80"
-        ]
 
         with st.form("ticket_form", clear_on_submit=True):
             col1, col2 = st.columns(2)
@@ -283,12 +283,18 @@ elif page == "View & Edit Tickets":
             db_start_time = ticket_row['start_time']
             current_remarks = ticket_row['remarks']
             current_tech = ticket_row['attended_by']
+            current_loc = ticket_row.get('location', '')
             
             status_options = ["Open", "In Progress", "Resolved"]
             default_index = status_options.index(current_status) if current_status in status_options else 0
             new_status = st.selectbox("New Status", status_options, index=default_index)
             
             new_tech = st.selectbox("Reassign Technician (Optional)", list(TECH_MAP.keys()), index=list(TECH_MAP.keys()).index(current_tech) if current_tech in TECH_MAP else 0)
+            
+            # DROPDOWN FIXED FOR LOCATION UPDATE FORM HERE TOO
+            default_loc_idx = OFFICIAL_LOCATIONS.index(current_loc) if current_loc in OFFICIAL_LOCATIONS else 0
+            new_location = st.selectbox("Update Location/Sector", OFFICIAL_LOCATIONS, index=default_loc_idx)
+            
             new_remarks = st.text_area("Update Action Remarks", value=current_remarks, height=80)
             
             if st.button("Update Status & Remarks", type="primary"):
@@ -297,7 +303,8 @@ elif page == "View & Edit Tickets":
                 update_fields = {
                     "status": str(new_status), 
                     "remarks": str(new_remarks), 
-                    "attended_by": str(new_tech)
+                    "attended_by": str(new_tech),
+                    "location": str(new_location)
                 }
                 
                 if new_status == "In Progress":
@@ -316,7 +323,7 @@ elif page == "View & Edit Tickets":
                     update_fields["resolution_time"] = duration_mins
                 
                 supabase.table("tickets").update(update_fields).eq("id", ticket_id).execute()
-                st.success("✅ Status and Remarks successfully synced!")
+                st.success("✅ Ticket metrics updated successfully!")
                 st.rerun()
                 
         with col_del:
