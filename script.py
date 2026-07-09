@@ -36,6 +36,26 @@ except Exception as e:
     st.error("🔑 Could not connect to Supabase. Please check your Streamlit Secrets configuration.")
     st.stop()
 
+# Helper function to generate custom ticket formatting dynamically
+def format_ticket_number(ticket_id, location_str):
+    try:
+        loc = str(location_str).lower()
+        # Extract the year from the current system state (2026)
+        current_year = "2026"
+        
+        # Determine prefix based on the selected location
+        if "vega" in loc or "136" in loc or "155" in loc:
+            prefix = "VEGA"
+        elif "knitpro" in loc or "jaipur" in loc:
+            prefix = "KP"
+        else:
+            prefix = "IT"
+            
+        # Format code: pads out numbers with zeros up to 4 digits (e.g., 0001)
+        return f"{prefix}-{current_year}-{int(ticket_id):04d}"
+    except Exception:
+        return f"IT-2026-{ticket_id}"
+
 def load_data():
     try:
         response = supabase.table("tickets").select("*").execute()
@@ -44,11 +64,9 @@ def load_data():
             df['id'] = pd.to_numeric(df['id'], errors='coerce')
             df['resolution_time'] = pd.to_numeric(df['resolution_time'], errors='coerce').fillna(0).astype(int)
             
-            # Safe date parsing for advanced reporting calculations
             if 'date' in df.columns:
                 df['date_parsed'] = pd.to_datetime(df['date'], errors='coerce')
             
-            # Safeguards for newer tracking columns
             if 'remarks' not in df.columns: df['remarks'] = ""
             else: df['remarks'] = df['remarks'].fillna("")
                 
@@ -78,7 +96,7 @@ TECH_MAP = {
     "Manish": "TECH-05"
 }
 
-# Master official locations array used across the whole app
+# Master official locations array
 OFFICIAL_LOCATIONS = [
     "Sector - 136 Vega",
     "Knitpro 28-29",
@@ -115,9 +133,12 @@ if page == "Log New Ticket":
         info = st.session_state.last_ticket_info
         st.success("🎉 **TICKET SUBMITTED AND SECURED IN SUPABASE CLOUD!**")
         
+        # DYNAMIC FORMAT DISPLAY GENERATED HERE
+        formatted_id_string = format_ticket_number(info['id'], info['loc'])
+        
         with st.container(border=True):
             col_a, col_b, col_c = st.columns(3)
-            col_a.markdown(f"**Ticket ID:** #{info['id']}")
+            col_a.markdown(f"**Ticket Number:** `{formatted_id_string}`")
             col_b.markdown(f"**Date Assigned:** {info['date']}")
             col_c.markdown(f"**Category:** {info['category']}")
             st.markdown(f"**User:** {info['user']} ({info['dept']}) | **Handled By:** {info['tech']} ({info['tech_id']}) | **Location:** {info['loc']}")
@@ -129,7 +150,6 @@ if page == "Log New Ticket":
             st.rerun()
             
     else:
-        # Smart Field Auto-Fill Name Selection
         if not df_live.empty and 'user_name' in df_live.columns:
             existing_users = sorted(df_live['user_name'].dropna().astype(str).unique().tolist())
         else:
@@ -155,7 +175,6 @@ if page == "Log New Ticket":
                 user_name = st.text_input("User Name *", value=default_user_name)
                 department = st.text_input("Department *", value=default_dept)
                 
-                # Loose matching lookup mapper for user profiles back-references
                 loc_default = default_loc.lower() if default_loc else ""
                 default_index = 0
                 
@@ -257,6 +276,15 @@ elif page == "View & Edit Tickets":
         df_display = df_sorted.copy()
         df_display.insert(0, 'S.No.', range(1, len(df_display) + 1))
         
+        # INSERTING THE CUSTOM TICKET NUMBER COLUMN IN FRONT FOR THE TEAM TO SEE
+        df_display['Ticket Number'] = df_display.apply(lambda row: format_ticket_number(row['id'], row['location']), axis=1)
+        
+        # Re-ordering columns visually for clarity
+        cols = list(df_display.columns)
+        if 'Ticket Number' in cols:
+            cols.insert(1, cols.pop(cols.index('Ticket Number')))
+            df_display = df_display[cols]
+        
         if 'date_parsed' in df_display.columns:
             df_display['date'] = df_display['date_parsed'].dt.strftime('%Y-%m-%d').fillna(df_display['date'])
             df_display.drop(columns=['date_parsed'], errors='ignore', inplace=True)
@@ -276,7 +304,13 @@ elif page == "View & Edit Tickets":
         
         with col_edit:
             st.markdown("### 🔄 Update Ticket Status & Action Remarks")
-            ticket_id = st.selectbox("Select Ticket ID to Update", df_live['id'].astype(int).tolist(), key="status_select")
+            
+            # Show formatted options in selectbox to make matching easier
+            ticket_options = df_live.apply(lambda r: (int(r['id']), f"{format_ticket_number(r['id'], r['location'])} - {r['user_name']}"), axis=1).tolist()
+            ticket_dict = {label: idx for idx, label in ticket_options}
+            
+            selected_label = st.selectbox("Select Ticket to Update", list(ticket_dict.keys()), key="status_select")
+            ticket_id = ticket_dict[selected_label]
             
             ticket_row = df_live[df_live['id'] == ticket_id].iloc[0]
             current_status = ticket_row['status']
@@ -291,7 +325,6 @@ elif page == "View & Edit Tickets":
             
             new_tech = st.selectbox("Reassign Technician (Optional)", list(TECH_MAP.keys()), index=list(TECH_MAP.keys()).index(current_tech) if current_tech in TECH_MAP else 0)
             
-            # DROPDOWN FIXED FOR LOCATION UPDATE FORM HERE TOO
             default_loc_idx = OFFICIAL_LOCATIONS.index(current_loc) if current_loc in OFFICIAL_LOCATIONS else 0
             new_location = st.selectbox("Update Location/Sector", OFFICIAL_LOCATIONS, index=default_loc_idx)
             
@@ -377,7 +410,7 @@ elif page == "Analysis Dashboard":
     else:
         st.info("No metrics mapped yet.")
 
-# ===================== CLOUD ENHANCED MONTHLY REPORT =====================
+# ===================== MONTHLY REPORT =====================
 elif page == "Monthly Report":
     st.header("📅 Cloud Enhanced Performance Reports")
     
