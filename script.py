@@ -179,6 +179,20 @@ AI_SUGGESTIONS = {
             "**आईपी संघर्ष (Conflict):** एक नया डायनेमिक एड्रेस प्राप्त करने के लिए `ipconfig /release` के बाद `ipconfig /renew` चलाएं।",
             "**धीमी गति:** जांचें कि क्या उपयोगकर्ता तेज 5GHz कॉर्पोरेट नेटवर्क के बजाय 2.4GHz बैंड से जुड़ा हुआ है।"
         ]
+    },
+    "Server/UPS": {
+        "title_en": "🖥️ Server & Power Infrastructure Diagnostics",
+        "title_hi": "🖥️ सर्वर और पावर इन्फ्रास्ट्रक्चर डायग्नोस्टिक्स",
+        "English": [
+            "**UPS Beeping:** Check if input voltage is stable or if the load capacity is exceeding maximum parameters.",
+            "**Server Room/Health:** Check temperature sensors; verify rack ventilation airflow paths.",
+            "**Domain/AD:** Verify DNS forwarders configuration if clients fail authentication loops."
+        ],
+        "Hindi": [
+            "**UPS बीपिंग:** जांचें कि इनपुट वोल्टेज स्थिर है या लोड क्षमता अधिकतम पैरामीटर से अधिक है।",
+            "**सर्वर रूम/स्वास्थ्य:** तापमान सेंसर की जांच करें; रैक वेंटिलेशन एयरफ़्लो पथों को सत्यापित करें।",
+            "**डोमेन/AD:** यदि क्लाइंट प्रमाणीकरण विफल हो जाते हैं, तो DNS फ़ॉरवर्डर कॉन्फ़िगरेशन सत्यापित करें।"
+        ]
     }
 }
 
@@ -232,8 +246,14 @@ def auto_categorize(complaint):
     elif any(k in text for k in ['outlook', 'email', 'mail', 'pst']): return 'Email/Outlook'
     elif any(k in text for k in ['printer', 'scanner', 'cartridge', 'print']): return 'Printer'
     elif any(k in text for k in ['sap']): return 'SAP'
-    elif any(k in text for k in ['network', 'wifi', 'internet', 'vpn', 'ping', 'ip']): return 'Network'
+    elif any(k in text for k in ['network', 'wifi', 'internet', 'vpn', 'ping', 'ip', 'firewall']): return 'Network'
+    elif any(k in text for k in ['server', 'ups', 'rack', 'backup']): return 'Server/UPS'
+    elif any(k in text for k in ['software', 'windows', 'activation', 'antivirus', 'installation']): return 'Infrastructure/Software'
     else: return 'Other'
+
+# Clean up categories in live dataset dynamically if any text pattern shifts matches
+if not df_live.empty and 'complaint' in df_live.columns:
+    df_live['category'] = df_live['complaint'].apply(auto_categorize)
 
 # =========================================================================
 # 🎛️ SIDEBAR CONTROL FRAME
@@ -407,6 +427,18 @@ with tab_view:
         st.subheader("📋 Master Production Backlog")
         st.dataframe(df_display, use_container_width=True, hide_index=True)
         
+        # ==========================================
+        # 📥 DATA REPORT DOWNLOAD CORE
+        # ==========================================
+        csv_buffer = df_display.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Download Master Report (CSV)",
+            data=csv_buffer,
+            file_name=f"it_ticketing_report_{datetime.now().strftime('%Y-%m-%d')}.csv",
+            mime="text/csv",
+            type="secondary"
+        )
+        
         st.markdown("---")
         st.subheader("🔄 Update / Close an Existing Ticket")
         
@@ -530,6 +562,15 @@ with tab_monthly:
             ).reset_index()
             
             st.dataframe(summary_pivot, use_container_width=True, hide_index=True)
+            
+            # Export monthly layout summary 
+            csv_m_buffer = summary_pivot.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Export Monthly Analytics Table",
+                data=csv_m_buffer,
+                file_name="monthly_it_closure_summary.csv",
+                mime="text/csv"
+            )
         except Exception as e:
             st.caption(f"Waiting for structured dates... ({e})")
     else:
