@@ -251,7 +251,6 @@ def auto_categorize(complaint):
     elif any(k in text for k in ['software', 'windows', 'activation', 'antivirus', 'installation']): return 'Infrastructure/Software'
     else: return 'Other'
 
-# Clean up categories in live dataset dynamically if any text pattern shifts matches
 if not df_live.empty and 'complaint' in df_live.columns:
     df_live['category'] = df_live['complaint'].apply(auto_categorize)
 
@@ -269,12 +268,11 @@ else:
 # =========================================================================
 # 🗂️ TABBED WORKSPACE ARRANGEMENT
 # =========================================================================
-tab_log, tab_view, tab_analysis, tab_monthly, tab_recurring = st.tabs([
+tab_log, tab_view, tab_analysis, tab_monthly = st.tabs([
     "🆕 Enter Ticket Details", 
     "📂 Manage Active Backlog Queue", 
     "📊 Performance Matrix", 
-    "📅 Monthly Closure Summaries",
-    "👥 Chronic Fault Analysis"
+    "📥 Advanced Reporting Center"
 ])
 
 # -------------------------------------------------------------------------
@@ -427,18 +425,6 @@ with tab_view:
         st.subheader("📋 Master Production Backlog")
         st.dataframe(df_display, use_container_width=True, hide_index=True)
         
-        # ==========================================
-        # 📥 DATA REPORT DOWNLOAD CORE
-        # ==========================================
-        csv_buffer = df_display.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="📥 Download Master Report (CSV)",
-            data=csv_buffer,
-            file_name=f"it_ticketing_report_{datetime.now().strftime('%Y-%m-%d')}.csv",
-            mime="text/csv",
-            type="secondary"
-        )
-        
         st.markdown("---")
         st.subheader("🔄 Update / Close an Existing Ticket")
         
@@ -526,7 +512,6 @@ with tab_analysis:
         kpi4.metric("Avg Resolution Speed", f"{avg_res_time} mins")
         
         st.markdown("---")
-        
         chart_col1, chart_col2 = st.columns(2)
         
         with chart_col1:
@@ -542,60 +527,97 @@ with tab_analysis:
         st.info("Log your first ticket entries to initialize the live metrics dashboard engine.")
 
 # -------------------------------------------------------------------------
-# TAB 4: MONTHLY CLOSURE SUMMARIES
+# TAB 4: ADVANCED REPORTING CENTER (DETAILED EXPORTS)
 # -------------------------------------------------------------------------
 with tab_monthly:
     st.write("")
-    st.subheader("📅 Month-on-Month Performance Distribution")
-    
-    if not df_live.empty and 'date' in df_live.columns:
-        try:
-            df_monthly = df_live.copy()
-            df_monthly['date_parsed'] = pd.to_datetime(df_monthly['date'], errors='coerce')
-            df_monthly = df_monthly.dropna(subset=['date_parsed'])
-            df_monthly['Month'] = df_monthly['date_parsed'].dt.strftime('%Y-%m (%B)')
-            
-            summary_pivot = df_monthly.groupby('Month').agg(
-                Total_Logged=('id', 'count'),
-                Resolved=('status', lambda x: sum(x.str.lower() == 'resolved')),
-                Pending=('status', lambda x: sum(x.str.lower().isin(['open', 'in progress'])))
-            ).reset_index()
-            
-            st.dataframe(summary_pivot, use_container_width=True, hide_index=True)
-            
-            # Export monthly layout summary 
-            csv_m_buffer = summary_pivot.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="📥 Export Monthly Analytics Table",
-                data=csv_m_buffer,
-                file_name="monthly_it_closure_summary.csv",
-                mime="text/csv"
-            )
-        except Exception as e:
-            st.caption(f"Waiting for structured dates... ({e})")
-    else:
-        st.info("Monthly closure summary grids populate automatically as dates are archived.")
-
-# -------------------------------------------------------------------------
-# TAB 5: CHRONIC FAULT ANALYSIS
-# -------------------------------------------------------------------------
-with tab_recurring:
-    st.write("")
-    st.subheader("👥 Chronic Fault Hardware & Recurring User Metrics")
+    st.subheader("📊 Operational Data Export Center")
+    st.markdown("Use this tab to generate detailed reports for management audits, weekly presentations, and resource tracking.")
     
     if not df_live.empty:
-        rank_col1, rank_col2 = st.columns(2)
+        df_export = df_live.copy()
+        df_export['date_parsed'] = pd.to_datetime(df_export['date'], errors='coerce')
+        df_export = df_export.dropna(subset=['date_parsed'])
         
-        with rank_col1:
-            st.markdown("### ⚠️ Top 5 Chronic Category Failures")
-            top_faults = df_live['category'].value_counts().head(5).reset_index()
-            top_faults.columns = ['Category Name', 'Total Incidents Logged']
-            st.table(top_faults)
+        # Derived Tracking Formats
+        df_export['Month'] = df_export['date_parsed'].dt.strftime('%Y-%m (%B)')
+        df_export['Week_of_Year'] = df_export['date_parsed'].dt.isocalendar().week
+        df_export['Week_Label'] = df_export['date_parsed'].dt.strftime('%Y-W') + df_export['Week_of_Year'].astype(str)
+        df_export['Formatted_Ticket'] = df_export.apply(lambda row: format_ticket_number(row['id'], row['location']), axis=1)
+
+        # -----------------------------------------------------------------
+        # REPORT TYPE 1: MASTER REPOSITORY
+        # -----------------------------------------------------------------
+        with st.container(border=True):
+            st.markdown("#### 📋 1. Master Log Report")
+            st.caption("Contains every ticket parameter, time stamp, row data, and closure remarks.")
+            m_csv = df_export.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Download Full Master Sheet (.CSV)", m_csv, "it_master_production_log.csv", "text/csv")
+
+        # -----------------------------------------------------------------
+        # REPORT TYPE 2: CHRONOLOGICAL TIMELINES
+        # -----------------------------------------------------------------
+        with st.container(border=True):
+            st.markdown("#### 📅 2. Periodic Timeline Reports")
+            st.caption("Aggregated summary records divided by monthly and weekly tracking metrics.")
             
-        with rank_col2:
-            st.markdown("### 👤 Top Recurring User Requests")
-            top_users = df_live['user_name'].value_counts().head(5).reset_index()
-            top_users.columns = ['Employee Name', 'Tickets Raised']
-            st.table(top_users)
+            col_m1, col_m2 = st.columns(2)
+            with col_m1:
+                st.markdown("**Monthly Analysis Matrix**")
+                pivot_m = df_export.groupby('Month').agg(
+                    Total_Tickets=('id', 'count'),
+                    Resolved=('status', lambda x: sum(x.str.lower() == 'resolved')),
+                    Pending=('status', lambda x: sum(x.str.lower().isin(['open', 'in progress'])))
+                ).reset_index()
+                st.dataframe(pivot_m, use_container_width=True, hide_index=True)
+                csv_m = pivot_m.to_csv(index=False).encode('utf-8')
+                st.download_button("📥 Download Monthly Summary", csv_m, "monthly_performance_report.csv", "text/csv")
+                
+            with col_m2:
+                st.markdown("**Weekly Analysis Matrix**")
+                pivot_w = df_export.groupby('Week_Label').agg(
+                    Total_Tickets=('id', 'count'),
+                    Resolved=('status', lambda x: sum(x.str.lower() == 'resolved')),
+                    Pending=('status', lambda x: sum(x.str.lower().isin(['open', 'in progress'])))
+                ).reset_index()
+                st.dataframe(pivot_w, use_container_width=True, hide_index=True)
+                csv_w = pivot_w.to_csv(index=False).encode('utf-8')
+                st.download_button("📥 Download Weekly Summary", csv_w, "weekly_performance_report.csv", "text/csv")
+
+        # -----------------------------------------------------------------
+        # REPORT TYPE 3: TECHNICIAN PERFORMANCE
+        # -----------------------------------------------------------------
+        with st.container(border=True):
+            st.markdown("#### 🧑‍💻 3. Technician Performance Audit Report")
+            st.caption("Tracks issue volume breakdown, resolution rates, and efficiency metrics per engineer.")
+            
+            pivot_tech = df_export.groupby('attended_by').agg(
+                Assigned_Tickets=('id', 'count'),
+                Resolved=('status', lambda x: sum(x.str.lower() == 'resolved')),
+                Pending=('status', lambda x: sum(x.str.lower().isin(['open', 'in progress']))),
+                Avg_Resolution_Mins=('resolution_time', lambda x: int(x[x > 0].mean()) if not x[x > 0].empty else 0)
+            ).reset_index().rename(columns={'attended_by': 'Technician Name'})
+            
+            st.dataframe(pivot_tech, use_container_width=True, hide_index=True)
+            csv_tech = pivot_tech.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Download Technician Performance Matrix", csv_tech, "technician_performance_report.csv", "text/csv")
+
+        # -----------------------------------------------------------------
+        # REPORT TYPE 4: SITE LOCATION ANALYSIS
+        # -----------------------------------------------------------------
+        with st.container(border=True):
+            st.markdown("#### 🏢 4. Site Location Analysis Report")
+            st.caption("Breakdown of infrastructure faults divided by industrial sectors and operational zones.")
+            
+            pivot_loc = df_export.groupby('location').agg(
+                Total_Incidents=('id', 'count'),
+                Resolved=('status', lambda x: sum(x.str.lower() == 'resolved')),
+                Pending=('status', lambda x: sum(x.str.lower().isin(['open', 'in progress'])))
+            ).reset_index().rename(columns={'location': 'Operating Site Location'})
+            
+            st.dataframe(pivot_loc, use_container_width=True, hide_index=True)
+            csv_loc = pivot_loc.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Download Site Location Audit Sheet", csv_loc, "location_incident_report.csv", "text/csv")
+            
     else:
-        st.info("Priority tracking loops will highlight your network's most frequent failure trends here.")
+        st.info("Operational logs must be active to compute target summaries.")
