@@ -132,7 +132,7 @@ AI_SUGGESTIONS = {
             "**Password Prompt:** Clear Windows Credential Manager cached passwords under 'Generic Credentials'."
         ],
         "Hindi": [
-            "**आउटलुक क्रैश/फ्रीज:** यह देखने के लिए कि क्या कोई协同 थर्ड-पार्टी ऐड-इन क्रैश का कारण बन रहा है, `outlook.exe /safe` चलाएं।",
+            "**आउटलुक क्रैश/फ्रीज:** यह देखने के लिए कि क्या कोई थर्ड-पार्टी ऐड-इन क्रैश का कारण बन रहा है, `outlook.exe /safe` चलाएं।",
             "**सेंड/रिसीव एरर:** जांचें कि क्या PST/OST फ़ाइल का आकार अपनी सीमा (आमतौर पर 50GB) तक पहुंच गया है। डेटा फ़ाइल को कॉम्पैक्ट करें।",
             "**पासवर्ड प्रॉम्प्ट:** विंडोज क्रेडेंशियल मैनेजर में कैश्ड पासवर्ड साफ़ करें।"
         ]
@@ -387,11 +387,11 @@ with tab_log:
                     st.error(f"❌ Database Insertion Blocked: {e}")
 
 # -------------------------------------------------------------------------
-# TAB 2: DATA BACKLOG GRID
+# TAB 2: DATA BACKLOG GRID & INTERACTIVE EDITOR
 # -------------------------------------------------------------------------
 with tab_view:
     st.write("")
-    st.subheader("📋 Master Production Backlog")
+    
     if not df_live.empty:
         df_sorted = df_live.sort_values(by='id', ascending=False).reset_index(drop=True)
         df_display = df_sorted.copy()
@@ -403,97 +403,30 @@ with tab_view:
             cols.insert(1, cols.pop(cols.index('Ticket Number')))
         df_display = df_display[cols]
         
+        # --- SECTION A: LIVE DATA VIEW ---
+        st.subheader("📋 Master Production Backlog")
         st.dataframe(df_display, use_container_width=True, hide_index=True)
-    else:
-        st.info("No active production records mapped inside cloud nodes or database is empty.")
-
-# -------------------------------------------------------------------------
-# TAB 3: PERFORMANCE MATRIX (LIVE DATA ANALYTICS)
-# -------------------------------------------------------------------------
-with tab_analysis:
-    st.write("")
-    st.subheader("📊 Operational Analytics & KPI Metrics")
-    
-    if not df_live.empty:
-        # Calculate high-level KPIs
-        total_tickets = len(df_live)
-        resolved_tickets = len(df_live[df_live['status'].str.lower() == 'resolved'])
-        open_tickets = len(df_live[df_live['status'].str.lower().isin(['open', 'in progress'])])
-        
-        resolved_df = df_live[(df_live['status'].str.lower() == 'resolved') & (df_live['resolution_time'] > 0)]
-        avg_res_time = int(resolved_df['resolution_time'].mean()) if not resolved_df.empty else 0
-        
-        # Display KPI Cards
-        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-        kpi1.metric("Total Logged Volume", total_tickets)
-        kpi2.metric("Resolved Queries", resolved_tickets)
-        kpi3.metric("Outstanding Backlog", open_tickets)
-        kpi4.metric("Avg Resolution Speed", f"{avg_res_time} mins")
         
         st.markdown("---")
         
-        # Generate Analytics Charts
-        chart_col1, chart_col2 = st.columns(2)
+        # --- SECTION B: INTERACTIVE UPDATE CONTROLLER ---
+        st.subheader("🔄 Update / Close an Existing Ticket")
         
-        with chart_col1:
-            st.markdown("### 🧑‍💻 Performance Distribution by Technician")
-            tech_counts = df_live['attended_by'].value_counts()
-            st.bar_chart(tech_counts)
+        # Build an explicit drop-down mapping out clean Display IDs to their real internal database Primary Keys
+        ticket_options = {}
+        for _, r in df_sorted.iterrows():
+            lbl = f"{format_ticket_number(r['id'], r['location'])} — {r['user_name']} ({r['complaint'][:30]}...)"
+            ticket_options[lbl] = r['id']
             
-        with chart_col2:
-            st.markdown("### 🗂️ Breakdown by Category Type")
-            cat_counts = df_live['category'].value_counts()
-            st.bar_chart(cat_counts)
-    else:
-        st.info("Log your first ticket entries to initialize the live metrics dashboard engine.")
-
-# -------------------------------------------------------------------------
-# TAB 4: MONTHLY CLOSURE SUMMARIES
-# -------------------------------------------------------------------------
-with tab_monthly:
-    st.write("")
-    st.subheader("📅 Month-on-Month Performance Distribution")
-    
-    if not df_live.empty and 'date' in df_live.columns:
-        try:
-            # Parse dates and group records dynamically by calendar month
-            df_monthly = df_live.copy()
-            df_monthly['date_parsed'] = pd.to_datetime(df_monthly['date'], errors='coerce')
-            df_monthly = df_monthly.dropna(subset=['date_parsed'])
-            df_monthly['Month'] = df_monthly['date_parsed'].dt.strftime('%Y-%m (%B)')
-            
-            summary_pivot = df_monthly.groupby('Month').agg(
-                Total_Logged=('id', 'count'),
-                Resolved=('status', lambda x: sum(x.str.lower() == 'resolved')),
-                Pending=('status', lambda x: sum(x.str.lower().isin(['open', 'in progress'])))
-            ).reset_index()
-            
-            st.dataframe(summary_pivot, use_container_width=True, hide_index=True)
-        except Exception as e:
-            st.caption(f"Waiting for structured dates... ({e})")
-    else:
-        st.info("Monthly closure summary grids populate automatically as dates are archived.")
-
-# -------------------------------------------------------------------------
-# TAB 5: CHRONIC FAULT ANALYSIS
-# -------------------------------------------------------------------------
-with tab_recurring:
-    st.write("")
-    st.subheader("👥 Chronic Fault Hardware & Recurring User Metrics")
-    
-    if not df_live.empty:
-        rank_col1, rank_col2 = st.columns(2)
+        selected_ticket_lbl = st.selectbox("🎯 Choose a ticket from the active list to modify:", list(ticket_options.keys()))
         
-        with rank_col1:
-            st.markdown("### ⚠️ Top 5 Chronic Category Failures")
-            top_faults = df_live['category'].value_counts().head(5).reset_index()
-            top_faults.columns = ['Category Name', 'Total Incidents Logged']
-            st.table(top_faults)
+        if selected_ticket_lbl:
+            target_id = ticket_options[selected_ticket_lbl]
+            ticket_data = df_sorted[df_sorted['id'] == target_id].iloc[0]
             
-        with rank_col2:
-            st.markdown("### 👤 Top Recurring User Requests")
-            top_users = df_live['user_name'].value_counts().head(5).reset_index()
-            top_users.columns = ['Employee Name', 'Tickets Raised']
-            st.table(top_users)
-    else:
-        st.info("Priority tracking loops will highlight your network's most frequent failure trends here.")
+            # Display current metadata securely inside an organized layout
+            with st.container(border=True):
+                m_col1, m_col2, m_col3 = st.columns(3)
+                m_col1.markdown(f"**Target User:** {ticket_data['user_name']}")
+                m_col2.markdown(f"**Department:** {ticket_data['department']}")
+                m_col3.markdown(f"**Current Status:** `{ticket_data['status']}`")
