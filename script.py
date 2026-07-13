@@ -74,22 +74,23 @@ st.markdown("---")
 # 🔑 ROBUST SUPABASE INITIALIZATION
 # =========================================================================
 @st.cache_resource
-def init_supabase() -> Client:
+def init_supabase():
     if "supabase" not in st.secrets:
-        raise KeyError("Missing '[supabase]' block tag header inside cloud deployment variables config.")
-    url: str = st.secrets["supabase"].get("url", "")
-    key: str = st.secrets["supabase"].get("key", "")
+        return None
+    url = st.secrets["supabase"].get("url", "")
+    key = st.secrets["supabase"].get("key", "")
     if not url or not key:
-        raise ValueError("Target credential strings extracted are blank or invalid.")
-    return create_client(url, key)
+        return None
+    try:
+        return create_client(url, key)
+    except Exception:
+        return None
 
-supabase_client = None
-db_connected = False
-try:
-    supabase_client = init_supabase()
-    db_connected = True
-except Exception as e:
-    st.error(f"🔑 **Could not connect to Supabase Engine:** {str(e)}")
+supabase_client = init_supabase()
+db_connected = supabase_client is not None
+
+if not db_connected:
+    st.warning("⚠️ **Database Credentials Missing:** Please make sure to add your `url` and `key` under the Streamlit App Secrets panel.")
 
 # =========================================================================
 # 🤖 MULTILINGUAL KNOWLEDGE DICTIONARY
@@ -132,7 +133,7 @@ AI_SUGGESTIONS = {
             "**Password Prompt:** Clear Windows Credential Manager cached passwords under 'Generic Credentials'."
         ],
         "Hindi": [
-            "**आउटलुक क्रैश/फ्रीज:** यह देखने के लिए कि क्या कोई थर्ड-पार्टी ऐड-इन क्रैश का कारण बन रहा है, `outlook.exe /safe` चलाएं।",
+            "**आउटलुक क्रैश/फ्रीज:** यह देखने के लिए कि क्या कोई协同-पार्टी ऐड-इन क्रैश का कारण बन रहा है, `outlook.exe /safe` चलाएं।",
             "**सेंड/रिसीव एरर:** जांचें कि क्या PST/OST फ़ाइल का आकार अपनी सीमा (आमतौर पर 50GB) तक पहुंच गया है। डेटा फ़ाइल को कॉम्पैक्ट करें।",
             "**पासवर्ड प्रॉम्प्ट:** विंडोज क्रेडेंशियल मैनेजर में कैश्ड पासवर्ड साफ़ करें।"
         ]
@@ -201,7 +202,7 @@ def format_ticket_number(ticket_id, location_str):
         return f"IT-2026-{ticket_id}"
 
 def load_data():
-    if not db_connected or not supabase_client:
+    if not db_connected:
         return pd.DataFrame()
     try:
         response = supabase_client.table("tickets").select("*").execute()
@@ -215,8 +216,7 @@ def load_data():
                 df['remarks'] = df['remarks'].fillna("")
             return df
         return pd.DataFrame(columns=['id', 'date', 'user_name', 'department', 'complaint', 'location', 'attended_by', 'status', 'category', 'start_time', 'close_time', 'resolution_time', 'remarks'])
-    except Exception as e:
-        st.warning(f"⚠️ Backlog array fetch status: Offline ({e})")
+    except Exception:
         return pd.DataFrame()
 
 df_live = load_data()
@@ -403,30 +403,157 @@ with tab_view:
             cols.insert(1, cols.pop(cols.index('Ticket Number')))
         df_display = df_display[cols]
         
-        # --- SECTION A: LIVE DATA VIEW ---
         st.subheader("📋 Master Production Backlog")
         st.dataframe(df_display, use_container_width=True, hide_index=True)
         
         st.markdown("---")
-        
-        # --- SECTION B: INTERACTIVE UPDATE CONTROLLER ---
         st.subheader("🔄 Update / Close an Existing Ticket")
         
-        # Build an explicit drop-down mapping out clean Display IDs to their real internal database Primary Keys
         ticket_options = {}
         for _, r in df_sorted.iterrows():
             lbl = f"{format_ticket_number(r['id'], r['location'])} — {r['user_name']} ({r['complaint'][:30]}...)"
             ticket_options[lbl] = r['id']
             
-        selected_ticket_lbl = st.selectbox("🎯 Choose a ticket from the active list to modify:", list(ticket_options.keys()))
-        
-        if selected_ticket_lbl:
-            target_id = ticket_options[selected_ticket_lbl]
-            ticket_data = df_sorted[df_sorted['id'] == target_id].iloc[0]
+        if ticket_options:
+            selected_ticket_lbl = st.selectbox("🎯 Choose a ticket from the active list to modify:", list(ticket_options.keys()))
             
-            # Display current metadata securely inside an organized layout
-            with st.container(border=True):
-                m_col1, m_col2, m_col3 = st.columns(3)
-                m_col1.markdown(f"**Target User:** {ticket_data['user_name']}")
-                m_col2.markdown(f"**Department:** {ticket_data['department']}")
-                m_col3.markdown(f"**Current Status:** `{ticket_data['status']}`")
+            if selected_ticket_lbl:
+                target_id = ticket_options[selected_ticket_lbl]
+                ticket_data = df_sorted[df_sorted['id'] == target_id].iloc[0]
+                
+                with st.container(border=True):
+                    m_col1, m_col2, m_col3 = st.columns(3)
+                    m_col1.markdown(f"**Target User:** {ticket_data['user_name']}")
+                    m_col2.markdown(f"**Department:** {ticket_data['department']}")
+                    m_col3.markdown(f"**Current Status:** `{ticket_data['status']}`")
+                    st.info(f"📝 **Original Complaint:** {ticket_data['complaint']}")
+                    
+                with st.form(f"update_form_{target_id}"):
+                    edit_col1, edit_col2 = st.columns(2)
+                    
+                    with edit_col1:
+                        status_list = ["Open", "In Progress", "Resolved"]
+                        current_status_idx = status_list.index(ticket_data['status']) if ticket_data['status'] in status_list else 0
+                        new_status = st.selectbox("Modify Status state *", options=status_list, index=current_status_idx)
+                        
+                        tech_list = list(TECH_MAP.keys())
+                        current_tech_idx = tech_list.index(ticket_data['attended_by']) if ticket_data['attended_by'] in tech_list else 0
+                        new_tech = st.selectbox("Reassign Attended By", options=tech_list, index=current_tech_idx)
+                        
+                    with edit_col2:
+                        new_remarks = st.text_area("Update Action/Resolution Remarks", value=str(ticket_data['remarks']))
+                        
+                    st.caption("⏱️ If resolving, calculate the approximate active resolution duration window below:")
+                    duration_input = st.number_input("Resolution Duration (in Minutes)", min_value=0, value=int(ticket_data['resolution_time']) if pd.notna(ticket_data['resolution_time']) else 0)
+                    
+                    save_update_btn = st.form_submit_button("Save Changes & Sync Data", type="primary")
+                    
+                    if save_update_btn:
+                        if not db_connected:
+                            st.error("❌ Action blocked. Application is disconnected from the cloud database node.")
+                        else:
+                            update_payload = {
+                                "status": str(new_status),
+                                "attended_by": str(new_tech),
+                                "remarks": str(new_remarks),
+                                "resolution_time": int(duration_input)
+                            }
+                            
+                            if new_status == "Resolved" and not ticket_data['close_time']:
+                                update_payload["close_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                
+                            try:
+                                supabase_client.table("tickets").update(update_payload).eq("id", int(target_id)).execute()
+                                st.success(f"⚡ Ticket updated successfully and synchronized with cloud node!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Failed to synchronize database entry: {e}")
+    else:
+        st.info("No active production records mapped inside cloud nodes or database is empty.")
+
+# -------------------------------------------------------------------------
+# TAB 3: PERFORMANCE MATRIX (LIVE DATA ANALYTICS)
+# -------------------------------------------------------------------------
+with tab_analysis:
+    st.write("")
+    st.subheader("📊 Operational Analytics & KPI Metrics")
+    
+    if not df_live.empty:
+        total_tickets = len(df_live)
+        resolved_tickets = len(df_live[df_live['status'].str.lower() == 'resolved'])
+        open_tickets = len(df_live[df_live['status'].str.lower().isin(['open', 'in progress'])])
+        
+        resolved_df = df_live[(df_live['status'].str.lower() == 'resolved') & (df_live['resolution_time'] > 0)]
+        avg_res_time = int(resolved_df['resolution_time'].mean()) if not resolved_df.empty else 0
+        
+        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+        kpi1.metric("Total Logged Volume", total_tickets)
+        kpi2.metric("Resolved Queries", resolved_tickets)
+        kpi3.metric("Outstanding Backlog", open_tickets)
+        kpi4.metric("Avg Resolution Speed", f"{avg_res_time} mins")
+        
+        st.markdown("---")
+        
+        chart_col1, chart_col2 = st.columns(2)
+        
+        with chart_col1:
+            st.markdown("### 🧑‍💻 Performance Distribution by Technician")
+            tech_counts = df_live['attended_by'].value_counts()
+            st.bar_chart(tech_counts)
+            
+        with chart_col2:
+            st.markdown("### 🗂️ Breakdown by Category Type")
+            cat_counts = df_live['category'].value_counts()
+            st.bar_chart(cat_counts)
+    else:
+        st.info("Log your first ticket entries to initialize the live metrics dashboard engine.")
+
+# -------------------------------------------------------------------------
+# TAB 4: MONTHLY CLOSURE SUMMARIES
+# -------------------------------------------------------------------------
+with tab_monthly:
+    st.write("")
+    st.subheader("📅 Month-on-Month Performance Distribution")
+    
+    if not df_live.empty and 'date' in df_live.columns:
+        try:
+            df_monthly = df_live.copy()
+            df_monthly['date_parsed'] = pd.to_datetime(df_monthly['date'], errors='coerce')
+            df_monthly = df_monthly.dropna(subset=['date_parsed'])
+            df_monthly['Month'] = df_monthly['date_parsed'].dt.strftime('%Y-%m (%B)')
+            
+            summary_pivot = df_monthly.groupby('Month').agg(
+                Total_Logged=('id', 'count'),
+                Resolved=('status', lambda x: sum(x.str.lower() == 'resolved')),
+                Pending=('status', lambda x: sum(x.str.lower().isin(['open', 'in progress'])))
+            ).reset_index()
+            
+            st.dataframe(summary_pivot, use_container_width=True, hide_index=True)
+        except Exception as e:
+            st.caption(f"Waiting for structured dates... ({e})")
+    else:
+        st.info("Monthly closure summary grids populate automatically as dates are archived.")
+
+# -------------------------------------------------------------------------
+# TAB 5: CHRONIC FAULT ANALYSIS
+# -------------------------------------------------------------------------
+with tab_recurring:
+    st.write("")
+    st.subheader("👥 Chronic Fault Hardware & Recurring User Metrics")
+    
+    if not df_live.empty:
+        rank_col1, rank_col2 = st.columns(2)
+        
+        with rank_col1:
+            st.markdown("### ⚠️ Top 5 Chronic Category Failures")
+            top_faults = df_live['category'].value_counts().head(5).reset_index()
+            top_faults.columns = ['Category Name', 'Total Incidents Logged']
+            st.table(top_faults)
+            
+        with rank_col2:
+            st.markdown("### 👤 Top Recurring User Requests")
+            top_users = df_live['user_name'].value_counts().head(5).reset_index()
+            top_users.columns = ['Employee Name', 'Tickets Raised']
+            st.table(top_users)
+    else:
+        st.info("Priority tracking loops will highlight your network's most frequent failure trends here.")
