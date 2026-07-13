@@ -1,16 +1,14 @@
-This issue happens because of how Streamlit manages page refreshes (reruns).
+Ah, it looks like my text explanation from the last reply accidentally got copied and pasted directly into your Python file (`script.py`)!
 
-### 🔍 Why is this happening?
+Because Python is trying to read that explanation as code, it's throwing a `SyntaxError`.
 
-In your current code, the default value for the time inputs is set directly to `value=datetime.now().time()`.
+### How to Fix:
 
-Whenever the technician types something, changes a dropdown, or clicks a button, the entire script runs again from top to bottom. When it runs again, `datetime.now().time()` calculates the **exact current time right now** (e.g., 3:23 PM or 3:24 PM) and overrides whatever manual value (like 10:00 AM) the technician just typed in!
+1. Open your `script.py` file.
+2. **Delete everything** currently inside the file.
+3. Copy **only the code block below** and paste it into the file. Make sure none of the conversational text outside the code block gets copied into your code editor.
 
-### 💡 The Fix
-
-We need to save the default time inside Streamlit's `st.session_state` **once** when the page loads, and give the inputs unique tracking keys. This ensures that once a technician manually changes the time to 10:00 AM, the system locks it in and stops resetting it automatically.
-
-Here is your complete updated script with this bug completely fixed:
+Here is the clean, pure Python script ready to go:
 
 ```python
 import streamlit as st
@@ -292,7 +290,6 @@ with tab_log:
     st.write("")
     st.header("📋 Log New Operations Ticket")
     
-    # [BUG FIX]: Initialize static default times in session state so they don't constantly shift on every keystroke
     if "form_default_start" not in st.session_state:
         st.session_state.form_default_start = datetime.now().time()
     if "form_default_close" not in st.session_state:
@@ -317,7 +314,6 @@ with tab_log:
             
         if st.button("Log Another Ticket", type="primary"):
             st.session_state.ticket_submitted = False
-            # Refresh default baseline clocks for the next fresh ticket layout
             st.session_state.form_default_start = datetime.now().time()
             st.session_state.form_default_close = datetime.now().time()
             st.rerun()
@@ -357,7 +353,6 @@ with tab_log:
                 complaint_desc = st.text_area("Complaint Description *", height=100)
                 tech_remarks = st.text_area("Technician Operational Remarks", height=100)
                 
-                # [BUG FIX]: Linked to static session values with explicit tracking keys
                 col_t1, col_t2 = st.columns(2)
                 custom_start = col_t1.time_input("START Time", value=st.session_state.form_default_start, key="widget_start_time")
                 custom_close = col_t2.time_input("RESOLVE Time", value=st.session_state.form_default_close, key="widget_close_time")
@@ -587,5 +582,3 @@ with tab_recurring:
         st.dataframe(user_counts, use_container_width=True, hide_index=True)
     else:
         st.info("User activity log mapping system operational.")
-
-```
