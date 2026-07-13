@@ -13,20 +13,11 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ===================== LOGOS =====================
+# Logos & Title
 col1, col2, col3 = st.columns([1, 1, 4])
-with col1:
-    try:
-        st.image("vega_logo.png", width=150)
-    except:
-        st.caption("🔺 Vega")
-with col2:
-    try:
-        st.image("knitpro_logo.png", width=150)
-    except:
-        st.caption("🔺 Knitpro")
-with col3:
-    st.title("🛠️ Vega & Knitpro IT Ticketing & Analysis System")
+with col1: st.caption("🔺 Vega")
+with col2: st.caption("🔺 Knitpro")
+with col3: st.title("🛠️ Vega & Knitpro IT Ticketing & Analysis System")
 
 # Supabase
 @st.cache_resource
@@ -77,11 +68,17 @@ def auto_categorize(text):
     elif any(k in t for k in ['network', 'wifi']): return 'Network'
     else: return 'Other'
 
-# Navigation
-page = st.sidebar.selectbox("Navigation", ["Log New Ticket", "View & Edit Tickets", "Analysis Dashboard", "Monthly Report", "Recurring Users"])
+# ===================== TABBED NAVIGATION =====================
+tab_log, tab_view, tab_analysis, tab_monthly, tab_recurring = st.tabs([
+    "🆕 Log New Ticket",
+    "📋 View & Edit Tickets",
+    "📊 Analysis Dashboard",
+    "📅 Monthly Report",
+    "🔄 Recurring Users"
+])
 
-# ===================== LOG NEW TICKET =====================
-if page == "Log New Ticket":
+# ===================== TAB 1: LOG NEW TICKET =====================
+with tab_log:
     st.header("📋 Log New Ticket")
     form_col, ai_col = st.columns([1.1, 0.9])
     
@@ -143,8 +140,8 @@ if page == "Log New Ticket":
             else:
                 st.warning("Please type a complaint first.")
 
-# ===================== VIEW & EDIT TICKETS =====================
-elif page == "View & Edit Tickets":
+# ===================== TAB 2: VIEW & EDIT =====================
+with tab_view:
     st.header("📋 View & Edit Tickets")
     if df_live.empty:
         st.info("No tickets found. Log some tickets first.")
@@ -163,11 +160,25 @@ elif page == "View & Edit Tickets":
                 except Exception as e:
                     st.error(f"Update failed: {e}")
 
-# Other pages
-else:
-    st.header(page)
+# ===================== OTHER TABS =====================
+with tab_analysis:
+    st.header("📊 Analysis Dashboard")
     if not df_live.empty:
         st.bar_chart(df_live['category'].value_counts())
+    else:
+        st.info("No data yet.")
+
+with tab_monthly:
+    st.header("📅 Monthly Report")
+    if not df_live.empty:
+        st.bar_chart(df_live['category'].value_counts())
+    else:
+        st.info("No data yet.")
+
+with tab_recurring:
+    st.header("🔄 Recurring Users")
+    if not df_live.empty:
+        st.bar_chart(df_live['user_name'].value_counts().head(15))
     else:
         st.info("No data yet.")
 
