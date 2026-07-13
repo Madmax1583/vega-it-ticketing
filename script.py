@@ -1,16 +1,3 @@
-Ah, it looks like my text explanation from the last reply accidentally got copied and pasted directly into your Python file (`script.py`)!
-
-Because Python is trying to read that explanation as code, it's throwing a `SyntaxError`.
-
-### How to Fix:
-
-1. Open your `script.py` file.
-2. **Delete everything** currently inside the file.
-3. Copy **only the code block below** and paste it into the file. Make sure none of the conversational text outside the code block gets copied into your code editor.
-
-Here is the clean, pure Python script ready to go:
-
-```python
 import streamlit as st
 import pandas as pd
 from datetime import datetime
