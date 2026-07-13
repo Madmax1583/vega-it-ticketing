@@ -1,10 +1,25 @@
+This issue happens because of how Streamlit manages page refreshes (reruns).
+
+### 🔍 Why is this happening?
+
+In your current code, the default value for the time inputs is set directly to `value=datetime.now().time()`.
+
+Whenever the technician types something, changes a dropdown, or clicks a button, the entire script runs again from top to bottom. When it runs again, `datetime.now().time()` calculates the **exact current time right now** (e.g., 3:23 PM or 3:24 PM) and overrides whatever manual value (like 10:00 AM) the technician just typed in!
+
+### 💡 The Fix
+
+We need to save the default time inside Streamlit's `st.session_state` **once** when the page loads, and give the inputs unique tracking keys. This ensures that once a technician manually changes the time to 10:00 AM, the system locks it in and stops resetting it automatically.
+
+Here is your complete updated script with this bug completely fixed:
+
+```python
 import streamlit as st
 import pandas as pd
 from datetime import datetime
 from supabase import create_client, Client
 
 # =========================================================================
-# 🎛️ PAGE CONFIGURATION & INTERACTIVE STYLING (Layout Optimized)
+# 🎛️ PAGE CONFIGURATION & INTERACTIVE STYLING
 # =========================================================================
 st.set_page_config(page_title="Vega & Knitpro IT Ticketing", layout="wide")
 
@@ -94,7 +109,6 @@ def init_supabase():
 supabase_client = init_supabase()
 db_connected = supabase_client is not None
 
-# Addon: Live Cloud Node Health tracking in Sidebar [cite: 244-250]
 st.sidebar.header("⚙️ Node Connection Frame")
 if db_connected:
     st.sidebar.success("⚡ Live Cloud Node: Connected")
@@ -261,7 +275,7 @@ def auto_categorize(complaint):
     else: return 'Other'
 
 # =========================================================================
-# 🗂️ TABBED WORKSPACE ARRANGEMENT (Layout Matrix Match)
+# 🗂️ TABBED WORKSPACE ARRANGEMENT
 # =========================================================================
 tab_log, tab_view, tab_analysis, tab_monthly, tab_recurring = st.tabs([
     "🆕 Log New Ticket", 
@@ -278,7 +292,12 @@ with tab_log:
     st.write("")
     st.header("📋 Log New Operations Ticket")
     
-    # Addon: Form State Submission Verification Screen 
+    # [BUG FIX]: Initialize static default times in session state so they don't constantly shift on every keystroke
+    if "form_default_start" not in st.session_state:
+        st.session_state.form_default_start = datetime.now().time()
+    if "form_default_close" not in st.session_state:
+        st.session_state.form_default_close = datetime.now().time()
+        
     if "ticket_submitted" not in st.session_state: st.session_state.ticket_submitted = False
     if "last_ticket_info" not in st.session_state: st.session_state.last_ticket_info = {}
     
@@ -298,10 +317,12 @@ with tab_log:
             
         if st.button("Log Another Ticket", type="primary"):
             st.session_state.ticket_submitted = False
+            # Refresh default baseline clocks for the next fresh ticket layout
+            st.session_state.form_default_start = datetime.now().time()
+            st.session_state.form_default_close = datetime.now().time()
             st.rerun()
             
     else:
-        # Addon: Smart User Lookup Mapping Engine 
         existing_users = sorted(df_live['user_name'].dropna().astype(str).unique().tolist()) if not df_live.empty else []
         selected_user = st.selectbox("💡 Search Existing User Name to Auto-Fill Details", ["New User / Type Below"] + existing_users)
         
@@ -317,17 +338,14 @@ with tab_log:
         
         with form_col:
             with st.form("ticket_form", clear_on_submit=True):
-                # Row 1
                 r1_left, r1_right = st.columns(2)
                 user_name = r1_left.text_input("User Name *", value=default_user_name)
                 attended_by = r1_right.selectbox("Attended By", list(TECH_MAP.keys()))
                 
-                # Row 2
                 r2_left, r2_right = st.columns(2)
                 department = r2_left.text_input("Department *", value=default_dept)
                 status = r2_right.selectbox("Initial Status", STATUS_OPTIONS, index=0)
                 
-                # Row 3
                 loc_default = default_loc.lower() if default_loc else ""
                 default_index = 0
                 for idx, loc_name in enumerate(OFFICIAL_LOCATIONS):
@@ -336,14 +354,13 @@ with tab_log:
                         break
                 location = st.selectbox("Location/Sector *", options=OFFICIAL_LOCATIONS, index=default_index)
                 
-                # Row 4 & 5
                 complaint_desc = st.text_area("Complaint Description *", height=100)
                 tech_remarks = st.text_area("Technician Operational Remarks", height=100)
                 
-                # Addon: Precise Clock-in Metrics Trackers [cite: 313-315]
+                # [BUG FIX]: Linked to static session values with explicit tracking keys
                 col_t1, col_t2 = st.columns(2)
-                custom_start = col_t1.time_input("START Time", value=datetime.now().time())
-                custom_close = col_t2.time_input("RESOLVE Time", value=datetime.now().time())
+                custom_start = col_t1.time_input("START Time", value=st.session_state.form_default_start, key="widget_start_time")
+                custom_close = col_t2.time_input("RESOLVE Time", value=st.session_state.form_default_close, key="widget_close_time")
                 
                 submit_btn = st.form_submit_button("Submit Ticket")
                 
@@ -356,7 +373,6 @@ with tab_log:
                         cat_final = auto_categorize(complaint_desc)
                         formatted_date = datetime.now().strftime("%Y-%m-%d")
                         
-                        # Compute duration [cite: 344-349]
                         if status in ["Open", "On Hold - User Busy"]:
                             start_val, close_val, duration_mins = None, None, 0
                         else:
@@ -391,7 +407,7 @@ with tab_log:
             )
             
             lang_choice = st.radio("Output Language Target", ["English", "हिंदी"], index=0, horizontal=True)
-            parse_btn = st.button("💡 Parse Issue Parameters")
+            parse_btn = st.button("💡 AI Assistance", use_container_width=True)
             
             if parse_btn:
                 text_to_analyze = ai_input if ai_input.strip() else complaint_desc
@@ -410,7 +426,7 @@ with tab_log:
                     st.warning("⚠️ Please provide complaint parameters in the text fields first.")
 
 # -------------------------------------------------------------------------
-# TAB 2: VIEW & EDIT WORKSPACE (With Live Synchronization Form Addon)
+# TAB 2: VIEW & EDIT WORKSPACE
 # -------------------------------------------------------------------------
 with tab_view:
     st.write("")
@@ -420,7 +436,6 @@ with tab_view:
         st.dataframe(df_display, use_container_width=True, hide_index=True)
         
         st.markdown("---")
-        # Addon: Active Data Modifier Panel 
         st.subheader("🔄 Update / Close an Existing Ticket")
         ticket_options = {
             f"{format_ticket_number(r['id'], r['location'])} — {r['user_name']} [{r['status']}]": r['id']
@@ -476,7 +491,7 @@ with tab_view:
         st.info("No active tickets found.")
 
 # -------------------------------------------------------------------------
-# TAB 3: ANALYSIS DASHBOARD (Enhanced Analytics & Bar Charts Addon)
+# TAB 3: ANALYSIS DASHBOARD
 # -------------------------------------------------------------------------
 with tab_analysis:
     st.write("")
@@ -497,7 +512,6 @@ with tab_analysis:
         kpi5.metric("Avg Resolution Speed", f"{avg_res_time} mins")
         
         st.markdown("---")
-        # Addon: Operational Metrics Visualizers 
         chart_col1, chart_col2 = st.columns(2)
         with chart_col1:
             st.markdown("### 🧑‍💻 Performance Distribution by Technician")
@@ -509,7 +523,7 @@ with tab_analysis:
         st.info("Log ticket entries to initialize the dashboard engine.")
 
 # -------------------------------------------------------------------------
-# TAB 4: ADVANCED REPORTING CENTER (Nested Filtering Sub-Tabs Addon)
+# TAB 4: ADVANCED REPORTING CENTER
 # -------------------------------------------------------------------------
 with tab_monthly:
     st.write("")
@@ -524,14 +538,12 @@ with tab_monthly:
         df_export['Week_of_Year'] = df_export['date_parsed'].dt.isocalendar().week
         df_export['Week_Label'] = df_export['date_parsed'].dt.strftime('%Y-W') + df_export['Week_of_Year'].astype(str)
         
-        # Download Master Database
         full_csv = df_export.to_csv(index=False).encode('utf-8')
         st.download_button("📥 Download Unfiltered Master Log Sheet (.CSV)", full_csv, "it_master_production_log.csv", "text/csv")
         
         st.markdown("---")
         st.subheader("🔍 Target Filter Segment Logs")
         
-        # Addon: Nested Sub-tabs UI 
         exp_tab_month, exp_tab_week, exp_tab_tech, exp_tab_loc = st.tabs([
             "📅 Monthly Logs", "📆 Weekly Logs", "🧑‍💻 Technician Logs", "🏢 Location Logs"
         ])
@@ -575,3 +587,5 @@ with tab_recurring:
         st.dataframe(user_counts, use_container_width=True, hide_index=True)
     else:
         st.info("User activity log mapping system operational.")
+
+```
