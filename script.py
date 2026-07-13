@@ -177,11 +177,66 @@ with tab_analysis:
         st.info("No data yet.")
 
 with tab_monthly:
-    st.header("📅 Monthly Report")
-    if not df_live.empty:
-        st.bar_chart(df_live['category'].value_counts())
+    st.header("📥 Advanced Reporting Center")
+    st.markdown("Generate detailed reports by Location, Technician, Month, or Week.")
+
+    if df_live.empty:
+        st.info("No data available for reporting. Log some tickets first.")
     else:
-        st.info("No data yet.")
+        # Filters
+        report_type = st.selectbox("Select Report Type", 
+            ["Monthly Report", "Weekly Report", "Location Wise", "Technician Wise", "Overall Analytics"])
+
+        if report_type == "Monthly Report":
+            df_live['Month'] = pd.to_datetime(df_live['date']).dt.strftime('%Y-%m (%B)')
+            available_months = sorted(df_live['Month'].unique(), reverse=True)
+            selected_month = st.selectbox("Select Month", available_months)
+            
+            filtered = df_live[df_live['Month'] == selected_month]
+            st.dataframe(filtered, use_container_width=True)
+            
+            csv = filtered.to_csv(index=False).encode('utf-8')
+            st.download_button("Download Monthly Report", csv, f"Monthly_Report_{selected_month}.csv", "text/csv")
+
+        elif report_type == "Weekly Report":
+            df_live['Week'] = pd.to_datetime(df_live['date']).dt.strftime('%Y-W%U')
+            available_weeks = sorted(df_live['Week'].unique(), reverse=True)
+            selected_week = st.selectbox("Select Week", available_weeks)
+            
+            filtered = df_live[df_live['Week'] == selected_week]
+            st.dataframe(filtered, use_container_width=True)
+            
+            csv = filtered.to_csv(index=False).encode('utf-8')
+            st.download_button("Download Weekly Report", csv, f"Weekly_Report_{selected_week}.csv", "text/csv")
+
+        elif report_type == "Location Wise":
+            location = st.selectbox("Select Location", df_live['location'].unique())
+            filtered = df_live[df_live['location'] == location]
+            st.dataframe(filtered, use_container_width=True)
+            
+            csv = filtered.to_csv(index=False).encode('utf-8')
+            st.download_button("Download Location Report", csv, f"Location_Report_{location}.csv", "text/csv")
+
+        elif report_type == "Technician Wise":
+            tech = st.selectbox("Select Technician", df_live['attended_by'].unique())
+            filtered = df_live[df_live['attended_by'] == tech]
+            st.dataframe(filtered, use_container_width=True)
+            
+            csv = filtered.to_csv(index=False).encode('utf-8')
+            st.download_button("Download Technician Report", csv, f"Tech_Report_{tech}.csv", "text/csv")
+
+        elif report_type == "Overall Analytics":
+            st.subheader("Overall Analytics")
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Total Tickets", len(df_live))
+            col2.metric("Resolved", len(df_live[df_live['status'] == 'Resolved']))
+            col3.metric("Open", len(df_live[df_live['status'] == 'Open']))
+            col4.metric("Avg Resolution Time", f"{int(df_live['resolution_time'].mean())} mins" if 'resolution_time' in df_live.columns else "N/A")
+            
+            st.bar_chart(df_live['category'].value_counts())
+            st.bar_chart(df_live['attended_by'].value_counts())
+
+st.sidebar.success("Reports Ready")
 
 with tab_recurring:
     st.header("🔄 Recurring Users")
