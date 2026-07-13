@@ -13,12 +13,20 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Logos & Title
+# ===================== LOGOS =====================
 col1, col2, col3 = st.columns([1, 1, 4])
-with col1: st.caption("🔺 Vega")
-with col2: st.caption("🔺 Knitpro")
-with col3: st.title("🛠️ Vega & Knitpro IT Ticketing & Analysis System")
-
+with col1:
+    try:
+        st.image("vega_logo.png", width=150)
+    except:
+        st.caption("🔺 Vega")
+with col2:
+    try:
+        st.image("knitpro_logo.png", width=150)
+    except:
+        st.caption("🔺 Knitpro")
+with col3:
+    st.title("🛠️ Vega & Knitpro IT Ticketing & Analysis System")
 # Supabase
 @st.cache_resource
 def init_supabase():
