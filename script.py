@@ -40,10 +40,8 @@ except Exception as e:
 def format_ticket_number(ticket_id, location_str):
     try:
         loc = str(location_str).lower()
-        # Extract the year from the current system state (2026)
         current_year = "2026"
         
-        # Determine prefix based on the selected location
         if "vega" in loc or "136" in loc or "155" in loc:
             prefix = "VEGA"
         elif "knitpro" in loc or "jaipur" in loc:
@@ -51,7 +49,6 @@ def format_ticket_number(ticket_id, location_str):
         else:
             prefix = "IT"
             
-        # Format code: pads out numbers with zeros up to 4 digits (e.g., 0001)
         return f"{prefix}-{current_year}-{int(ticket_id):04d}"
     except Exception:
         return f"IT-2026-{ticket_id}"
@@ -133,7 +130,6 @@ if page == "Log New Ticket":
         info = st.session_state.last_ticket_info
         st.success("🎉 **TICKET SUBMITTED AND SECURED IN SUPABASE CLOUD!**")
         
-        # DYNAMIC FORMAT DISPLAY GENERATED HERE
         formatted_id_string = format_ticket_number(info['id'], info['loc'])
         
         with st.container(border=True):
@@ -276,10 +272,9 @@ elif page == "View & Edit Tickets":
         df_display = df_sorted.copy()
         df_display.insert(0, 'S.No.', range(1, len(df_display) + 1))
         
-        # INSERTING THE CUSTOM TICKET NUMBER COLUMN IN FRONT FOR THE TEAM TO SEE
+        # Insert the custom masked Ticket Number column
         df_display['Ticket Number'] = df_display.apply(lambda row: format_ticket_number(row['id'], row['location']), axis=1)
         
-        # Re-ordering columns visually for clarity
         cols = list(df_display.columns)
         if 'Ticket Number' in cols:
             cols.insert(1, cols.pop(cols.index('Ticket Number')))
@@ -305,12 +300,18 @@ elif page == "View & Edit Tickets":
         with col_edit:
             st.markdown("### 🔄 Update Ticket Status & Action Remarks")
             
-            # Show formatted options in selectbox to make matching easier
-            ticket_options = df_live.apply(lambda r: (int(r['id']), f"{format_ticket_number(r['id'], r['location'])} - {r['user_name']}"), axis=1).tolist()
-            ticket_dict = {label: idx for idx, label in ticket_options}
+            # FIXED: We generate a clean string list for the selectbox, storing the raw IDs in a simple dict lookup
+            ticket_labels = []
+            ticket_id_lookup = {}
             
-            selected_label = st.selectbox("Select Ticket to Update", list(ticket_dict.keys()), key="status_select")
-            ticket_id = ticket_dict[selected_label]
+            for _, r in df_live.iterrows():
+                fmt_num = format_ticket_number(r['id'], r['location'])
+                lbl = f"{fmt_num} (User: {r['user_name']})"
+                ticket_labels.append(lbl)
+                ticket_id_lookup[lbl] = int(r['id'])
+                
+            selected_ticket_lbl = st.selectbox("Select Ticket to Update", options=ticket_labels, key="status_select")
+            ticket_id = ticket_id_lookup[selected_ticket_lbl]
             
             ticket_row = df_live[df_live['id'] == ticket_id].iloc[0]
             current_status = ticket_row['status']
@@ -361,7 +362,17 @@ elif page == "View & Edit Tickets":
                 
         with col_del:
             st.markdown("### 🚨 Delete Mistaken Entry")
-            del_ticket_id = st.selectbox("Select Ticket ID to Delete", df_live['id'].astype(int).tolist(), key="delete_select")
+            del_ticket_labels = []
+            del_id_lookup = {}
+            for _, r in df_live.iterrows():
+                fmt_num = format_ticket_number(r['id'], r['location'])
+                lbl = f"{fmt_num} (User: {r['user_name']})"
+                del_ticket_labels.append(lbl)
+                del_id_lookup[lbl] = int(r['id'])
+                
+            selected_del_lbl = st.selectbox("Select Ticket to Delete", options=del_ticket_labels, key="delete_select")
+            del_ticket_id = del_id_lookup[selected_del_lbl]
+            
             target_user = df_live[df_live['id'] == del_ticket_id]['user_name'].values[0]
             st.warning(f"Warning: You are selecting Ticket #{del_ticket_id} logged by user: **{target_user}**.")
             
