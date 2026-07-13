@@ -3,7 +3,6 @@ import pandas as pd
 from datetime import datetime
 from supabase import create_client, Client
 
-# ===================== PAGE CONFIG =====================
 st.set_page_config(page_title="Vega & Knitpro IT Ticketing", layout="wide")
 
 # Styling
@@ -14,13 +13,13 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ===================== LOGOS & TITLE =====================
+# Logos & Title
 col1, col2, col3 = st.columns([1, 1, 4])
 with col1: st.caption("🔺 Vega")
 with col2: st.caption("🔺 Knitpro")
 with col3: st.title("🛠️ Vega & Knitpro IT Ticketing & Analysis System")
 
-# ===================== SUPABASE =====================
+# Supabase
 @st.cache_resource
 def init_supabase():
     try:
@@ -37,8 +36,11 @@ db_connected = supabase is not None
 def load_data():
     if not db_connected: return pd.DataFrame()
     try:
-        response = supabase.table("tickets").select("*").execute()
-        return pd.DataFrame(response.data) if response.data else pd.DataFrame()
+        response = supabase.table("tickets").select("*").order("id", desc=True).execute()
+        df = pd.DataFrame(response.data) if response.data else pd.DataFrame()
+        if not df.empty:
+            df['id'] = pd.to_numeric(df['id'], errors='coerce')
+        return df
     except:
         return pd.DataFrame()
 
@@ -78,17 +80,17 @@ if page == "Log New Ticket":
         with st.form("ticket_form", clear_on_submit=True):
             col1, col2 = st.columns(2)
             with col1:
-                user_name = st.text_input("Employee Name *")
+                user_name = st.text_input("User Name *")
                 department = st.text_input("Department *")
-                location = st.selectbox("Location *", OFFICIAL_LOCATIONS)
+                location = st.selectbox("Location/Sector *", OFFICIAL_LOCATIONS)
             with col2:
                 attended_by = st.selectbox("Attended By", list(TECH_MAP.keys()))
                 status = st.selectbox("Status", STATUS_OPTIONS)
             
             complaint = st.text_area("Complaint Description *", height=100)
-            remarks = st.text_area("Resolution Remarks", height=80)
+            remarks = st.text_area("Technician Remarks", height=80)
             
-            if st.form_submit_button("Log Ticket"):
+            if st.form_submit_button("Submit Ticket"):
                 if not user_name or not complaint:
                     st.error("❌ Please fill required fields (*)")
                 else:
@@ -112,22 +114,52 @@ if page == "Log New Ticket":
                     st.rerun()
     
     with ai_col:
-        st.subheader("🧠 Live Copilot Core")
-        complaint = st.text_area("🎯 Live Complaint Scan", height=115, placeholder="e.g., Printer offline...")
-        suggestion_lang = st.radio("Language", ["English", "Hindi"], horizontal=True)
+        st.subheader("🧠 AI Copilot")
+        complaint_input = st.text_area("Type complaint for AI suggestions", height=150)
+        lang = st.radio("Language", ["English", "हिंदी"], horizontal=True)
         
-        if st.button("💡 Assist with Diagnosis", type="secondary"):
-            if complaint:
-                cat = auto_categorize(complaint)
-                st.markdown(f"**Category:** `{cat}`")
+        if st.button("💡 Get AI Suggestion", type="primary"):
+            if complaint_input:
+                cat = auto_categorize(complaint_input)
+                st.success(f"**Category:** `{cat}`")
                 if cat in AI_SUGGESTIONS:
                     details = AI_SUGGESTIONS[cat]
-                    title = details['title_en'] if suggestion_lang == "English" else details['title_hi']
-                    steps = details['English'] if suggestion_lang == "English" else details['Hindi']
-                    st.markdown(f"<div class='ai-card'><div class='ai-title'>{title}</div>" + "".join([f"<div class='step-item'>✅ {step}</div>" for step in steps]) + "</div>", unsafe_allow_html=True)
+                    title = details['title_en'] if lang == "English" else details['title_hi']
+                    steps = details['English'] if lang == "English" else details['Hindi']
+                    st.markdown(f"**{title}**")
+                    for step in steps:
+                        st.write(f"✅ {step}")
+                else:
+                    st.info("No specific guide available yet.")
             else:
-                st.info("Type the issue and click 'Assist with Diagnosis'.")
+                st.warning("Please type a complaint first.")
 
-# Other tabs (add your existing code for tab_view, tab_analysis, tab_monthly)
+# ===================== VIEW & EDIT TICKETS =====================
+elif page == "View & Edit Tickets":
+    st.header("📋 View & Edit Tickets")
+    if df_live.empty:
+        st.info("No tickets found. Log some tickets first.")
+    else:
+        st.dataframe(df_live.sort_values(by='id', ascending=False), use_container_width=True)
+        
+        st.subheader("Update Ticket")
+        if not df_live.empty:
+            ticket_id = st.selectbox("Select Ticket ID", df_live['id'].tolist())
+            new_status = st.selectbox("New Status", STATUS_OPTIONS)
+            if st.button("Update Status"):
+                try:
+                    supabase.table("tickets").update({"status": new_status}).eq("id", ticket_id).execute()
+                    st.success("Status Updated!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Update failed: {e}")
 
-st.sidebar.success("⚡ Live Cloud Node: Supabase Engine Active")
+# Other pages
+else:
+    st.header(page)
+    if not df_live.empty:
+        st.bar_chart(df_live['category'].value_counts())
+    else:
+        st.info("No data yet.")
+
+st.sidebar.success("⚡ Supabase Connected" if db_connected else "Local Mode")
