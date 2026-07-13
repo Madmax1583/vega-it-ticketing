@@ -238,6 +238,7 @@ df_live = load_data()
 
 TECH_MAP = {"Satish": "TECH-01", "Priyanshu": "TECH-02", "Amit": "TECH-03", "Ranjan": "TECH-04", "Manish": "TECH-05"}
 OFFICIAL_LOCATIONS = ["Sector - 136 Vega", "Knitpro 28-29", "Sector - 155 Vega", "Knitpro - Jaipur", "Knitpro 42", "Knitpro 72-73", "Knitpro 75", "Bharat Composite Sector 80", "Vega Sector 80"]
+STATUS_OPTIONS = ["Open", "In Progress", "On Hold - User Busy", "Resolved"]
 
 def auto_categorize(complaint):
     text = str(complaint).lower()
@@ -336,7 +337,7 @@ with tab_log:
                 with col2:
                     ticket_date = st.date_input("Ticket Date *", value=datetime.now().date())
                     attended_by = st.selectbox("Attended By Technician", list(TECH_MAP.keys()))
-                    status = st.selectbox("Initial Status State", ["Open", "In Progress", "Resolved"], index=0)
+                    status = st.selectbox("Initial Status State", STATUS_OPTIONS, index=0)
                 
                 st.caption("⚠️ Make sure to describe the issue in the **Live Copilot Core** field on the right before saving.")
                 remarks = st.text_area("Resolution Actions Taken / Remarks (Optional)", height=80)
@@ -379,7 +380,7 @@ with tab_log:
                 cat_final = auto_categorize(complaint)
                 formatted_date = ticket_date.strftime("%Y-%m-%d")
                 
-                if status == "Open":
+                if status in ["Open", "On Hold - User Busy"]:
                     start_val, close_val, duration_mins = None, None, None
                 else:
                     start_val = f"{formatted_date} {custom_start.strftime('%H:%M:%S')}"
@@ -430,7 +431,7 @@ with tab_view:
         
         ticket_options = {}
         for _, r in df_sorted.iterrows():
-            lbl = f"{format_ticket_number(r['id'], r['location'])} — {r['user_name']} ({r['complaint'][:30]}...)"
+            lbl = f"{format_ticket_number(r['id'], r['location'])} — {r['user_name']} [{r['status']}]"
             ticket_options[lbl] = r['id']
             
         if ticket_options:
@@ -451,9 +452,8 @@ with tab_view:
                     edit_col1, edit_col2 = st.columns(2)
                     
                     with edit_col1:
-                        status_list = ["Open", "In Progress", "Resolved"]
-                        current_status_idx = status_list.index(ticket_data['status']) if ticket_data['status'] in status_list else 0
-                        new_status = st.selectbox("Modify Status state *", options=status_list, index=current_status_idx)
+                        current_status_idx = STATUS_OPTIONS.index(ticket_data['status']) if ticket_data['status'] in STATUS_OPTIONS else 0
+                        new_status = st.selectbox("Modify Status state *", options=STATUS_OPTIONS, index=current_status_idx)
                         
                         tech_list = list(TECH_MAP.keys())
                         current_tech_idx = tech_list.index(ticket_data['attended_by']) if ticket_data['attended_by'] in tech_list else 0
@@ -462,7 +462,7 @@ with tab_view:
                     with edit_col2:
                         new_remarks = st.text_area("Update Action/Resolution Remarks", value=str(ticket_data['remarks']))
                         
-                    st.caption("⏱️ If resolving, calculate the approximate active resolution duration window below:")
+                    st.caption("⏱️ Duration window calculation (Skip or leave 0 if putting ticket On Hold):")
                     duration_input = st.number_input("Resolution Duration (in Minutes)", min_value=0, value=int(ticket_data['resolution_time']) if pd.notna(ticket_data['resolution_time']) else 0)
                     
                     save_update_btn = st.form_submit_button("Save Changes & Sync Data", type="primary")
@@ -471,10 +471,15 @@ with tab_view:
                         if not db_connected:
                             st.error("❌ Action blocked. Application is disconnected from the cloud database node.")
                         else:
+                            # Auto-fill warning remark if marked as On Hold and remarks are left clean
+                            final_remarks = str(new_remarks)
+                            if new_status == "On Hold - User Busy" and (not final_remarks or final_remarks.strip() == ""):
+                                final_remarks = "Technician arrived to resolve, but user requested postponement due to ongoing business task constraints."
+                            
                             update_payload = {
                                 "status": str(new_status),
                                 "attended_by": str(new_tech),
-                                "remarks": str(new_remarks),
+                                "remarks": final_remarks,
                                 "resolution_time": int(duration_input)
                             }
                             
@@ -483,7 +488,7 @@ with tab_view:
                                 
                             try:
                                 supabase_client.table("tickets").update(update_payload).eq("id", int(target_id)).execute()
-                                st.success(f"⚡ Ticket updated successfully and synchronized with cloud node!")
+                                st.success(f"⚡ Ticket successfully updated to status: {new_status}!")
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"❌ Failed to synchronize database entry: {e}")
@@ -500,16 +505,18 @@ with tab_analysis:
     if not df_live.empty:
         total_tickets = len(df_live)
         resolved_tickets = len(df_live[df_live['status'].str.lower() == 'resolved'])
+        held_tickets = len(df_live[df_live['status'].str.lower() == 'on hold - user busy'])
         open_tickets = len(df_live[df_live['status'].str.lower().isin(['open', 'in progress'])])
         
         resolved_df = df_live[(df_live['status'].str.lower() == 'resolved') & (df_live['resolution_time'] > 0)]
         avg_res_time = int(resolved_df['resolution_time'].mean()) if not resolved_df.empty else 0
         
-        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+        kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
         kpi1.metric("Total Logged Volume", total_tickets)
         kpi2.metric("Resolved Queries", resolved_tickets)
-        kpi3.metric("Outstanding Backlog", open_tickets)
-        kpi4.metric("Avg Resolution Speed", f"{avg_res_time} mins")
+        kpi3.metric("On Hold (User Busy)", held_tickets)
+        kpi4.metric("Active Backlog Queue", open_tickets)
+        kpi5.metric("Avg Resolution Speed", f"{avg_res_time} mins")
         
         st.markdown("---")
         chart_col1, chart_col2 = st.columns(2)
@@ -520,9 +527,9 @@ with tab_analysis:
             st.bar_chart(tech_counts)
             
         with chart_col2:
-            st.markdown("### 🗂️ Breakdown by Category Type")
-            cat_counts = df_live['category'].value_counts()
-            st.bar_chart(cat_counts)
+            st.markdown("### 🗂️ Breakdown by Current Status State")
+            status_counts = df_live['status'].value_counts()
+            st.bar_chart(status_counts)
     else:
         st.info("Log your first ticket entries to initialize the live metrics dashboard engine.")
 
@@ -539,20 +546,15 @@ with tab_monthly:
         df_export['date_parsed'] = pd.to_datetime(df_export['date'], errors='coerce')
         df_export = df_export.dropna(subset=['date_parsed'])
         
-        # Add tracking helper columns
         df_export['Month'] = df_export['date_parsed'].dt.strftime('%Y-%m (%B)')
         df_export['Week_of_Year'] = df_export['date_parsed'].dt.isocalendar().week
         df_export['Week_Label'] = df_export['date_parsed'].dt.strftime('%Y-W') + df_export['Week_of_Year'].astype(str)
         df_export['Ticket_Number'] = df_export.apply(lambda row: format_ticket_number(row['id'], row['location']), axis=1)
 
-        # Arrange columns to put critical info first
         ordered_cols = ['Ticket_Number', 'date', 'user_name', 'department', 'location', 'attended_by', 'category', 'complaint', 'status', 'resolution_time', 'remarks']
         existing_ordered = [c for c in ordered_cols if c in df_export.columns] + [c for c in df_export.columns if c not in ordered_cols]
         df_export = df_export[existing_ordered]
 
-        # -----------------------------------------------------------------
-        # 1. COMPLETE MASTER LOG
-        # -----------------------------------------------------------------
         with st.container(border=True):
             st.markdown("#### 📋 1. Download Entire Master Database Logs")
             st.caption("Exports every single ticket parameter, timeline, and remark from the system.")
@@ -567,7 +569,6 @@ with tab_monthly:
             "📅 Monthly Logs", "📆 Weekly Logs", "🧑‍💻 Technician Logs", "🏢 Location Logs"
         ])
 
-        # A. MONTHLY DETAILED EXPORT
         with exp_tab_month:
             available_months = sorted(df_export['Month'].unique().tolist(), reverse=True)
             selected_month = st.selectbox("Select Target Month:", available_months, key="sel_m")
@@ -579,7 +580,6 @@ with tab_monthly:
             csv_m_detailed = filtered_m_df.to_csv(index=False).encode('utf-8')
             st.download_button(f"📥 Download Detailed Logs for {selected_month} (.CSV)", csv_m_detailed, f"it_detailed_log_{selected_month.replace(' ', '_')}.csv", "text/csv")
 
-        # B. WEEKLY DETAILED EXPORT
         with exp_tab_week:
             available_weeks = sorted(df_export['Week_Label'].unique().tolist(), reverse=True)
             selected_week = st.selectbox("Select Target Week:", available_weeks, key="sel_w")
@@ -591,7 +591,6 @@ with tab_monthly:
             csv_w_detailed = filtered_w_df.to_csv(index=False).encode('utf-8')
             st.download_button(f"📥 Download Detailed Logs for {selected_week} (.CSV)", csv_w_detailed, f"it_detailed_log_{selected_week}.csv", "text/csv")
 
-        # C. TECHNICIAN DETAILED EXPORT
         with exp_tab_tech:
             available_techs = sorted(df_export['attended_by'].unique().tolist())
             selected_tech = st.selectbox("Select Technician Name:", available_techs, key="sel_t")
@@ -603,7 +602,6 @@ with tab_monthly:
             csv_t_detailed = filtered_t_df.to_csv(index=False).encode('utf-8')
             st.download_button(f"📥 Download Detailed Logs for {selected_tech} (.CSV)", csv_t_detailed, f"it_detailed_log_{selected_tech.lower()}.csv", "text/csv")
 
-        # D. LOCATION DETAILED EXPORT
         with exp_tab_loc:
             available_locs = sorted(df_export['location'].unique().tolist())
             selected_loc = st.selectbox("Select Operating Site Location:", available_locs, key="sel_l")
