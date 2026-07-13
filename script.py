@@ -40,12 +40,10 @@ except Exception as e:
 
 def format_ticket_number(ticket_id, location_str):
     """
-    Safely builds standard prefixes and converts IDs to integers, avoiding float decimals like .0
+    Safely builds standard prefixes and converts IDs to clean integers.
     """
     try:
-        # Guarantee ID is an integer even if read from database as a float
         clean_id = int(float(ticket_id))
-        
         if pd.isna(location_str) or not location_str:
             return f"IT-2026-{clean_id:04d}"
             
@@ -72,7 +70,7 @@ def load_data():
         response = supabase.table("tickets").select("*").execute()
         if response.data:
             df = pd.DataFrame(response.data)
-            # Standardize ID rows immediately to clean integers upon download
+            # Standardize ID column immediately to integers
             df['id'] = pd.to_numeric(df['id'], errors='coerce').fillna(0).astype(int)
             df['resolution_time'] = pd.to_numeric(df['resolution_time'], errors='coerce').fillna(0).astype(int)
             
@@ -313,18 +311,22 @@ elif page == "View & Edit Tickets":
         with col_edit:
             st.markdown("### 🔄 Update Ticket Status & Action Remarks")
             
-            ticket_labels = []
-            ticket_id_lookup = {}
+            # Extract raw integer IDs dynamically 
+            valid_ids = sorted([int(x) for x in df_live['id'].dropna().unique()], reverse=True)
             
-            for _, r in df_live.iterrows():
-                fmt_num = format_ticket_number(r['id'], r['location'])
-                lbl = f"{fmt_num} (User: {r['user_name']})"
-                ticket_labels.append(lbl)
-                ticket_id_lookup[lbl] = int(r['id'])
-            
-            if ticket_labels:
-                selected_ticket_lbl = st.selectbox("Select Ticket to Update", options=ticket_labels, key="status_select")
-                ticket_id = ticket_id_lookup[selected_ticket_lbl]
+            if valid_ids:
+                # FIXED: We use format_func so the selectbox holds cleaner structural data frames behind the scenes
+                def get_edit_label(tid):
+                    row = df_live[df_live['id'] == tid].iloc[0]
+                    fmt_num = format_ticket_number(row['id'], row['location'])
+                    return f"{fmt_num} (User: {row['user_name']})"
+                
+                ticket_id = st.selectbox(
+                    "Select Ticket to Update", 
+                    options=valid_ids, 
+                    format_func=get_edit_label,
+                    key="status_select"
+                )
                 
                 ticket_row = df_live[df_live['id'] == ticket_id].iloc[0]
                 current_status = ticket_row['status']
@@ -377,17 +379,20 @@ elif page == "View & Edit Tickets":
                 
         with col_del:
             st.markdown("### 🚨 Delete Mistaken Entry")
-            del_ticket_labels = []
-            del_id_lookup = {}
-            for _, r in df_live.iterrows():
-                fmt_num = format_ticket_number(r['id'], r['location'])
-                lbl = f"{fmt_num} (User: {r['user_name']})"
-                del_ticket_labels.append(lbl)
-                del_id_lookup[lbl] = int(r['id'])
+            del_ids = sorted([int(x) for x in df_live['id'].dropna().unique()], reverse=True)
             
-            if del_ticket_labels:
-                selected_del_lbl = st.selectbox("Select Ticket to Delete", options=del_ticket_labels, key="delete_select")
-                del_ticket_id = del_id_lookup[selected_del_lbl]
+            if del_ids:
+                def get_del_label(tid):
+                    row = df_live[df_live['id'] == tid].iloc[0]
+                    fmt_num = format_ticket_number(row['id'], row['location'])
+                    return f"{fmt_num} (User: {row['user_name']})"
+                
+                del_ticket_id = st.selectbox(
+                    "Select Ticket to Delete", 
+                    options=del_ids, 
+                    format_func=get_del_label,
+                    key="delete_select"
+                )
                 
                 target_user = df_live[df_live['id'] == del_ticket_id]['user_name'].values[0]
                 st.warning(f"Warning: You are selecting Ticket #{del_ticket_id} logged by user: **{target_user}**.")
