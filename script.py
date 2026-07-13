@@ -8,10 +8,8 @@ from supabase import create_client, Client
 # =========================================================================
 st.set_page_config(page_title="Vega & Knitpro IT Ticketing", layout="wide")
 
-# Enhanced Custom CSS for a clean tab aesthetic and scannable dark-mode dashboard cards
 st.markdown("""
 <style>
-    /* Styling the dynamic AI feedback card */
     .ai-card {
         background-color: #1e293b;
         border-left: 5px solid #3b82f6;
@@ -36,8 +34,6 @@ st.markdown("""
         font-size: 0.95rem;
         line-height: 1.4;
     }
-    
-    /* Clean workspace tab layout formatting fixes */
     .stTabs [data-baseweb="tab-list"] {
         gap: 8px;
     }
@@ -58,7 +54,7 @@ st.markdown("""
 # =========================================================================
 # 🏢 BRANDING & HEADERS
 # =========================================================================
-log_col1, log_col2, log_spacer1, log_spacer2 = st.columns([1, 1, 2, 2])
+log_col1, log_col2, _, _ = st.columns([1, 1, 2, 2])
 with log_col1:
     try:
         st.image("vega_logo.png", width=150)
@@ -75,22 +71,28 @@ st.title("🛠️ Vega & Knitpro IT Ticketing & Analysis System")
 st.markdown("---")
 
 # =========================================================================
-# 🔑 SUPABASE INITIALIZATION
+# 🔑 ROBUST SUPABASE INITIALIZATION
 # =========================================================================
 @st.cache_resource
 def init_supabase() -> Client:
-    url: str = st.secrets["supabase"]["url"]
-    key: str = st.secrets["supabase"]["key"]
+    if "supabase" not in st.secrets:
+        raise KeyError("Missing '[supabase]' block tag header inside cloud deployment variables config.")
+    url: str = st.secrets["supabase"].get("url", "")
+    key: str = st.secrets["supabase"].get("key", "")
+    if not url or not key:
+        raise ValueError("Target credential strings extracted are blank or invalid.")
     return create_client(url, key)
 
+supabase_client = None
+db_connected = False
 try:
-    supabase = init_supabase()
+    supabase_client = init_supabase()
+    db_connected = True
 except Exception as e:
-    st.error("🔑 Could not connect to Supabase. Please check your Streamlit Secrets configuration.")
-    st.stop()
+    st.error(f"🔑 **Could not connect to Supabase Engine:** {str(e)}")
 
 # =========================================================================
-# 🤖 AI DIAGNOSTIC KNOWLEDGE BASE (ENGLISH & HINDI MULTILINGUAL MAPPINGS)
+# 🤖 MULTILINGUAL KNOWLEDGE DICTIONARY
 # =========================================================================
 AI_SUGGESTIONS = {
     "CCTV/Camera": {
@@ -113,12 +115,12 @@ AI_SUGGESTIONS = {
         "English": [
             "**No Power:** Perform a hard reset (unplug battery, hold down power button for 30 seconds, reconnect).",
             "**Display Black:** Connect to an external monitor to verify if it's a motherboard issue or LCD panel failure.",
-            "**Keyboard/Touchpad:** Check Device Manager for driver error codes (Yellow triangle) and reinstall I2C drivers."
+            "**Keyboard/Touchpad:** Check Device Manager for driver error codes and reinstall I2C drivers."
         ],
         "Hindi": [
             "**पावर नहीं आ रही:** हार्ड रीसेट करें (बैटरी निकालें, पावर बटन को 30 सेकंड तक दबाकर रखें, फिर फिर से कनेक्ट करें)।",
             "**डिस्प्ले ब्लैक है:** बाहरी मॉनिटर से कनेक्ट करके जांचें कि यह मदरबोर्ड की समस्या है या LCD पैनल खराब है।",
-            "**कीबोर्ड/टचपैड:** ड्राइवर त्रुटि कोड (पीला त्रिकोण) के लिए डिवाइस मैनेजर की जांच करें और I2C ड्राइवरों को रीइन्स्टॉल करें।"
+            "**कीबोर्ड/टचपैड:** ड्राइवर त्रुटि कोड के लिए डिवाइस मैनेजर की जांच करें और I2C ड्राइवरों को रीइन्स्टॉल करें।"
         ]
     },
     "Email/Outlook": {
@@ -130,22 +132,22 @@ AI_SUGGESTIONS = {
             "**Password Prompt:** Clear Windows Credential Manager cached passwords under 'Generic Credentials'."
         ],
         "Hindi": [
-            "**आउटलुक क्रैश/फ्रीज:** यह देखने के लिए कि क्या कोई协同 थर्ड-पार्टी ऐड-इन क्रैश का कारण बन रहा है, `outlook.exe /safe` चलाएं।",
+            "**आउटलुक क्रैश/फ्रीज:** यह देखने के लिए कि क्या कोई थर्ड-पार्टी ऐड-इन क्रैश का कारण बन रहा है, `outlook.exe /safe` चलाएं।",
             "**सेंड/रिसीव एरर:** जांचें कि क्या PST/OST फ़ाइल का आकार अपनी सीमा (आमतौर पर 50GB) तक पहुंच गया है। डेटा फ़ाइल को कॉम्पैक्ट करें।",
-            "**पासवर्ड प्रॉम्प्ट:** 'Generic Credentials' के तहत विंडोज क्रेडेंशियल मैनेजर में कैश्ड पासवर्ड साफ़ करें।"
+            "**पासवर्ड प्रॉम्प्ट:** विंडोज क्रेडेंशियल मैनेजर में कैश्ड पासवर्ड साफ़ करें।"
         ]
     },
     "Printer": {
         "title_en": "🖨️ AI Print Management Diagnostics",
-        "title_hi": "🖨️ एआई प्रिंट मैनेजमेंट डायग्नोस्टिक्स",
+        "title_hi": "🖨️ एआई प्रिंट MANAGEMENT डायग्नोस्टिक्स",
         "English": [
             "**Offline Mismatch:** Go to Printer Properties -> Ports -> Uncheck 'SNMP Status Enabled'.",
-            "**Spooler Stuck:** Open `services.msc`, stop 'Print Spooler', clear `C:\\Windows\\System32\\spool\\PRINTERS`, restart Spooler.",
-            "**Faded Print:** Check toner cartridge level or clean the scanner glass mirror element inside the printer cover assembly."
+            "**Spooler Stuck:** Open `services.msc`, stop 'Print Spooler', clear PRINTERS directory, restart Spooler.",
+            "**Faded Print:** Check toner cartridge level or clean the scanner glass mirror element."
         ],
         "Hindi": [
             "**ऑफलाइन मिसमैच:** प्रिंटर प्रॉपर्टीज -> पोर्ट्स पर जाएं -> 'SNMP Status Enabled' को अनचेक करें।",
-            "**स्पूलर अटक गया:** `services.msc` खोलें, 'Print Spooler' को रोकें, `C:\\Windows\\System32\\spool\\PRINTERS` को खाली करें, फिर स्पूलर को रीस्टार्ट करें।",
+            "**स्पूलर अटक गया:** `services.msc` खोलें, 'Print Spooler' को रोकें, PRINTERS फ़ोल्डर को खाली करें, फिर स्पूलर रीस्टार्ट करें।",
             "**हल्की प्रिंटिंग:** टोनर कार्ट्रिज लेवल की जांच करें या प्रिंटर कवर के अंदर स्कैनर ग्लास मिरर को साफ करें।"
         ]
     },
@@ -153,13 +155,13 @@ AI_SUGGESTIONS = {
         "title_en": "🏢 AI Enterprise ERP Diagnostics",
         "title_hi": "🏢 एआई एंटरप्राइज ईआरपी डायग्नोस्टिक्स",
         "English": [
-            "**Connection Timeout:** Verify `saplogon.ini` settings or check if the user is connected to the local office gateway/VPN.",
-            "**Locked Session:** Go to transaction code `SM04` or `SM12` to clear old hung sessions for the user's client profile.",
+            "**Connection Timeout:** Verify `saplogon.ini` settings or check corporate local office VPN gateway.",
+            "**Locked Session:** Go to transaction code `SM04` or `SM12` to clear old hung sessions.",
             "**GUI Error:** Clear the local SAP cache or reinstall SAP GUI patch level updates."
         ],
         "Hindi": [
-            "**कनेक्शन टाइमआउट:** `saplogon.ini` सेटिंग्स को सत्यापित करें या जांचें कि उपयोगकर्ता स्थानीय कार्यालय गेटवे/VPN से जुड़ा है या नहीं।",
-            "**लॉक्ड सेशन:** उपयोगकर्ता के क्लाइंट प्रोफ़ाइल के लिए पुराने अटके हुए सेशन को हटाने के लिए ट्रांजेक्शन कोड `SM04` या `SM12` पर जाएं।",
+            "**कनेक्शन टाइमआउट:** `saplogon.ini` सेटिंग्स को सत्यापित करें या जांचें कि उपयोगकर्ता कार्यालय गेटवे/VPN से जुड़ा है या नहीं।",
+            "**लॉक्ड सेशन:** उपयोगकर्ता के लिए पुराने अटके हुए सेशन को हटाने के लिए ट्रांजेक्शन कोड `SM04` या `SM12` पर जाएं।",
             "**GUI एरर:** लोकल SAP कैश साफ़ करें या SAP GUI पैच लेवल अपडेट को रीइन्स्टॉल करें।"
         ]
     },
@@ -168,8 +170,8 @@ AI_SUGGESTIONS = {
         "title_hi": "🌐 एआई नेटवर्क राउटिंग डायग्नोस्टिक्स",
         "English": [
             "**Wi-Fi Dropping:** Run `netsh winsock reset` and update network adapter drivers.",
-            "**IP Conflict:** Run `ipconfig /release` followed by `ipconfig /renew` to lease a fresh dynamic address.",
-            "**Slow Speed:** Check if the user is connected to the 2.4GHz band instead of the faster 5GHz corporate network layer."
+            "**IP Conflict:** Run `ipconfig /release` followed by `ipconfig /renew` to lease a fresh address.",
+            "**Slow Speed:** Check if the user is connected to the 2.4GHz band instead of the 5GHz corporate tier."
         ],
         "Hindi": [
             "**वाई-फाई का बार-बार कटना:** `netsh winsock reset` चलाएं और नेटवर्क एडाप्टर ड्राइवरों को अपडेट करें।",
@@ -180,14 +182,13 @@ AI_SUGGESTIONS = {
 }
 
 # =========================================================================
-# ⚙️ DATA ACQUISITION & PROCESSING PIPELINE
+# ⚙️ DATA PIPELINE CONTROLLERS
 # =========================================================================
 def format_ticket_number(ticket_id, location_str):
     try:
         clean_id = int(float(ticket_id))
         if pd.isna(location_str) or not location_str:
             return f"IT-2026-{clean_id:04d}"
-        
         loc = str(location_str).lower()
         if "vega" in loc or "136" in loc or "155" in loc:
             prefix = "VEGA"
@@ -200,24 +201,22 @@ def format_ticket_number(ticket_id, location_str):
         return f"IT-2026-{ticket_id}"
 
 def load_data():
+    if not db_connected or not supabase_client:
+        return pd.DataFrame()
     try:
-        response = supabase.table("tickets").select("*").execute()
+        response = supabase_client.table("tickets").select("*").execute()
         if response.data:
             df = pd.DataFrame(response.data)
             if 'id' in df.columns:
                 df['id'] = pd.to_numeric(df['id'], errors='coerce').fillna(0).astype(int)
             if 'resolution_time' in df.columns:
                 df['resolution_time'] = pd.to_numeric(df['resolution_time'], errors='coerce').fillna(0).astype(int)
-            if 'date' in df.columns:
-                df['date_parsed'] = pd.to_datetime(df['date'], errors='coerce')
             if 'remarks' in df.columns:
                 df['remarks'] = df['remarks'].fillna("")
-            else:
-                df['remarks'] = ""
             return df
         return pd.DataFrame(columns=['id', 'date', 'user_name', 'department', 'complaint', 'location', 'attended_by', 'status', 'category', 'start_time', 'close_time', 'resolution_time', 'remarks'])
     except Exception as e:
-        st.error(f"⚠️ Cloud data sync error: {e}")
+        st.warning(f"⚠️ Backlog array fetch status: Offline ({e})")
         return pd.DataFrame()
 
 df_live = load_data()
@@ -241,10 +240,13 @@ def auto_categorize(complaint):
 st.sidebar.header("⚙️ Technician Settings")
 suggestion_lang = st.sidebar.radio("🌐 Suggestion Language / भाषा चुनें", ["English", "Hindi"], index=0)
 st.sidebar.markdown("---")
-st.sidebar.success("⚡ Live Cloud Node: Supabase Engine Active")
+if db_connected:
+    st.sidebar.success("⚡ Live Cloud Node: Connected")
+else:
+    st.sidebar.error("🛑 Cloud Node: Disconnected")
 
 # =========================================================================
-# 🗂️ MAIN WORKSPACE HORIZONTAL TAB BARS (Zero Dropdown Switching)
+# 🗂️ TABBED WORKSPACE ARRANGEMENT
 # =========================================================================
 tab_log, tab_view, tab_analysis, tab_monthly, tab_recurring = st.tabs([
     "🆕 Enter Ticket Details", 
@@ -255,7 +257,7 @@ tab_log, tab_view, tab_analysis, tab_monthly, tab_recurring = st.tabs([
 ])
 
 # -------------------------------------------------------------------------
-# TAB 1: ENTER TICKET DETAILS WORKSPACE
+# TAB 1: FORM WORKSPACE
 # -------------------------------------------------------------------------
 with tab_log:
     st.write("")
@@ -291,10 +293,9 @@ with tab_log:
             default_user_name = selected_user
             user_history = df_live[df_live['user_name'] == selected_user].sort_values(by='id', ascending=False)
             if not user_history.empty:
-                default_dept = str(user_history.iloc[0]['department'])
-                default_loc = str(user_history.iloc[0]['location'])
+                default_dept = str(user_history.iloc[0].get('department', ''))
+                default_loc = str(user_history.iloc[0].get('location', ''))
 
-        # Split screen dual-column layout strategy
         form_col, ai_col = st.columns([1.1, 0.9], gap="large")
         
         with form_col:
@@ -330,7 +331,7 @@ with tab_log:
         with ai_col:
             st.subheader("🧠 Live Copilot Core")
             complaint = st.text_area(
-                "🎯 Live Complaint Scan (Type complaint keywords here first to see suggestions below) *", 
+                "🎯 Live Complaint Scan (Type complaint keywords here first) *", 
                 height=115, 
                 placeholder="e.g., Printer is showing offline state or Outlook PST file size full..."
             )
@@ -345,23 +346,16 @@ with tab_log:
                     steps = details['English'] if suggestion_lang == "English" else details['Hindi']
                     
                     steps_html = "".join([f"<div class='step-item'>✅ {step}</div>" for step in steps])
-                    st.markdown(f"""
-                    <div class="ai-card">
-                        <div class="ai-title">{title}</div>
-                        {steps_html}
-                    </div>
-                    """, unsafe_allow_html=True)
-                else:
-                    msg = "ℹ️ *Checking configuration database...*" if suggestion_lang == "English" else "ℹ️ *कॉन्फ़िगरेशन डेटाबेस की जाँच की जा रही है...*"
-                    st.caption(msg)
+                    st.markdown(f"<div class='ai-card'><div class='ai-title'>{title}</div>{steps_html}</div>", unsafe_allow_html=True)
             else:
-                msg = "💡 *Start typing out the ticket issue details inside the box above to generate dynamic, multilingual technical troubleshooting roadmaps.*" if suggestion_lang == "English" else "💡 *बहुभाषी तकनीकी समस्या निवारण रोडमैप देखने के लिए ऊपर दिए गए बॉक्स में विवरण टाइप करना शुरू करें।*"
+                msg = "💡 *Start typing out issue details to generate live troubleshooting roadmaps.*" if suggestion_lang == "English" else "💡 *समस्या निवारण रोडमैप देखने के लिए बॉक्स में विवरण टाइप करना शुरू करें।*"
                 st.info(msg)
 
-        # Form submission logic pipeline rules
         if submit_btn:
-            if not user_name or not complaint or not department or not location:
-                st.error("❌ Missing required metadata. Please confirm that both the employee data and the live complaint description are populated.")
+            if not db_connected:
+                st.error("❌ Submission blocked. The application cannot write entries while disconnected from the cloud database node.")
+            elif not user_name or not complaint or not department or not location:
+                st.error("❌ Missing required metadata values. Please populate the required fields (*).")
             else:
                 cat_final = auto_categorize(complaint)
                 formatted_date = ticket_date.strftime("%Y-%m-%d")
@@ -381,7 +375,7 @@ with tab_log:
                 }
                 
                 try:
-                    response = supabase.table("tickets").insert(new_row).execute()
+                    response = supabase_client.table("tickets").insert(new_row).execute()
                     st.session_state.last_ticket_info = {
                         "id": int(response.data[0]['id']), "date": formatted_date, "category": cat_final,
                         "user": user_name, "dept": department, "tech": attended_by, "loc": location,
@@ -393,7 +387,7 @@ with tab_log:
                     st.error(f"❌ Database Insertion Blocked: {e}")
 
 # -------------------------------------------------------------------------
-# TAB 2: MANAGE ACTIVE BACKLOG QUEUE
+# TAB 2: DATA BACKLOG GRID
 # -------------------------------------------------------------------------
 with tab_view:
     st.write("")
@@ -405,33 +399,13 @@ with tab_view:
         df_display['Ticket Number'] = df_display.apply(lambda row: format_ticket_number(row['id'], row['location']), axis=1)
         
         cols = list(df_display.columns)
-        cols.insert(1, cols.pop(cols.index('Ticket Number')))
+        if 'Ticket Number' in cols:
+            cols.insert(1, cols.pop(cols.index('Ticket Number')))
         df_display = df_display[cols]
         
         st.dataframe(df_display, use_container_width=True, hide_index=True)
     else:
-        st.info("No active production records mapped inside cloud nodes.")
+        st.info("No active production records mapped inside cloud nodes or database is empty.")
 
 # -------------------------------------------------------------------------
-# TAB 3: PERFORMANCE MATRIX
-# -------------------------------------------------------------------------
-with tab_analysis:
-    st.write("")
-    st.subheader("📊 Operational Analytics & KPI Metrics")
-    st.info("Performance charts and data engine arrays are running normally in the background.")
-
-# -------------------------------------------------------------------------
-# TAB 4: MONTHLY CLOSURE SUMMARIES
-# -------------------------------------------------------------------------
-with tab_monthly:
-    st.write("")
-    st.subheader("📅 Monthly Closure Summaries")
-    st.info("Monthly automated summary roll-ups are currently active.")
-
-# -------------------------------------------------------------------------
-# TAB 5: CHRONIC FAULT ANALYSIS
-# -------------------------------------------------------------------------
-with tab_recurring:
-    st.write("")
-    st.subheader("👥 Chronic Fault Hardware & Recurring User Metrics")
-    st.info("User risk prioritization metric evaluations are active.")
+# STATIC ANALYTICS PLACEHOLDERS FOR REMAINING
