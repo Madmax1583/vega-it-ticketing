@@ -190,6 +190,7 @@ def format_ticket_number(ticket_id, location_str):
         clean_id = int(float(ticket_id))
         if pd.isna(location_str) or not location_str:
             return f"IT-2026-{clean_id:04d}"
+        
         loc = str(location_str).lower()
         if "vega" in loc or "136" in loc or "155" in loc:
             prefix = "VEGA"
