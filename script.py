@@ -1,16 +1,3 @@
-This update significantly elevates the application. Moving to a tabbed interface and implementing a specialized **Advanced Reporting Center** dramatically improves the tool's utility for day-to-day operations.
-
-Let's refine the script to ensure total data compatibility, eliminate duplicated code blocks, and enhance user experience.
-
-### 🔍 Crucial Optimization Notes
-
-* **Date Operations Safety:** Your reporting tab uses `pd.to_datetime(df_live['date'])`. If the database returns an empty payload or malformed strings, this will crash the page. We will explicitly coerce dates inside the `load_data()` core function.
-* **The Missing Field (Resolution Time):** The reporting dashboard tracks `Avg Resolution Time` using `df_live['resolution_time']`. However, this key isn't created when logging new tickets. The optimized code below safely handles this column fallback so the dashboard doesn't throw a key error.
-* **Contextual Lookups:** When updating a ticket in **Tab 2**, choosing from a raw list of integers can cause mistakes. We will upgrade the selection drop-down to show the user name and category alongside the ID.
-
-Here is your fully realized, production-ready Streamlit codebase:
-
-```python
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -58,7 +45,6 @@ db_connected = supabase is not None
 
 def load_data():
     if not db_connected: 
-        # local dummy schema structural backup
         return pd.DataFrame(columns=['id', 'date', 'user_name', 'department', 'complaint', 'location', 'attended_by', 'status', 'category', 'remarks'])
     try:
         response = supabase.table("tickets").select("*").order("id", desc=True).execute()
@@ -185,7 +171,6 @@ with tab_view:
         
         st.subheader("⚙️ Update Active Ticket Status Context")
         
-        # Clean up data structures to process update selection
         clean_options = df_live.dropna(subset=['id']).sort_values(by='id', ascending=False)
         ticket_id_list = [int(x) for x in clean_options['id'].tolist()]
         
@@ -227,7 +212,6 @@ with tab_analysis:
     if df_live.empty:
         st.info("Insufficient metrics available to compute visual breakdown trends.")
     else:
-        # High-impact dashboard metrics cards
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Total Infrastructure Logs", len(df_live))
         c2.metric("Open Backlog Requests", len(df_live[df_live['status'] == 'Open']))
@@ -262,7 +246,6 @@ with tab_monthly:
             col_m2.metric("Total System Remediations Completed", len(df_live[df_live['status'] == 'Resolved']))
             col_m3.metric("Remaining Backlog Count", len(df_live[df_live['status'] == 'Open']))
             
-            # Safe metrics calculations for resolution time
             if 'resolution_time' in df_live.columns and not df_live['resolution_time'].dropna().empty:
                 avg_res = f"{int(df_live['resolution_time'].mean())} minutes"
             else:
@@ -335,7 +318,6 @@ with tab_recurring:
     else:
         st.write("Identifies employees filing recurring support requests. This highlights training needs or faulty hardware.")
         
-        # Aggregate user reporting frequency profiles
         user_metrics_summary = df_live['user_name'].value_counts().reset_index()
         user_metrics_summary.columns = ['Employee Identity', 'Total Logged Call Incidents']
         
@@ -364,5 +346,3 @@ with tab_recurring:
 # Sync Confirmation Sidebar Monitor
 st.sidebar.write("---")
 st.sidebar.success("⚡ Supabase Remote Datastore Online" if db_connected else "⚠️ Local Storage Runtime Emulation Mode Active")
-
-```
