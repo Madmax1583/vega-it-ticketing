@@ -8,7 +8,7 @@ from supabase import create_client, Client
 # =========================================================================
 st.set_page_config(page_title="Vega & Knitpro IT Ticketing", layout="wide")
 
-# Enhanced Custom CSS for a modern, scannable dark-mode experience
+# Enhanced Custom CSS for a clean tab aesthetic and scannable dark-mode dashboard cards
 st.markdown("""
 <style>
     /* Styling the dynamic AI feedback card */
@@ -37,15 +37,15 @@ st.markdown("""
         line-height: 1.4;
     }
     
-    /* Global layout enhancements */
+    /* Clean workspace tab layout formatting fixes */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 10px;
+        gap: 8px;
     }
     .stTabs [data-baseweb="tab"] {
         background-color: #1e293b;
-        border-radius: 4px 4px 0px 0px;
+        border-radius: 6px 6px 0px 0px;
         padding: 10px 20px;
-        color: #max(1, 1);
+        color: #cbd5e1;
         font-weight: 600;
     }
     .stTabs [aria-selected="true"] {
@@ -56,7 +56,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =========================================================================
-# 🏢 BRANDING & TITLES
+# 🏢 BRANDING & HEADERS
 # =========================================================================
 log_col1, log_col2, log_spacer1, log_spacer2 = st.columns([1, 1, 2, 2])
 with log_col1:
@@ -90,7 +90,7 @@ except Exception as e:
     st.stop()
 
 # =========================================================================
-# 🤖 AI DIAGNOSTIC KNOWLEDGE BASE (ENGLISH & HINDI)
+# 🤖 AI DIAGNOSTIC KNOWLEDGE BASE (ENGLISH & HINDI MULTILINGUAL MAPPINGS)
 # =========================================================================
 AI_SUGGESTIONS = {
     "CCTV/Camera": {
@@ -103,7 +103,7 @@ AI_SUGGESTIONS = {
         ],
         "Hindi": [
             "जांचें कि कैमरा POE स्विच पोर्ट की लाइट ब्लिंक कर रही है या नहीं। यदि नहीं, तो पोर्ट बदलें या पैच कॉर्ड चेक करें।",
-            "नेटवर्क ड्रॉपआउट चेक करने के लिए CMD के माध्यम से कैमरा IP एड्रेस को पिंग करें।",
+            "नेटवर्क DROP-OUT चेक करने के लिए CMD के माध्यम से कैमरा IP एड्रेस को पिंग करें।",
             "यदि NVR 'No Video' दिखाता है, तो जांचें कि कैमरा चैनल को फर्मवेयर रीस्टार्ट या री-लॉगिन की आवश्यकता है या नहीं।"
         ]
     },
@@ -180,7 +180,7 @@ AI_SUGGESTIONS = {
 }
 
 # =========================================================================
-# ⚙️ DATA AND CORE PROCESSING ENGINE
+# ⚙️ DATA ACQUISITION & PROCESSING PIPELINE
 # =========================================================================
 def format_ticket_number(ticket_id, location_str):
     try:
@@ -192,15 +192,3 @@ def format_ticket_number(ticket_id, location_str):
             prefix = "VEGA"
         elif "knitpro" in loc or "jaipur" in loc:
             prefix = "KP"
-        else:
-            prefix = "IT"
-        return f"{prefix}-2026-{clean_id:04d}"
-    except Exception:
-        return f"IT-2026-{ticket_id}"
-
-def load_data():
-    try:
-        response = supabase.table("tickets").select("*").execute()
-        if response.data:
-            df = pd.DataFrame(response.data)
-            df['id'] = pd.to_numeric(df['id'], errors
