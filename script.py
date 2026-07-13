@@ -36,13 +36,19 @@ except Exception as e:
     st.error("🔑 Could not connect to Supabase. Please check your Streamlit Secrets configuration.")
     st.stop()
 
-# ===================== HELPER FUNCTIONS (DEFINED FIRST) =====================
+# ===================== HELPER FUNCTIONS =====================
 
 def format_ticket_number(ticket_id, location_str):
     """
-    Generates structured ticket formatting safely before load_data utilizes it.
+    Safely builds standard prefixes and converts IDs to integers, avoiding float decimals like .0
     """
     try:
+        # Guarantee ID is an integer even if read from database as a float
+        clean_id = int(float(ticket_id))
+        
+        if pd.isna(location_str) or not location_str:
+            return f"IT-2026-{clean_id:04d}"
+            
         loc = str(location_str).lower()
         current_year = "2026"
         
@@ -53,19 +59,21 @@ def format_ticket_number(ticket_id, location_str):
         else:
             prefix = "IT"
             
-        return f"{prefix}-{current_year}-{int(ticket_id):04d}"
+        return f"{prefix}-{current_year}-{clean_id:04d}"
     except Exception:
-        return f"IT-2026-{ticket_id}"
+        try:
+            fallback_id = int(float(ticket_id))
+            return f"IT-2026-{fallback_id:04d}"
+        except Exception:
+            return f"IT-2026-{ticket_id}"
 
 def load_data():
-    """
-    Pulls historical data from Supabase production tables safely.
-    """
     try:
         response = supabase.table("tickets").select("*").execute()
         if response.data:
             df = pd.DataFrame(response.data)
-            df['id'] = pd.to_numeric(df['id'], errors='coerce')
+            # Standardize ID rows immediately to clean integers upon download
+            df['id'] = pd.to_numeric(df['id'], errors='coerce').fillna(0).astype(int)
             df['resolution_time'] = pd.to_numeric(df['resolution_time'], errors='coerce').fillna(0).astype(int)
             
             if 'date' in df.columns:
@@ -85,7 +93,6 @@ def load_data():
         return pd.DataFrame()
 
 # ===================== DATA INITIALIZATION =====================
-# Now safe to run because functions above are loaded into compilation memory!
 df_live = load_data()
 
 # Master Configuration Constants
@@ -254,7 +261,7 @@ if page == "Log New Ticket":
                     
                     try:
                         response = supabase.table("tickets").insert(new_row).execute()
-                        new_id = response.data[0]['id']
+                        new_id = int(response.data[0]['id'])
                         
                         st.session_state.last_ticket_info = {
                             "id": new_id, "date": formatted_date, "category": cat,
@@ -314,56 +321,59 @@ elif page == "View & Edit Tickets":
                 lbl = f"{fmt_num} (User: {r['user_name']})"
                 ticket_labels.append(lbl)
                 ticket_id_lookup[lbl] = int(r['id'])
+            
+            if ticket_labels:
+                selected_ticket_lbl = st.selectbox("Select Ticket to Update", options=ticket_labels, key="status_select")
+                ticket_id = ticket_id_lookup[selected_ticket_lbl]
                 
-            selected_ticket_lbl = st.selectbox("Select Ticket to Update", options=ticket_labels, key="status_select")
-            ticket_id = ticket_id_lookup[selected_ticket_lbl]
-            
-            ticket_row = df_live[df_live['id'] == ticket_id].iloc[0]
-            current_status = ticket_row['status']
-            db_start_time = ticket_row['start_time']
-            current_remarks = ticket_row['remarks']
-            current_tech = ticket_row['attended_by']
-            current_loc = ticket_row.get('location', '')
-            
-            status_options = ["Open", "In Progress", "Resolved"]
-            default_index = status_options.index(current_status) if current_status in status_options else 0
-            new_status = st.selectbox("New Status", status_options, index=default_index)
-            
-            new_tech = st.selectbox("Reassign Technician (Optional)", list(TECH_MAP.keys()), index=list(TECH_MAP.keys()).index(current_tech) if current_tech in TECH_MAP else 0)
-            
-            default_loc_idx = OFFICIAL_LOCATIONS.index(current_loc) if current_loc in OFFICIAL_LOCATIONS else 0
-            new_location = st.selectbox("Update Location/Sector", OFFICIAL_LOCATIONS, index=default_loc_idx)
-            
-            new_remarks = st.text_area("Update Action Remarks", value=current_remarks, height=80)
-            
-            if st.button("Update Status & Remarks", type="primary"):
-                now_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                ticket_row = df_live[df_live['id'] == ticket_id].iloc[0]
+                current_status = ticket_row['status']
+                db_start_time = ticket_row['start_time']
+                current_remarks = ticket_row['remarks']
+                current_tech = ticket_row['attended_by']
+                current_loc = ticket_row.get('location', '')
                 
-                update_fields = {
-                    "status": str(new_status), 
-                    "remarks": str(new_remarks), 
-                    "attended_by": str(new_tech),
-                    "location": str(new_location)
-                }
+                status_options = ["Open", "In Progress", "Resolved"]
+                default_index = status_options.index(current_status) if current_status in status_options else 0
+                new_status = st.selectbox("New Status", status_options, index=default_index)
                 
-                if new_status == "In Progress":
-                    update_fields["start_time"] = now_timestamp
-                elif new_status == "Resolved":
-                    final_start = db_start_time if (pd.notna(db_start_time) and db_start_time != "" and db_start_time != "—") else now_timestamp
-                    try:
-                        t1 = datetime.strptime(str(final_start).split(".")[0], "%Y-%m-%d %H:%M:%S")
-                    except Exception:
-                        t1 = datetime.now()
-                    t2 = datetime.strptime(now_timestamp, "%Y-%m-%d %H:%M:%S")
-                    duration_mins = max(1, int((t2 - t1).total_seconds() / 60))
+                new_tech = st.selectbox("Reassign Technician (Optional)", list(TECH_MAP.keys()), index=list(TECH_MAP.keys()).index(current_tech) if current_tech in TECH_MAP else 0)
+                
+                default_loc_idx = OFFICIAL_LOCATIONS.index(current_loc) if current_loc in OFFICIAL_LOCATIONS else 0
+                new_location = st.selectbox("Update Location/Sector", OFFICIAL_LOCATIONS, index=default_loc_idx)
+                
+                new_remarks = st.text_area("Update Action Remarks", value=current_remarks, height=80)
+                
+                if st.button("Update Status & Remarks", type="primary"):
+                    now_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     
-                    update_fields["start_time"] = str(final_start).split(".")[0]
-                    update_fields["close_time"] = now_timestamp
-                    update_fields["resolution_time"] = duration_mins
-                
-                supabase.table("tickets").update(update_fields).eq("id", ticket_id).execute()
-                st.success("✅ Ticket metrics updated successfully!")
-                st.rerun()
+                    update_fields = {
+                        "status": str(new_status), 
+                        "remarks": str(new_remarks), 
+                        "attended_by": str(new_tech),
+                        "location": str(new_location)
+                    }
+                    
+                    if new_status == "In Progress":
+                        update_fields["start_time"] = now_timestamp
+                    elif new_status == "Resolved":
+                        final_start = db_start_time if (pd.notna(db_start_time) and db_start_time != "" and db_start_time != "—") else now_timestamp
+                        try:
+                            t1 = datetime.strptime(str(final_start).split(".")[0], "%Y-%m-%d %H:%M:%S")
+                        except Exception:
+                            t1 = datetime.now()
+                        t2 = datetime.strptime(now_timestamp, "%Y-%m-%d %H:%M:%S")
+                        duration_mins = max(1, int((t2 - t1).total_seconds() / 60))
+                        
+                        update_fields["start_time"] = str(final_start).split(".")[0]
+                        update_fields["close_time"] = now_timestamp
+                        update_fields["resolution_time"] = duration_mins
+                    
+                    supabase.table("tickets").update(update_fields).eq("id", ticket_id).execute()
+                    st.success("✅ Ticket metrics updated successfully!")
+                    st.rerun()
+            else:
+                st.info("No options available.")
                 
         with col_del:
             st.markdown("### 🚨 Delete Mistaken Entry")
@@ -374,19 +384,22 @@ elif page == "View & Edit Tickets":
                 lbl = f"{fmt_num} (User: {r['user_name']})"
                 del_ticket_labels.append(lbl)
                 del_id_lookup[lbl] = int(r['id'])
+            
+            if del_ticket_labels:
+                selected_del_lbl = st.selectbox("Select Ticket to Delete", options=del_ticket_labels, key="delete_select")
+                del_ticket_id = del_id_lookup[selected_del_lbl]
                 
-            selected_del_lbl = st.selectbox("Select Ticket to Delete", options=del_ticket_labels, key="delete_select")
-            del_ticket_id = del_id_lookup[selected_del_lbl]
-            
-            target_user = df_live[df_live['id'] == del_ticket_id]['user_name'].values[0]
-            st.warning(f"Warning: You are selecting Ticket #{del_ticket_id} logged by user: **{target_user}**.")
-            
-            confirm_delete = st.checkbox("I confirm that I want to delete this ticket permanently.")
-            if confirm_delete:
-                if st.button("❌ Permanently Delete Ticket", type="secondary"):
-                    supabase.table("tickets").delete().eq("id", del_ticket_id).execute()
-                    st.error("🗑️ Ticket purged from Supabase.")
-                    st.rerun()
+                target_user = df_live[df_live['id'] == del_ticket_id]['user_name'].values[0]
+                st.warning(f"Warning: You are selecting Ticket #{del_ticket_id} logged by user: **{target_user}**.")
+                
+                confirm_delete = st.checkbox("I confirm that I want to delete this ticket permanently.")
+                if confirm_delete:
+                    if st.button("❌ Permanently Delete Ticket", type="secondary"):
+                        supabase.table("tickets").delete().eq("id", del_ticket_id).execute()
+                        st.error("🗑️ Ticket purged from Supabase.")
+                        st.rerun()
+            else:
+                st.info("No entries to drop.")
     else:
         st.info("No tickets recorded yet.")
 
