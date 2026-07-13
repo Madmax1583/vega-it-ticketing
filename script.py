@@ -9,9 +9,9 @@ st.set_page_config(page_title="Vega & Knitpro IT Operations", layout="wide")
 
 st.markdown("""
 <style>
-    .ai-card { background-color: #1e293b; border-left: 5px solid #3b82f6; padding: 18px; border-radius: 8px; margin-top: 10px; color: #f8fafc; }
+    .ai-card { background-color: #1e293b; border-left: 5px solid #3b82f6; padding: 18px; border-radius: 8px; margin-top: 10px; color: #f8fafc; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
     .ai-title { color: #60a5fa; font-weight: bold; font-size: 1.15rem; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
-    .step-item { margin-bottom: 8px; font-size: 0.95rem; }
+    .step-item { margin-bottom: 8px; font-size: 0.95rem; line-height: 1.4; }
     .stTabs [data-baseweb="tab-list"] { gap: 8px; }
     .stTabs [data-baseweb="tab"] { background-color: #1e293b; border-radius: 6px 6px 0px 0px; padding: 10px 20px; color: #cbd5e1; font-weight: 600; }
     .stTabs [aria-selected="true"] { background-color: #3b82f6 !important; color: white !important; }
@@ -21,12 +21,6 @@ st.markdown("""
 # =========================================================================
 # ⚙️ CORE LOGIC & UTILITIES
 # =========================================================================
-def format_ticket_number(ticket_id, location_str):
-    """Generates standardized ID like VEGA-2026-0001"""
-    loc = str(location_str).lower()
-    prefix = "VEGA" if ("vega" in loc or "136" in loc) else ("KP" if "knitpro" in loc else "IT")
-    return f"{prefix}-2026-{int(ticket_id):04d}"
-
 def auto_categorize(complaint):
     text = str(complaint).lower()
     if any(k in text for k in ['cctv', 'camera']): return 'CCTV/Camera'
@@ -80,34 +74,47 @@ tab_log, tab_view, tab_matrix, tab_reports = st.tabs(["🆕 Enter Ticket", "📂
 
 # TAB 1: ENTER TICKET
 with tab_log:
-    col_f, col_ai = st.columns([1, 1])
+    col_f, ai_col = st.columns([1, 1])
+    
     with col_f:
         with st.form("ticket_form", clear_on_submit=True):
             st.subheader("New Ticket Entry")
             user_name = st.text_input("Employee Name")
             location = st.selectbox("Location", ["Sector - 136 Vega", "Knitpro - Jaipur", "Sector - 155 Vega"])
+            # ADDED: Technician Field
+            technician = st.selectbox("Technician", ["Satish", "Priyanshu", "Amit"]) 
             remarks = st.text_area("Remarks")
             if st.form_submit_button("Log Ticket"):
-                st.success("Ticket Logged & Formatted!")
-    with col_ai:
+                st.success(f"Ticket Logged! Assigned to {technician}.")
+    
+    with ai_col:
         st.subheader("🧠 Live Copilot Core")
-        complaint = st.text_area("🎯 Live Complaint Scan *", height=115, placeholder="e.g., Printer is showing offline...")
+        complaint = st.text_area(
+            "🎯 Live Complaint Scan *", 
+            height=115, 
+            placeholder="e.g., Printer is showing offline..."
+        )
         suggestion_lang = st.radio("Language", ["English", "Hindi"], horizontal=True)
+        
         assist_btn = st.button("💡 Assist with Diagnosis", type="secondary")
         
         if assist_btn or complaint:
             cat = auto_categorize(complaint)
             st.markdown(f"**Calculated Category:** ` {cat} `")
+            
             if cat in AI_SUGGESTIONS:
                 details = AI_SUGGESTIONS[cat]
-                steps = details['English'] if suggestion_lang == "English" else details['Hindi']
                 title = details['title_en'] if suggestion_lang == "English" else details['title_hi']
+                steps = details['English'] if suggestion_lang == "English" else details['Hindi']
+                
                 steps_html = "".join([f"<div class='step-item'>✅ {step}</div>" for step in steps])
                 st.markdown(f"<div class='ai-card'><div class='ai-title'>{title}</div>{steps_html}</div>", unsafe_allow_html=True)
+            else:
+                st.info("💡 Type the issue and click 'Assist with Diagnosis' to get a troubleshooting roadmap.")
 
 # TAB 2: BACKLOG
 with tab_view:
-    st.subheader("📂 Manage Backlog")
+    st.subheader("📂 Active Backlog")
     if not df.empty:
         st.dataframe(df, use_container_width=True)
     else: st.info("No data found.")
@@ -116,6 +123,7 @@ with tab_view:
 with tab_matrix:
     st.subheader("📊 Technician Matrix & Reassignment")
     if not df.empty:
+        # Added logic to identify tickets by their ID
         ticket_to_edit = st.selectbox("Select Ticket to Reassign", df['Formatted_Ticket'].unique())
         new_tech = st.selectbox("Assign to Technician", ["Satish", "Priyanshu", "Amit"])
         if st.button("Apply Reassignment"):
@@ -133,5 +141,5 @@ with tab_reports:
     
     st.write("---")
     st.write(f"Generating report for: {month_filter}")
-    # Placeholder for logic to filter df by selection
-    st.bar_chart(df['category'].value_counts() if not df.empty else None)
+    if not df.empty:
+        st.bar_chart(df['category'].value_counts())
