@@ -36,8 +36,12 @@ except Exception as e:
     st.error("🔑 Could not connect to Supabase. Please check your Streamlit Secrets configuration.")
     st.stop()
 
-# Helper function to generate custom ticket formatting dynamically
+# ===================== HELPER FUNCTIONS (DEFINED FIRST) =====================
+
 def format_ticket_number(ticket_id, location_str):
+    """
+    Generates structured ticket formatting safely before load_data utilizes it.
+    """
     try:
         loc = str(location_str).lower()
         current_year = "2026"
@@ -54,6 +58,9 @@ def format_ticket_number(ticket_id, location_str):
         return f"IT-2026-{ticket_id}"
 
 def load_data():
+    """
+    Pulls historical data from Supabase production tables safely.
+    """
     try:
         response = supabase.table("tickets").select("*").execute()
         if response.data:
@@ -77,14 +84,11 @@ def load_data():
         st.error(f"⚠️ Failed to fetch live data from Supabase Cloud: {e}")
         return pd.DataFrame()
 
-# Global cloud data pull
+# ===================== DATA INITIALIZATION =====================
+# Now safe to run because functions above are loaded into compilation memory!
 df_live = load_data()
 
-# Sidebar Navigation
-page = st.sidebar.selectbox("Navigation", 
-    ["Log New Ticket", "View & Edit Tickets", "Analysis Dashboard", "Monthly Report", "Recurring Users"])
-
-# Technician ID Mapping Dictionary
+# Master Configuration Constants
 TECH_MAP = {
     "Satish": "TECH-01",
     "Priyanshu": "TECH-02",
@@ -93,7 +97,6 @@ TECH_MAP = {
     "Manish": "TECH-05"
 }
 
-# Master official locations array
 OFFICIAL_LOCATIONS = [
     "Sector - 136 Vega",
     "Knitpro 28-29",
@@ -116,6 +119,10 @@ def auto_categorize(complaint):
     elif any(k in text for k in ['network', 'wifi', 'internet', 'vpn']): return 'Network'
     elif any(k in text for k in ['ups', 'server', 'backup', 'nas']): return 'Server/UPS'
     else: return 'Other'
+
+# Sidebar Navigation Control
+page = st.sidebar.selectbox("Navigation", 
+    ["Log New Ticket", "View & Edit Tickets", "Analysis Dashboard", "Monthly Report", "Recurring Users"])
 
 # ===================== LOG NEW TICKET =====================
 if page == "Log New Ticket":
@@ -272,7 +279,6 @@ elif page == "View & Edit Tickets":
         df_display = df_sorted.copy()
         df_display.insert(0, 'S.No.', range(1, len(df_display) + 1))
         
-        # Insert the custom masked Ticket Number column
         df_display['Ticket Number'] = df_display.apply(lambda row: format_ticket_number(row['id'], row['location']), axis=1)
         
         cols = list(df_display.columns)
@@ -300,7 +306,6 @@ elif page == "View & Edit Tickets":
         with col_edit:
             st.markdown("### 🔄 Update Ticket Status & Action Remarks")
             
-            # FIXED: We generate a clean string list for the selectbox, storing the raw IDs in a simple dict lookup
             ticket_labels = []
             ticket_id_lookup = {}
             
