@@ -531,93 +531,89 @@ with tab_analysis:
 # -------------------------------------------------------------------------
 with tab_monthly:
     st.write("")
-    st.subheader("📊 Operational Data Export Center")
-    st.markdown("Use this tab to generate detailed reports for management audits, weekly presentations, and resource tracking.")
+    st.subheader("📥 Operational Data Export Center")
+    st.markdown("Generate full detailed logs for management reviews, weekly slides, or engineer-specific tracking.")
     
     if not df_live.empty:
         df_export = df_live.copy()
         df_export['date_parsed'] = pd.to_datetime(df_export['date'], errors='coerce')
         df_export = df_export.dropna(subset=['date_parsed'])
         
-        # Derived Tracking Formats
+        # Add tracking helper columns
         df_export['Month'] = df_export['date_parsed'].dt.strftime('%Y-%m (%B)')
         df_export['Week_of_Year'] = df_export['date_parsed'].dt.isocalendar().week
         df_export['Week_Label'] = df_export['date_parsed'].dt.strftime('%Y-W') + df_export['Week_of_Year'].astype(str)
-        df_export['Formatted_Ticket'] = df_export.apply(lambda row: format_ticket_number(row['id'], row['location']), axis=1)
+        df_export['Ticket_Number'] = df_export.apply(lambda row: format_ticket_number(row['id'], row['location']), axis=1)
+
+        # Arrange columns to put critical info first
+        ordered_cols = ['Ticket_Number', 'date', 'user_name', 'department', 'location', 'attended_by', 'category', 'complaint', 'status', 'resolution_time', 'remarks']
+        existing_ordered = [c for c in ordered_cols if c in df_export.columns] + [c for c in df_export.columns if c not in ordered_cols]
+        df_export = df_export[existing_ordered]
 
         # -----------------------------------------------------------------
-        # REPORT TYPE 1: MASTER REPOSITORY
+        # 1. COMPLETE MASTER LOG
         # -----------------------------------------------------------------
         with st.container(border=True):
-            st.markdown("#### 📋 1. Master Log Report")
-            st.caption("Contains every ticket parameter, time stamp, row data, and closure remarks.")
-            m_csv = df_export.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Download Full Master Sheet (.CSV)", m_csv, "it_master_production_log.csv", "text/csv")
+            st.markdown("#### 📋 1. Download Entire Master Database Logs")
+            st.caption("Exports every single ticket parameter, timeline, and remark from the system.")
+            full_master_csv = df_export.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Download Unfiltered Master Log Sheet (.CSV)", full_master_csv, "it_master_production_log.csv", "text/csv")
 
-        # -----------------------------------------------------------------
-        # REPORT TYPE 2: CHRONOLOGICAL TIMELINES
-        # -----------------------------------------------------------------
-        with st.container(border=True):
-            st.markdown("#### 📅 2. Periodic Timeline Reports")
-            st.caption("Aggregated summary records divided by monthly and weekly tracking metrics.")
-            
-            col_m1, col_m2 = st.columns(2)
-            with col_m1:
-                st.markdown("**Monthly Analysis Matrix**")
-                pivot_m = df_export.groupby('Month').agg(
-                    Total_Tickets=('id', 'count'),
-                    Resolved=('status', lambda x: sum(x.str.lower() == 'resolved')),
-                    Pending=('status', lambda x: sum(x.str.lower().isin(['open', 'in progress'])))
-                ).reset_index()
-                st.dataframe(pivot_m, use_container_width=True, hide_index=True)
-                csv_m = pivot_m.to_csv(index=False).encode('utf-8')
-                st.download_button("📥 Download Monthly Summary", csv_m, "monthly_performance_report.csv", "text/csv")
-                
-            with col_m2:
-                st.markdown("**Weekly Analysis Matrix**")
-                pivot_w = df_export.groupby('Week_Label').agg(
-                    Total_Tickets=('id', 'count'),
-                    Resolved=('status', lambda x: sum(x.str.lower() == 'resolved')),
-                    Pending=('status', lambda x: sum(x.str.lower().isin(['open', 'in progress'])))
-                ).reset_index()
-                st.dataframe(pivot_w, use_container_width=True, hide_index=True)
-                csv_w = pivot_w.to_csv(index=False).encode('utf-8')
-                st.download_button("📥 Download Weekly Summary", csv_w, "weekly_performance_report.csv", "text/csv")
+        st.markdown("---")
+        st.markdown("#### 🔍 2. Filter & Download Filtered Segment Logs")
+        st.caption("Select a parameter to view and download full individual ticket details.")
 
-        # -----------------------------------------------------------------
-        # REPORT TYPE 3: TECHNICIAN PERFORMANCE
-        # -----------------------------------------------------------------
-        with st.container(border=True):
-            st.markdown("#### 🧑‍💻 3. Technician Performance Audit Report")
-            st.caption("Tracks issue volume breakdown, resolution rates, and efficiency metrics per engineer.")
-            
-            pivot_tech = df_export.groupby('attended_by').agg(
-                Assigned_Tickets=('id', 'count'),
-                Resolved=('status', lambda x: sum(x.str.lower() == 'resolved')),
-                Pending=('status', lambda x: sum(x.str.lower().isin(['open', 'in progress']))),
-                Avg_Resolution_Mins=('resolution_time', lambda x: int(x[x > 0].mean()) if not x[x > 0].empty else 0)
-            ).reset_index().rename(columns={'attended_by': 'Technician Name'})
-            
-            st.dataframe(pivot_tech, use_container_width=True, hide_index=True)
-            csv_tech = pivot_tech.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Download Technician Performance Matrix", csv_tech, "technician_performance_report.csv", "text/csv")
+        exp_tab_month, exp_tab_week, exp_tab_tech, exp_tab_loc = st.tabs([
+            "📅 Monthly Logs", "📆 Weekly Logs", "🧑‍💻 Technician Logs", "🏢 Location Logs"
+        ])
 
-        # -----------------------------------------------------------------
-        # REPORT TYPE 4: SITE LOCATION ANALYSIS
-        # -----------------------------------------------------------------
-        with st.container(border=True):
-            st.markdown("#### 🏢 4. Site Location Analysis Report")
-            st.caption("Breakdown of infrastructure faults divided by industrial sectors and operational zones.")
+        # A. MONTHLY DETAILED EXPORT
+        with exp_tab_month:
+            available_months = sorted(df_export['Month'].unique().tolist(), reverse=True)
+            selected_month = st.selectbox("Select Target Month:", available_months, key="sel_m")
             
-            pivot_loc = df_export.groupby('location').agg(
-                Total_Incidents=('id', 'count'),
-                Resolved=('status', lambda x: sum(x.str.lower() == 'resolved')),
-                Pending=('status', lambda x: sum(x.str.lower().isin(['open', 'in progress'])))
-            ).reset_index().rename(columns={'location': 'Operating Site Location'})
+            filtered_m_df = df_export[df_export['Month'] == selected_month].drop(columns=['date_parsed', 'Month', 'Week_of_Year', 'Week_Label'], errors='ignore')
+            st.write(f"Showing **{len(filtered_m_df)}** detailed records for `{selected_month}`:")
+            st.dataframe(filtered_m_df, use_container_width=True, hide_index=True)
             
-            st.dataframe(pivot_loc, use_container_width=True, hide_index=True)
-            csv_loc = pivot_loc.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Download Site Location Audit Sheet", csv_loc, "location_incident_report.csv", "text/csv")
+            csv_m_detailed = filtered_m_df.to_csv(index=False).encode('utf-8')
+            st.download_button(f"📥 Download Detailed Logs for {selected_month} (.CSV)", csv_m_detailed, f"it_detailed_log_{selected_month.replace(' ', '_')}.csv", "text/csv")
+
+        # B. WEEKLY DETAILED EXPORT
+        with exp_tab_week:
+            available_weeks = sorted(df_export['Week_Label'].unique().tolist(), reverse=True)
+            selected_week = st.selectbox("Select Target Week:", available_weeks, key="sel_w")
+            
+            filtered_w_df = df_export[df_export['Week_Label'] == selected_week].drop(columns=['date_parsed', 'Month', 'Week_of_Year', 'Week_Label'], errors='ignore')
+            st.write(f"Showing **{len(filtered_w_df)}** detailed records for `{selected_week}`:")
+            st.dataframe(filtered_w_df, use_container_width=True, hide_index=True)
+            
+            csv_w_detailed = filtered_w_df.to_csv(index=False).encode('utf-8')
+            st.download_button(f"📥 Download Detailed Logs for {selected_week} (.CSV)", csv_w_detailed, f"it_detailed_log_{selected_week}.csv", "text/csv")
+
+        # C. TECHNICIAN DETAILED EXPORT
+        with exp_tab_tech:
+            available_techs = sorted(df_export['attended_by'].unique().tolist())
+            selected_tech = st.selectbox("Select Technician Name:", available_techs, key="sel_t")
+            
+            filtered_t_df = df_export[df_export['attended_by'] == selected_tech].drop(columns=['date_parsed', 'Month', 'Week_of_Year', 'Week_Label'], errors='ignore')
+            st.write(f"Showing **{len(filtered_t_df)}** detailed records managed by `{selected_tech}`:")
+            st.dataframe(filtered_t_df, use_container_width=True, hide_index=True)
+            
+            csv_t_detailed = filtered_t_df.to_csv(index=False).encode('utf-8')
+            st.download_button(f"📥 Download Detailed Logs for {selected_tech} (.CSV)", csv_t_detailed, f"it_detailed_log_{selected_tech.lower()}.csv", "text/csv")
+
+        # D. LOCATION DETAILED EXPORT
+        with exp_tab_loc:
+            available_locs = sorted(df_export['location'].unique().tolist())
+            selected_loc = st.selectbox("Select Operating Site Location:", available_locs, key="sel_l")
+            
+            filtered_l_df = df_export[df_export['location'] == selected_loc].drop(columns=['date_parsed', 'Month', 'Week_of_Year', 'Week_Label'], errors='ignore')
+            st.write(f"Showing **{len(filtered_l_df)}** detailed records for site `{selected_loc}`:")
+            st.dataframe(filtered_l_df, use_container_width=True, hide_index=True)
+            
+            csv_l_detailed = filtered_l_df.to_csv(index=False).encode('utf-8')
+            st.download_button(f"📥 Download Detailed Logs for {selected_loc.replace(' ', '_')} (.CSV)", csv_l_detailed, f"it_detailed_log_{selected_loc.replace(' ', '_')}.csv", "text/csv")
             
     else:
         st.info("Operational logs must be active to compute target summaries.")
