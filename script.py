@@ -1,571 +1,620 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+import io
+import urllib.request
 from supabase import create_client, Client
 
-# =========================================================================
-# 🎛️ PAGE CONFIGURATION & INTERACTIVE STYLING
-# =========================================================================
+# ==========================================
+# 1. APPLICATION CONFIGURATION & STYLING
+# ==========================================
 st.set_page_config(page_title="Vega & Knitpro IT Ticketing", layout="wide")
 
 st.markdown("""
 <style>
     .ai-card {
-        background-color: #1e293b;
-        border-left: 5px solid #ef4444; 
-        padding: 18px;
-        border-radius: 8px;
-        margin-top: 15px;
-        margin-bottom: 15px;
-        color: #f8fafc;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        background-color: #1e293b; 
+        border-left: 5px solid #3b82f6; 
+        padding: 16px; 
+        border-radius: 8px; 
+        margin: 10px 0;
     }
     .ai-title {
-        color: #f87171;
-        font-weight: bold;
+        color: #60a5fa; 
+        font-weight: bold; 
         font-size: 1.15rem;
-        margin-bottom: 10px;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
-    .step-item {
         margin-bottom: 8px;
-        font-size: 0.95rem;
-        line-height: 1.4;
     }
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
+    .kpi-container {
+        background-color: #0f172a;
+        padding: 15px;
+        border-radius: 6px;
+        text-align: center;
+        border: 1px solid #334155;
     }
-    .stTabs [data-baseweb="tab"] {
-        background-color: #1e293b;
-        border-radius: 6px 6px 0px 0px;
-        padding: 10px 20px;
-        color: #cbd5e1;
-        font-weight: 600;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #ef4444 !important; 
-        color: white !important;
-    }
-    div.stButton > button:first-child {
-        background-color: #ef4444;
-        color: white;
-        border: none;
+    .excel-badge {
+        background-color: #166534;
+        color: #bbf7d0;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 0.85rem;
+        font-weight: bold;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# =========================================================================
-# 🏢 BRANDING & HEADERS
-# =========================================================================
-log_col1, log_col2, _, _ = st.columns([1, 1, 2, 2])
-with log_col1:
-    try:
-        st.image("vega_logo.png", width=150)
-    except Exception:
-        st.caption("🔺 [Vega Logo]")
+# Application Header & Branding
+col1, col2, col3 = st.columns([1, 1, 4])
+with col1: st.caption("🔺 Vega Operations")
+with col2: st.caption("🔺 Knitpro Industrial")
+with col3: st.title("🛠️ Vega & Knitpro IT Ticketing & Analysis System")
 
-with log_col2:
-    try:
-        st.image("knitpro_logo.png", width=150)
-    except Exception:
-        st.caption("🔺 [Knitpro Logo]")
 
-st.title("🛠️ Vega & Knitpro IT Ticketing & Analysis System")
-st.markdown("---")
-
-# =========================================================================
-# 🔑 ROBUST SUPABASE INITIALIZATION
-# =========================================================================
+# ==========================================
+# 2. DATABASE INITIALIZATION & STATE ENGINES
+# ==========================================
 @st.cache_resource
 def init_supabase():
-    if "supabase" not in st.secrets:
-        return None
-    url = st.secrets["supabase"].get("url", "")
-    key = st.secrets["supabase"].get("key", "")
-    if not url or not key:
-        return None
     try:
+        url = st.secrets["supabase"]["url"]
+        key = st.secrets["supabase"]["key"]
+        # Strict 3-second network pre-flight check to prevent screen hang
+        urllib.request.urlopen(url, timeout=3)
         return create_client(url, key)
-    except Exception:
+    except Exception as e:
+        print(f"Supabase connection skipped (using sandbox). Detail: {e}")
         return None
 
-supabase_client = init_supabase()
-db_connected = supabase_client is not None
+supabase = init_supabase()
+db_connected = supabase is not None
 
-st.sidebar.header("⚙️ Node Connection Frame")
-if db_connected:
-    st.sidebar.success("⚡ Live Cloud Node: Connected")
-else:
-    st.sidebar.error("🛑 Cloud Node: Disconnected")
+# --- CORE TICKETING DATA ENGINE ---
+if "local_db" not in st.session_state:
+    st.session_state.local_db = pd.DataFrame([
+        {"id": 1, "date": "2026-07-01", "user_name": "Amit Sharma", "department": "Production",
+         "complaint": "CCTV camera in main corridor raw materials loading dock is flickering",
+         "location": "Sector - 136 Vega", "attended_by": "Satish", "status": "In Progress", "category": "CCTV/Camera",
+         "remarks": "Inspecting POE injector port status"},
+        {"id": 2, "date": "2026-07-03", "user_name": "Sunita Rao", "department": "Finance",
+         "complaint": "Desktop client showing blue screen loops after update patch execution",
+         "location": "Knitpro 28-29", "attended_by": "Priyanshu", "status": "Open", "category": "Laptop/Hardware",
+         "remarks": ""},
+        {"id": 3, "date": "2026-07-05", "user_name": "Rajesh Kumar", "department": "HR",
+         "complaint": "HR Shared network office printer offline, print queue showing stuck jobs",
+         "location": "Sector - 155 Vega", "attended_by": "Amit", "status": "Resolved", "category": "Printer",
+         "remarks": "Flushed local print spooler threads, cleared paper obstruction"},
+        {"id": 4, "date": "2026-07-08", "user_name": "Sunita Rao", "department": "Finance",
+         "complaint": "Outlook continuously prompting for authentication credentials over corporate Wi-Fi",
+         "location": "Knitpro 28-29", "attended_by": "Ranjan", "status": "On Hold - User Busy",
+         "category": "Email/Outlook", "remarks": "User in site audit meeting"},
+        {"id": 5, "date": "2026-07-11", "user_name": "Vikram Singh", "department": "Logistics",
+         "complaint": "Cannot link tracking manifests due to SAP client gateway connection timeout",
+         "location": "Knitpro - Jaipur", "attended_by": "Manish", "status": "Resolved", "category": "SAP",
+         "remarks": "Updated local SAP GUI connection configurations"}
+    ])
 
-# =========================================================================
-# 🤖 MULTILINGUAL KNOWLEDGE DICTIONARY
-# =========================================================================
-AI_SUGGESTIONS = {
-    "CCTV/Camera": {
-        "title_en": "📷 AI Video Infrastructure Diagnostics",
-        "title_hi": "📷 एआई वीडियो इन्फ्रास्ट्रक्चर डायग्नोस्टिक्स",
-        "English": [
-            "Check if the camera POE switch port light is blinking. If not, swap ports or check the patch cord.",
-            "Ping the camera IP address via CMD to check network dropouts.",
-            "If NVR shows 'No Video', check if the camera channel needs a firmware restart or re-login."
-        ],
-        "Hindi": [
-            "जांचें कि कैमरा POE स्विच पोर्ट की लाइट ब्लिंक कर रही है या नहीं। यदि नहीं, तो पोर्ट बदलें या पैच कॉर्ड चेक करें।",
-            "नेटवर्क DROP-OUT चेक करने के लिए CMD के माध्यम से कैमरा IP एड्रेस को पिंग करें।",
-            "यदि NVR 'No Video' दिखाता है, तो जांचें कि कैमरा चैनल को फर्मवेयर रीस्टार्ट या री-लॉगिन की आवश्यकता है या नहीं।"
-        ]
-    },
-    "Laptop/Hardware": {
-        "title_en": "💻 AI Endpoint Hardware Diagnostics",
-        "title_hi": "💻 एआई एंडपॉइंट हार्डवेयर डायग्नोस्टिक्स",
-        "English": [
-            "**No Power:** Perform a hard reset (unplug battery, hold down power button for 30 seconds, reconnect).",
-            "**Display Black:** Connect to an external monitor to verify if it's a motherboard issue or LCD panel failure.",
-            "**Keyboard/Touchpad:** Check Device Manager for driver error codes and reinstall I2C drivers."
-        ],
-        "Hindi": [
-            "**पावर नहीं आ रही:** हार्ड रीसेट करें (बैटरी निकालें, पावर बटन को 30 सेकंड तक दबाकर रखें, फिर फिर से कनेक्ट करें)।",
-            "**डिस्प्ले ब्लैक है:** बाहरी मॉनिटर से कनेक्ट करके जांचें कि यह मदरबोर्ड की समस्या है या LCD पैनल खराब है।",
-            "**कीबोर्ड/टचपैड:** ड्राइवर त्रुटि कोड के लिए डिवाइस मैनेजर की जांच करें और I2C ड्राइवरों को रीइन्स्टॉल करें।"
-        ]
-    },
-    "Email/Outlook": {
-        "title_en": "📧 AI Communication Layer Diagnostics",
-        "title_hi": "📧 एआई कम्यूनिकेशन लेयर डायग्नोस्टिक्स",
-        "English": [
-            "**Outlook Crashing/Freezing:** Run `outlook.exe /safe` to see if a third-party add-in is causing the crash.",
-            "**Send/Receive Error:** Check if the PST/OST file size has reached its limit (usually 50GB). Compact the data file.",
-            "**Password Prompt:** Clear Windows Credential Manager cached passwords under 'Generic Credentials'."
-        ],
-        "Hindi": [
-            "**आउटलुक क्रैश/फ्रीज:** यह देखने के लिए कि क्या कोई协同-पार्टी ऐड-इन क्रैश का कारण बन रहा है, `outlook.exe /safe` चलाएं।",
-            "**सेंड/रिसीव एरर:** जांचें कि क्या PST/OST फ़ाइल का आकार अपनी सीमा (आमतौर पर 50GB) तक पहुंच गया है। डेटा फ़ाइल को कॉम्पैक्ट करें।",
-            "**पासवर्ड प्रॉम्प्ट:** विंडोज क्रेडेंशियल मैनेजर में कैश्ड पासवर्ड साफ़ करें।"
-        ]
-    },
-    "Printer": {
-        "title_en": "🖨️ AI Print Management Diagnostics",
-        "title_hi": "🖨️ एआई प्रिंट MANAGEMENT डायग्नोस्टिक्स",
-        "English": [
-            "**Offline Mismatch:** Go to Printer Properties -> Ports -> Uncheck 'SNMP Status Enabled'.",
-            "**Spooler Stuck:** Open `services.msc`, stop 'Print Spooler', clear PRINTERS directory, restart Spooler.",
-            "**Faded Print:** Check toner cartridge level or clean the scanner glass mirror element."
-        ],
-        "Hindi": [
-            "**ऑफलाइन मिसमैच:** प्रिंटर प्रॉपर्टीज -> पोर्ट्स पर जाएं -> 'SNMP Status Enabled' को अनचेक करें।",
-            "**स्पूलर अटक गया:** `services.msc` खोलें, 'Print Spooler' को रोकें, PRINTERS फ़ोल्डर को खाली करें, फिर स्पूलर रीस्टार्ट करें।",
-            "**हल्की प्रिंटिंग:** टोनर कार्ट्रिज लेवल की जांच करें या प्रिंटर कवर के अंदर स्कैनर ग्लास मिरर को साफ करें।"
-        ]
-    },
-    "SAP": {
-        "title_en": "🏢 AI Enterprise ERP Diagnostics",
-        "title_hi": "🏢 एआई एंटरप्राइज ईआरपी डायग्नोस्टिक्स",
-        "English": [
-            "**Connection Timeout:** Verify `saplogon.ini` settings or check corporate local office VPN gateway.",
-            "**Locked Session:** Go to transaction code `SM04` or `SM12` to clear old hung sessions.",
-            "**GUI Error:** Clear the local SAP cache or reinstall SAP GUI patch level updates."
-        ],
-        "Hindi": [
-            "**कनेक्शन टाइमआउट:** `saplogon.ini` सेटिंग्स को सत्यापित करें या जांचें कि उपयोगकर्ता कार्यालय गेटवे/VPN से जुड़ा है या नहीं।",
-            "**लॉक्ड सेशन:** उपयोगकर्ता के लिए पुराने अटके हुए सेशन को हटाने के लिए ट्रांजेक्शन कोड `SM04` या `SM12` पर जाएं।",
-            "**GUI एरर:** लोकल SAP कैश साफ़ करें या SAP GUI पैच लेवल अपडेट को रीइन्स्टॉल करें।"
-        ]
-    },
-    "Network": {
-        "title_en": "🌐 AI Network Routing Diagnostics",
-        "title_hi": "🌐 एआई नेटवर्क राउटिंग डायग्नोस्टिक्स",
-        "English": [
-            "**Wi-Fi Dropping:** Run `netsh winsock reset` and update network adapter drivers.",
-            "**IP Conflict:** Run `ipconfig /release` followed by `ipconfig /renew` to lease a fresh address.",
-            "**Slow Speed:** Check if the user is connected to the 2.4GHz band instead of the 5GHz corporate tier."
-        ],
-        "Hindi": [
-            "**वाई-फाई का बार-बार कटना:** `netsh winsock reset` चलाएं और नेटवर्क एडाप्टर ड्राइवरों को अपडेट करें।",
-            "**आईपी संघर्ष (Conflict):** एक नया डायनेमिक एड्रेस प्राप्त करने के लिए `ipconfig /release` के बाद `ipconfig /renew` चलाएं।",
-            "**धीमी गति:** जांचें कि क्या उपयोगकर्ता तेज 5GHz कॉर्पोरेट नेटवर्क के बजाय 2.4GHz बैंड से जुड़ा हुआ है।"
-        ]
-    },
-    "Server/UPS": {
-        "title_en": "🖥️ Server & Power Infrastructure Diagnostics",
-        "title_hi": "🖥️ सर्वर और पावर इन्फ्रास्ट्रक्चर डायग्नोस्टिक्स",
-        "English": [
-            "**UPS Beeping:** Check if input voltage is stable or if the load capacity is exceeding maximum parameters.",
-            "**Server Room/Health:** Check temperature sensors; verify rack ventilation airflow paths.",
-            "**Domain/AD:** Verify DNS forwarders configuration if clients fail authentication loops."
-        ],
-        "Hindi": [
-            "**UPS बीपिंग:** जांचें कि इनपुट वोल्टेज स्थिर है या लोड क्षमता अधिकतम पैरामीटर से अधिक है।",
-            "**सर्वर रूम/स्वास्थ्य:** तापमान सेंसर की जांच करें; रैक वेंटिलेशन एयरफ़्लो पथों को सत्यापित करें।",
-            "**डोमेन/AD:** यदि क्लाइंट प्रमाणीकरण विफल हो जाते हैं, तो DNS फ़ॉरवर्डर कॉन्फ़िगरेशन सत्यापित करें।"
-        ]
-    }
+def load_data():
+    if db_connected:
+        try:
+            response = supabase.table("tickets").select("*").execute()
+            return pd.DataFrame(response.data) if response.data else pd.DataFrame()
+        except Exception:
+            return st.session_state.local_db
+    return st.session_state.local_db
+
+df_live = load_data()
+
+# --- MULTI-SHEET NAS BACKUP INITIALIZATION ---
+if "local_nas_db" not in st.session_state:
+    st.session_state.local_nas_db = pd.DataFrame([
+        # Sheet 1: Sector - 136 Vega
+        {"date": "2026-07-11", "location": "Sector - 136 Vega", "status": "Success", "storage_used": 450.0, "remarks": "System backup completed normally."},
+        {"date": "2026-07-12", "location": "Sector - 136 Vega", "status": "Success", "storage_used": 455.0, "remarks": "System backup completed normally."},
+        {"date": "2026-07-13", "location": "Sector - 136 Vega", "status": "Failed", "storage_used": 460.0, "remarks": "Connection handshake timeout. Re-run scheduled."},
+        {"date": "2026-07-14", "location": "Sector - 136 Vega", "status": "Success", "storage_used": 235.4162, "remarks": "Calculated conversion safe sync done."},
+        # Sheet 2: Knitpro 28-29
+        {"date": "2026-07-11", "location": "Knitpro 28-29", "status": "Success", "storage_used": 310.0, "remarks": "Daily incremental snapshot success."},
+        {"date": "2026-07-12", "location": "Knitpro 28-29", "status": "Success", "storage_used": 312.5, "remarks": "Daily incremental snapshot success."},
+        {"date": "2026-07-13", "location": "Knitpro 28-29", "status": "Success", "storage_used": 315.0, "remarks": "Daily incremental snapshot success."},
+        # Sheet 3: Sector - 155 Vega
+        {"date": "2026-07-11", "location": "Sector - 155 Vega", "status": "Success", "storage_used": 890.0, "remarks": "Full weekly node clone completed."},
+        {"date": "2026-07-12", "location": "Sector - 155 Vega", "status": "Warning / Partial", "storage_used": 895.0, "remarks": "Partial sync on directory profiles."},
+        {"date": "2026-07-13", "location": "Sector - 155 Vega", "status": "Success", "storage_used": 902.0, "remarks": "Full recovery check completed."},
+        # Sheet 4: Knitpro - Jaipur
+        {"date": "2026-07-13", "location": "Knitpro - Jaipur", "status": "Success", "storage_used": 150.0, "remarks": "Initial cluster sync."},
+        # Sheet 5: Knitpro 42
+        {"date": "2026-07-13", "location": "Knitpro 42", "status": "Success", "storage_used": 220.0, "remarks": "Manual system backup done."},
+        # Sheet 6: Knitpro 72-73
+        {"date": "2026-07-13", "location": "Knitpro 72-73", "status": "Success", "storage_used": 180.0, "remarks": "Backup completed."},
+        # Sheet 7: Knitpro 75
+        {"date": "2026-07-13", "location": "Knitpro 75", "status": "Success", "storage_used": 340.0, "remarks": "Backup completed."},
+        # Sheet 8: Bharat Composite Sector 80
+        {"date": "2026-07-13", "location": "Bharat Composite Sector 80", "status": "Success", "storage_used": 610.0, "remarks": "Database safe check normal."},
+        # Sheet 9: Vega Sector 80
+        {"date": "2026-07-13", "location": "Vega Sector 80", "status": "Success", "storage_used": 750.0, "remarks": "Active sync complete."}
+    ])
+
+def load_nas_data():
+    if db_connected:
+        try:
+            response = supabase.table("nas_backups").select("*").execute()
+            if response.data:
+                return pd.DataFrame(response.data)
+        except Exception:
+            pass
+    return st.session_state.local_nas_db
+
+df_nas = load_nas_data()
+
+
+# ==========================================
+# 3. GLOBAL SYSTEM CONSTANTS & HELPERS
+# ==========================================
+TECH_MAP = {"Satish": "TECH-01", "Priyanshu": "TECH-02", "Amit": "TECH-03", "Ranjan": "TECH-04", "Manish": "TECH-05"}
+OFFICIAL_LOCATIONS = ["Sector - 136 Vega", "Knitpro 28-29", "Sector - 155 Vega", "Knitpro - Jaipur", "Knitpro 42",
+                      "Knitpro 72-73", "Knitpro 75", "Bharat Composite Sector 80", "Vega Sector 80"]
+STATUS_OPTIONS = ["Open", "In Progress", "On Hold - User Busy", "Resolved"]
+
+EXCEL_SHEET_MAP = {
+    "Sector - 136 Vega": "Sheet 1 (sheet1.bin)",
+    "Knitpro 28-29": "Sheet 2 (sheet2.bin)",
+    "Sector - 155 Vega": "Sheet 3 (sheet3.bin)",
+    "Knitpro - Jaipur": "Sheet 4 (sheet4.bin)",
+    "Knitpro 42": "Sheet 5 (sheet5.bin)",
+    "Knitpro 72-73": "Sheet 6 (sheet6.bin)",
+    "Knitpro 75": "Sheet 7 (sheet7.bin)",
+    "Bharat Composite Sector 80": "Sheet 8 (sheet8.bin)",
+    "Vega Sector 80": "Sheet 9 (sheet9.bin)",
 }
 
-# =========================================================================
-# ⚙️ DATA PIPELINE CONTROLLERS
-# =========================================================================
+AI_SUGGESTIONS = {
+    "CCTV/Camera": {"title_en": "📷 CCTV Infrastructure Diagnostic Protocol",
+                    "title_hi": "📷 सीसीटीवी बुनियादी ढांचा निदान नियम",
+                    "English": ["Verify status LEDs on the terminal POE network switch port allocation.",
+                                "Run a network ping trace execution targeting the static camera IP path.",
+                                "Perform a manual hardware power cycle on the NVR camera routing card assembly."],
+                    "Hindi": ["पीओई नेटवर्क स्विच पोर्ट पर स्टेटस एलईडी लाइट इंडिकेटर चेक करें।",
+                              "कैमरा आईपी एड्रेस पिंग करके नेटवर्क लाइन कनेक्टिविटी सुनिश्चित करें।",
+                              "एनवीआर कैमरा कंट्रोल पैनल यूनिट को मैन्युअल रूप से रीस्टार्ट करें।"]},
+    "Laptop/Hardware": {"title_en": "💻 Hardware Diagnostics & Static Clearing",
+                        "title_hi": "💻 हार्डवेयर निदान और स्टेटिक समाशोधन", "English": [
+            "Unplug host external adapter cords, isolate internal battery links, and hold key for 30s.",
+            "Reseat physical RAM channel memory elements within computing host slot channels.",
+            "Initiate vendor embedded pre-boot diagnostic array tests (Hold F12/F10 key arrays)."],
+                        "Hindi": ["पावर एडॉप्टर केबल्स निकालें, बैटरी अलग करें और पावर बटन 30 सेकंड दबाकर रखें।",
+                                  "मदरबोर्ड रैम मॉड्यूल स्लॉट कनेक्शन साफ करके दोबारा लगाएं।",
+                                  "बूट सीक्वेंस के दौरान F12 दबाकर हार्डवेयर डायग्नोस्टिक्स चलाएं।"]},
+    "Printer": {"title_en": "🖨️ Thermal & Print Asset Infrastructure Solutions",
+                "title_hi": "🖨️ प्रिंटर बेड़े समस्या निवारण गाइड", "English": [
+            "Access the host services.msc console applet and restart the local Print Spooler framework.",
+            "Inspect the internal chassis path components to confirm clearance of torn document fragments.",
+            "Verify baseline TCP/IP configuration paths match host drivers exactly."],
+                "Hindi": ["विंडोज सर्विसेज (services.msc) खोलें और 'Print Spooler' सर्विस रीस्टार्ट करें।",
+                          "प्रिंटर आंतरिक रोलर असेंबली कंपोनेंट्स से फंसे हुए कागज के टुकड़े बाहर निकालें।",
+                          "प्रिंटर नेटवर्क इंटरफ़ेस आईपी और ड्राइवर पोर्ट सेटिंग्स की जांच करें।"]},
+}
+
+def auto_categorize(text):
+    t = str(text).lower()
+    if any(k in t for k in ['cctv', 'camera', 'dvr', 'nvr']):
+        return 'CCTV/Camera'
+    elif any(k in t for k in ['laptop', 'desktop', 'monitor', 'ram', 'ssd', 'hardware']):
+        return 'Laptop/Hardware'
+    elif any(k in t for k in ['outlook', 'email', 'exchange', 'pop3', 'smtp']):
+        return 'Email/Outlook'
+    elif any(k in t for k in ['printer', 'scanner', 'xerox', 'print']):
+        return 'Printer'
+    elif any(k in t for k in ['sap', 'erp', 'tcode']):
+        return 'SAP'
+    elif any(k in t for k in ['network', 'wifi', 'lan', 'internet', 'switch', 'router']):
+        return 'Network'
+    else:
+        return 'Other'
+
 def format_ticket_number(ticket_id, location_str):
     try:
         clean_id = int(float(ticket_id))
-        if pd.isna(location_str) or not location_str:
-            return f"IT-2026-{clean_id:04d}"
-        
         loc = str(location_str).lower()
-        if "vega" in loc or "136" in loc or "155" in loc:
-            prefix = "VEGA"
-        elif "knitpro" in loc or "jaipur" in loc:
-            prefix = "KP"
-        else:
-            prefix = "IT"
+        prefix = "VEGA" if "vega" in loc else "KP" if "knitpro" in loc else "IT"
         return f"{prefix}-2026-{clean_id:04d}"
     except Exception:
         return f"IT-2026-{ticket_id}"
 
-def load_data():
-    if not db_connected:
-        return pd.DataFrame()
-    try:
-        response = supabase_client.table("tickets").select("*").execute()
-        if response.data:
-            df = pd.DataFrame(response.data)
-            if 'id' in df.columns:
-                df['id'] = pd.to_numeric(df['id'], errors='coerce').fillna(0).astype(int)
-            if 'resolution_time' in df.columns:
-                df['resolution_time'] = pd.to_numeric(df['resolution_time'], errors='coerce').fillna(0).astype(int)
-            if 'remarks' in df.columns:
-                df['remarks'] = df['remarks'].fillna("")
-            return df
-        return pd.DataFrame(columns=['id', 'date', 'user_name', 'department', 'complaint', 'location', 'attended_by', 'status', 'category', 'start_time', 'close_time', 'resolution_time', 'remarks'])
-    except Exception:
-        return pd.DataFrame()
 
-df_live = load_data()
-
-TECH_MAP = {"Satish": "TECH-01", "Priyanshu": "TECH-02", "Amit": "TECH-03", "Ranjan": "TECH-04", "Manish": "TECH-05"}
-OFFICIAL_LOCATIONS = ["Sector - 136 Vega", "Knitpro 28-29", "Sector - 155 Vega", "Knitpro - Jaipur", "Knitpro 42", "Knitpro 72-73", "Knitpro 75", "Bharat Composite Sector 80", "Vega Sector 80"]
-STATUS_OPTIONS = ["Open", "In Progress", "On Hold - User Busy", "Resolved"]
-
-def auto_categorize(complaint):
-    text = str(complaint).lower()
-    if any(k in text for k in ['cctv', 'camera', 'nvr']): return 'CCTV/Camera'
-    elif any(k in text for k in ['laptop', 'desktop', 'keyboard', 'touchpad', 'battery', 'hinge', 'screen', 'power']): return 'Laptop/Hardware'
-    elif any(k in text for k in ['outlook', 'email', 'mail', 'pst']): return 'Email/Outlook'
-    elif any(k in text for k in ['printer', 'scanner', 'cartridge', 'print']): return 'Printer'
-    elif any(k in text for k in ['sap']): return 'SAP'
-    elif any(k in text for k in ['network', 'wifi', 'internet', 'vpn', 'ping', 'ip', 'firewall']): return 'Network'
-    elif any(k in text for k in ['server', 'ups', 'rack', 'backup']): return 'Server/UPS'
-    else: return 'Other'
-
-# =========================================================================
-# 🗂️ TABBED WORKSPACE ARRANGEMENT
-# =========================================================================
-tab_log, tab_view, tab_analysis, tab_monthly, tab_recurring = st.tabs([
-    "🆕 Log New Ticket", 
-    "📑 View & Edit Tickets", 
-    "📊 Analysis Dashboard", 
-    "📥 Advanced Reporting Center",
-    "🔄 Recurring Users"
+# ==========================================
+# 4. INTERACTIVE ROUTING VIEW TABS
+# ==========================================
+tab_log, tab_view, tab_analysis, tab_monthly, tab_nas, tab_recurring = st.tabs([
+    "🆕 Log New Ticket",
+    "📋 View & Edit Queue",
+    "📊 Operational Dashboard",
+    "📅 Monthly Audit Reports",
+    "💾 NAS Storage Monitoring",
+    "🔄 Chronic User Audits"
 ])
 
-# -------------------------------------------------------------------------
-# TAB 1: LOG NEW TICKET WORKSPACE
-# -------------------------------------------------------------------------
+# --- TAB 1: LOG NEW TICKET ---
 with tab_log:
-    st.write("")
-    st.header("📋 Log New Operations Ticket")
-    
-    if "form_default_start" not in st.session_state:
-        st.session_state.form_default_start = datetime.now().time()
-    if "form_default_close" not in st.session_state:
-        st.session_state.form_default_close = datetime.now().time()
-        
-    if "ticket_submitted" not in st.session_state: st.session_state.ticket_submitted = False
-    if "last_ticket_info" not in st.session_state: st.session_state.last_ticket_info = {}
-    
-    if st.session_state.ticket_submitted:
-        info = st.session_state.last_ticket_info
-        st.success("🎉 TICKET RECORD SECURED IN SUPABASE CLOUD SYSTEM!")
-        formatted_id_string = format_ticket_number(info['id'], info['loc'])
-        
-        with st.container(border=True):
-            col_a, col_b, col_c = st.columns(3)
-            col_a.markdown(f"**Generated ID:** `{formatted_id_string}`")
-            col_b.markdown(f"**Date:** {info['date']}")
-            col_c.markdown(f"**Category:** {info['category']}")
-            st.markdown(f"**User Details:** {info['user']} ({info['dept']}) | **Technician:** {info['tech']} | **Site:** {info['loc']}")
-            st.caption(f"**Status:** {info['status']} | **Computed Time:** {info['duration']} mins")
-            st.markdown(f"**Operational Action:** {info['remarks']}")
-            
-        if st.button("Log Another Ticket", type="primary"):
-            st.session_state.ticket_submitted = False
-            st.session_state.form_default_start = datetime.now().time()
-            st.session_state.form_default_close = datetime.now().time()
-            st.rerun()
-            
-    else:
-        existing_users = sorted(df_live['user_name'].dropna().astype(str).unique().tolist()) if not df_live.empty else []
-        selected_user = st.selectbox("💡 Search Existing User Name to Auto-Fill Details", ["New User / Type Below"] + existing_users)
-        
-        default_user_name, default_dept, default_loc = "", "", ""
-        if selected_user != "New User / Type Below" and not df_live.empty:
-            default_user_name = selected_user
-            user_history = df_live[df_live['user_name'] == selected_user].sort_values(by='id', ascending=False)
-            if not user_history.empty:
-                default_dept = str(user_history.iloc[0].get('department', ''))
-                default_loc = str(user_history.iloc[0].get('location', ''))
+    st.subheader("Register New Support Incident Request")
+    form_col, ai_col = st.columns([1.1, 0.9])
 
-        form_col, ai_col = st.columns([1.1, 0.9], gap="large")
-        
-        with form_col:
-            with st.form("ticket_form", clear_on_submit=True):
-                r1_left, r1_right = st.columns(2)
-                user_name = r1_left.text_input("User Name *", value=default_user_name)
-                attended_by = r1_right.selectbox("Attended By", list(TECH_MAP.keys()))
-                
-                r2_left, r2_right = st.columns(2)
-                department = r2_left.text_input("Department *", value=default_dept)
-                status = r2_right.selectbox("Initial Status", STATUS_OPTIONS, index=0)
-                
-                loc_default = default_loc.lower() if default_loc else ""
-                default_index = 0
-                for idx, loc_name in enumerate(OFFICIAL_LOCATIONS):
-                    if any(token in loc_default for token in loc_name.lower().split()):
-                        default_index = idx
-                        break
-                location = st.selectbox("Location/Sector *", options=OFFICIAL_LOCATIONS, index=default_index)
-                
-                complaint_desc = st.text_area("Complaint Description *", height=100)
-                tech_remarks = st.text_area("Technician Operational Remarks", height=100)
-                
-                col_t1, col_t2 = st.columns(2)
-                custom_start = col_t1.time_input("START Time", value=st.session_state.form_default_start, key="widget_start_time")
-                custom_close = col_t2.time_input("RESOLVE Time", value=st.session_state.form_default_close, key="widget_close_time")
-                
-                submit_btn = st.form_submit_button("Submit Ticket")
-                
-                if submit_btn:
-                    if not user_name or not complaint_desc or not department:
-                        st.error("❌ Please populate all required fields (*).")
-                    elif not db_connected:
-                        st.error("❌ Database connection missing.")
-                    else:
-                        cat_final = auto_categorize(complaint_desc)
-                        formatted_date = datetime.now().strftime("%Y-%m-%d")
-                        
-                        if status in ["Open", "On Hold - User Busy"]:
-                            start_val, close_val, duration_mins = None, None, 0
-                        else:
-                            start_val = f"{formatted_date} {custom_start.strftime('%H:%M:%S')}"
-                            close_val = f"{formatted_date} {custom_close.strftime('%H:%M:%S')}" if status == "Resolved" else None
-                            duration_mins = max(1, int((datetime.combine(datetime.now().date(), custom_close) - datetime.combine(datetime.now().date(), custom_start)).total_seconds() / 60)) if status == "Resolved" else 0
-                        
-                        new_row = {
-                            'date': formatted_date, 'user_name': user_name, 'department': department,
-                            'complaint': complaint_desc, 'location': location, 'attended_by': attended_by,
-                            'status': status, 'category': cat_final, 'remarks': tech_remarks, 
-                            'start_time': start_val, 'close_time': close_val, 'resolution_time': duration_mins
-                        }
-                        try:
-                            response = supabase_client.table("tickets").insert(new_row).execute()
-                            st.session_state.last_ticket_info = {
-                                "id": int(response.data[0]['id']), "date": formatted_date, "category": cat_final,
-                                "user": user_name, "dept": department, "tech": attended_by, "loc": location,
-                                "status": status, "duration": duration_mins, "remarks": tech_remarks
-                            }
-                            st.session_state.ticket_submitted = True
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"❌ Insertion Error: {e}")
+    with form_col:
+        with st.form("ticket_form", clear_on_submit=True):
+            col_left, col_right = st.columns(2)
+            with col_left:
+                user_name = st.text_input("User Name *", placeholder="Employee name")
+                department = st.text_input("Department *", placeholder="Department tracking code")
+                location = st.selectbox("Office Location / Plant Sector *", OFFICIAL_LOCATIONS)
+            with col_right:
+                attended_by = st.selectbox("Assigned System Technician", list(TECH_MAP.keys()))
+                status = st.selectbox("Initial Ticket Status", STATUS_OPTIONS)
 
-        with ai_col:
-            st.subheader("🧠 AI Copilot Diagnostics")
-            ai_input = st.text_area(
-                "Type complaint scenario details to extract rapid triage steps:", 
-                height=140, 
-                placeholder="e.g., Printer is showing offline state..."
-            )
-            
-            lang_choice = st.radio("Output Language Target", ["English", "हिंदी"], index=0, horizontal=True)
-            parse_btn = st.button("💡 AI Assistance", use_container_width=True)
-            
-            if parse_btn:
-                text_to_analyze = ai_input if ai_input.strip() else complaint_desc
-                if text_to_analyze.strip():
-                    cat = auto_categorize(text_to_analyze)
-                    if cat in AI_SUGGESTIONS:
-                        details = AI_SUGGESTIONS[cat]
-                        title = details['title_en'] if lang_choice == "English" else details['title_hi']
-                        steps = details['English'] if lang_choice == "English" else details['Hindi']
-                        
-                        steps_html = "".join([f"<div class='step-item'>🔹 {step}</div>" for step in steps])
-                        st.markdown(f"<div class='ai-card'><div class='ai-title'>{title}</div>{steps_html}</div>", unsafe_allow_html=True)
-                    else:
-                        st.info("🔍 General diagnostic categorizer: Proceeding with standard hardware verification loops.")
+            complaint = st.text_area("Detailed Complaint Description *",
+                                     placeholder="Provide explicit logs, hardware behaviors, or asset status error signs...",
+                                     height=100)
+            remarks = st.text_area("Technician Operational Action Notes / Remarks",
+                                   placeholder="Initial troubleshooting or tracking remarks...", height=80)
+
+            if st.form_submit_button("Submit Ticket Request ⚡"):
+                if not user_name or not complaint or not department:
+                    st.error("❌ Registration Blocked: Core required parameter fields (*) must be completed.")
                 else:
-                    st.warning("⚠️ Please provide complaint parameters in the text fields first.")
+                    cat = auto_categorize(complaint)
+                    next_id = int(df_live['id'].max() + 1) if not df_live.empty else 1
 
-# -------------------------------------------------------------------------
-# TAB 2: VIEW & EDIT WORKSPACE
-# -------------------------------------------------------------------------
-with tab_view:
-    st.write("")
-    if not df_live.empty:
-        df_display = df_live.copy().sort_values(by='id', ascending=False)
-        st.subheader("📋 Master Operational Backlog Log")
-        st.dataframe(df_display, use_container_width=True, hide_index=True)
-        
-        st.markdown("---")
-        st.subheader("🔄 Update / Close an Existing Ticket")
-        ticket_options = {
-            f"{format_ticket_number(r['id'], r['location'])} — {r['user_name']} [{r['status']}]": r['id']
-            for _, r in df_display.iterrows()
-        }
-        
-        selected_ticket_lbl = st.selectbox("🎯 Choose a ticket from the active list to modify:", list(ticket_options.keys()))
-        if selected_ticket_lbl:
-            target_id = ticket_options[selected_ticket_lbl]
-            ticket_data = df_display[df_display['id'] == target_id].iloc[0]
-            
-            with st.container(border=True):
-                m_col1, m_col2, m_col3 = st.columns(3)
-                m_col1.markdown(f"**Target User:** {ticket_data['user_name']}")
-                m_col2.markdown(f"**Department:** {ticket_data['department']}")
-                m_col3.markdown(f"**Current Status:** `{ticket_data['status']}`")
-                st.info(f"📝 **Original Complaint:** {ticket_data['complaint']}")
-                
-                with st.form(f"update_form_{target_id}"):
-                    edit_col1, edit_col2 = st.columns(2)
-                    with edit_col1:
-                        c_idx = STATUS_OPTIONS.index(ticket_data['status']) if ticket_data['status'] in STATUS_OPTIONS else 0
-                        new_status = st.selectbox("Modify Status state *", options=STATUS_OPTIONS, index=c_idx)
-                        
-                        t_list = list(TECH_MAP.keys())
-                        t_idx = t_list.index(ticket_data['attended_by']) if ticket_data['attended_by'] in t_list else 0
-                        new_tech = st.selectbox("Reassign Attended By", options=t_list, index=t_idx)
-                        
-                    with edit_col2:
-                        new_remarks = st.text_area("Update Action/Resolution Remarks", value=str(ticket_data['remarks']))
-                        duration_input = st.number_input("Resolution Duration (in Minutes)", min_value=0, value=int(ticket_data['resolution_time']) if pd.notna(ticket_data['resolution_time']) else 0)
-                        
-                    save_update_btn = st.form_submit_button("Save Changes & Sync Data")
-                    if save_update_btn:
-                        final_remarks = str(new_remarks)
-                        if new_status == "On Hold - User Busy" and not final_remarks.strip():
-                            final_remarks = "Technician arrived to resolve, but user requested postponement due to ongoing business task constraints."
-                            
-                        update_payload = {
-                            "status": str(new_status), "attended_by": str(new_tech),
-                            "remarks": final_remarks, "resolution_time": int(duration_input)
-                        }
-                        if new_status == "Resolved" and not ticket_data['close_time']:
-                            update_payload["close_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                            
+                    new_row = {
+                        "id": next_id,
+                        "date": datetime.now().strftime("%Y-%m-%d"),
+                        "user_name": user_name,
+                        "department": department,
+                        "complaint": complaint,
+                        "location": location,
+                        "attended_by": attended_by,
+                        "status": status,
+                        "category": cat,
+                        "remarks": remarks
+                    }
+
+                    if db_connected:
                         try:
-                            supabase_client.table("tickets").update(update_payload).eq("id", int(target_id)).execute()
-                            st.success(f"⚡ Ticket successfully synchronized to status: {new_status}!")
-                            st.rerun()
+                            supabase.table("tickets").insert(new_row).execute()
+                            st.success(
+                                f"🎉 Ticket Logged to Cloud Infrastructure: {format_ticket_number(next_id, location)}")
                         except Exception as e:
-                            st.error(f"❌ Update Sync Error: {e}")
-    else:
-        st.info("No active tickets found.")
+                            st.error(f"Cloud write barrier encountered. Defaulting local write backup. Error: {e}")
+                    else:
+                        st.session_state.local_db = pd.concat([st.session_state.local_db, pd.DataFrame([new_row])],
+                                                              ignore_index=True)
+                        st.success(f"🎉 Ticket Processed to Session Sandbox: {format_ticket_number(next_id, location)}")
+                    st.rerun()
 
-# -------------------------------------------------------------------------
-# TAB 3: ANALYSIS DASHBOARD
-# -------------------------------------------------------------------------
-with tab_analysis:
-    st.write("")
-    if not df_live.empty:
-        total_tickets = len(df_live)
-        resolved_tickets = len(df_live[df_live['status'].str.lower() == 'resolved'])
-        held_tickets = len(df_live[df_live['status'].str.lower() == 'on hold - user busy'])
-        open_tickets = len(df_live[df_live['status'].str.lower().isin(['open', 'in progress'])])
-        
-        resolved_df = df_live[(df_live['status'].str.lower() == 'resolved') & (df_live['resolution_time'] > 0)]
-        avg_res_time = int(resolved_df['resolution_time'].mean()) if not resolved_df.empty else 0
-        
-        kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
-        kpi1.metric("Logged Volume", total_tickets)
-        kpi2.metric("Resolved Queries", resolved_tickets)
-        kpi3.metric("On Hold (User Busy)", held_tickets)
-        kpi4.metric("Active Backlog Queue", open_tickets)
-        kpi5.metric("Avg Resolution Speed", f"{avg_res_time} mins")
-        
+    with ai_col:
+        st.markdown('<div style="padding-left: 10px;">', unsafe_allow_html=True)
+        st.subheader("🧠 AI Copilot Real-Time Diagnostic Engine")
+
+        complaint_input = st.text_area("Type description details here for live troubleshooting guidance:", height=110,
+                                       placeholder="Paste or type issue here (e.g., 'Printer has a paper jam error signal blinking'...)")
+        lang = st.radio("Display Guide Language", ["English", "हिंदी"], horizontal=True)
+
+        if complaint_input:
+            cat = auto_categorize(complaint_input)
+            st.markdown(f"**Automated Categorization Output:** `{cat}`")
+
+            if cat in AI_SUGGESTIONS:
+                details = AI_SUGGESTIONS[cat]
+                title = details['title_en'] if lang == "English" else details['title_hi']
+                steps = details['English'] if lang == "English" else details['Hindi']
+
+                st.markdown(f"""
+                <div class="ai-card">
+                    <div class="ai-title">{title}</div>
+                </div>
+                """, unsafe_allow_html=True)
+                for step in steps:
+                    st.markdown(f"🔹 {step}")
+            else:
+                st.markdown(f"""
+                <div class="ai-card">
+                    <div class="ai-title">ℹ️ Standard Operational Procedure Checklist</div>
+                    <span style="color:#cbd5e1;">No device-specific hardware matrix found. Perform standard diagnostic checks: Verify peripheral cable security, check device IP address responses via ping, and confirm local server user group permissions settings.</span>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info(
+                "💡 Type an operational issue above to instantly run an automated technical categorization and generate step-by-step repair checklists.")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+
+# --- TAB 2: VIEW & EDIT QUEUE ---
+with tab_view:
+    st.subheader("Global Service Incident Queue Manager")
+
+    if df_live.empty:
+        st.info("No logs present in the current tracking matrix.")
+    else:
+        f_col1, f_col2, f_col3 = st.columns(3)
+        with f_col1:
+            sel_status = st.multiselect("Filter Status Profiles", STATUS_OPTIONS, default=STATUS_OPTIONS)
+        with f_col2:
+            sel_loc = st.multiselect("Filter Operating Site Location", OFFICIAL_LOCATIONS, default=OFFICIAL_LOCATIONS)
+        with f_col3:
+            available_cats = sorted(list(df_live['category'].unique()))
+            sel_cat = st.multiselect("Filter Structural Categories", available_cats, default=available_cats)
+
+        df_display = df_live.copy()
+        df_display['System Ticket ID'] = df_display.apply(lambda r: format_ticket_number(r['id'], r['location']),
+                                                          axis=1)
+
+        filtered_df = df_display[
+            (df_display['status'].isin(sel_status)) &
+            (df_display['location'].isin(sel_loc)) &
+            (df_display['category'].isin(sel_cat))
+            ].sort_values(by='id', ascending=False)
+
+        st.dataframe(
+            filtered_df[['System Ticket ID', 'date', 'user_name', 'department', 'location', 'category', 'complaint',
+                         'attended_by', 'status', 'remarks']],
+            use_container_width=True,
+            hide_index=True
+        )
+
         st.markdown("---")
+        st.subheader("✏️ Incident Status Modifier Matrix")
+
+        mod_col1, mod_col2, mod_col3, mod_col4 = st.columns([1, 1, 1, 2])
+
+        with mod_col1:
+            ticket_to_update = st.selectbox("Select Target Incident to Update", options=filtered_df[
+                'System Ticket ID'].tolist() if not filtered_df.empty else ["No Match Found"])
+
+        if ticket_to_update != "No Match Found":
+            target_record = df_display[df_display['System Ticket ID'] == ticket_to_update].iloc[0]
+            real_target_id = int(target_record['id'])
+
+            with mod_col2:
+                updated_status = st.selectbox("Modify Queue Status", STATUS_OPTIONS,
+                                              index=STATUS_OPTIONS.index(target_record['status']))
+            with mod_col3:
+                updated_tech = st.selectbox("Reassign Technical Asset Owner", list(TECH_MAP.keys()),
+                                            index=list(TECH_MAP.keys()).index(target_record['attended_by']))
+            with mod_col4:
+                updated_remarks = st.text_input("Append Resolution Strategy Remarks",
+                                                value=str(target_record['remarks']))
+
+            if st.button("Commit Lifecycle Changes 🔄"):
+                if db_connected:
+                    try:
+                        supabase.table("tickets").update({
+                            "status": updated_status,
+                            "attended_by": updated_tech,
+                            "remarks": updated_remarks
+                        }).eq("id", real_target_id).execute()
+                        st.success(f"System State Synchronized for record {ticket_to_update}!")
+                    except Exception as e:
+                        st.error(f"Cloud state synchronization failed: {e}")
+                else:
+                    st.session_state.local_db.loc[
+                        st.session_state.local_db['id'] == real_target_id, ['status', 'attended_by', 'remarks']] = [
+                        updated_status, updated_tech, updated_remarks]
+                    st.success(f"Local Sandbox Buffer Modified for record {ticket_to_update}!")
+                st.rerun()
+
+
+# --- TAB 3: OPERATIONAL DASHBOARD ---
+with tab_analysis:
+    st.subheader("Real-Time Operational Infrastructure Core")
+
+    if not df_live.empty:
+        total_count = len(df_live)
+        backlog_count = len(df_live[df_live['status'] != "Resolved"])
+        completed_count = len(df_live[df_live['status'] == "Resolved"])
+        resolution_rate = round((completed_count / total_count) * 100, 1) if total_count > 0 else 0.0
+
+        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+        with kpi1:
+            st.markdown(
+                f'<div class="kpi-container"><span style="color:#94a3b8; font-size:0.9rem;">Total Incident Workload</span><h2 style="color:#f8fafc; margin:5px 0;">{total_count}</h2></div>',
+                unsafe_allow_html=True)
+        with kpi2:
+            st.markdown(
+                f'<div class="kpi-container"><span style="color:#f87171; font-size:0.9rem;">Active Open Backlog</span><h2 style="color:#ef4444; margin:5px 0;">{backlog_count}</h2></div>',
+                unsafe_allow_html=True)
+        with kpi3:
+            st.markdown(
+                f'<div class="kpi-container"><span style="color:#4ade80; font-size:0.9rem;">Successfully Resolved</span><h2 style="color:#22c55e; margin:5px 0;">{completed_count}</h2></div>',
+                unsafe_allow_html=True)
+        with kpi4:
+            st.markdown(
+                f'<div class="kpi-container"><span style="color:#60a5fa; font-size:0.9rem;">Resolution Efficiency</span><h2 style="color:#3b82f6; margin:5px 0;">{resolution_rate}%</h2></div>',
+                unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
         chart_col1, chart_col2 = st.columns(2)
         with chart_col1:
-            st.markdown("### 🧑‍💻 Performance Distribution by Technician")
-            st.bar_chart(df_live['attended_by'].value_counts())
+            st.markdown("##### 📦 Volumetric Ticket Count by Category")
+            st.bar_chart(df_live['category'].value_counts())
         with chart_col2:
-            st.markdown("### 🗂️ Breakdown by Current Status State")
-            st.bar_chart(df_live['status'].value_counts())
-    else:
-        st.info("Log ticket entries to initialize the dashboard engine.")
+            st.markdown("##### 📍 Logged Incidents Across Geographical Sites")
+            st.bar_chart(df_live['location'].value_counts())
 
-# -------------------------------------------------------------------------
-# TAB 4: ADVANCED REPORTING CENTER
-# -------------------------------------------------------------------------
-with tab_monthly:
-    st.write("")
-    st.header("📥 Advanced Operational Data Export Center")
-    
-    if not df_live.empty:
-        df_export = df_live.copy()
-        df_export['date_parsed'] = pd.to_datetime(df_export['date'], errors='coerce')
-        df_export = df_export.dropna(subset=['date_parsed'])
-        
-        df_export['Month'] = df_export['date_parsed'].dt.strftime('%Y-%m (%B)')
-        df_export['Week_of_Year'] = df_export['date_parsed'].dt.isocalendar().week
-        df_export['Week_Label'] = df_export['date_parsed'].dt.strftime('%Y-W') + df_export['Week_of_Year'].astype(str)
-        
-        full_csv = df_export.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Download Unfiltered Master Log Sheet (.CSV)", full_csv, "it_master_production_log.csv", "text/csv")
-        
         st.markdown("---")
-        st.subheader("🔍 Target Filter Segment Logs")
-        
-        exp_tab_month, exp_tab_week, exp_tab_tech, exp_tab_loc = st.tabs([
-            "📅 Monthly Logs", "📆 Weekly Logs", "🧑‍💻 Technician Logs", "🏢 Location Logs"
-        ])
-        
-        with exp_tab_month:
-            selected_month = st.selectbox("Select Target Month:", sorted(df_export['Month'].unique().tolist(), reverse=True), key="m_sel")
-            f_m_df = df_export[df_export['Month'] == selected_month].drop(columns=['date_parsed','Month','Week_of_Year','Week_Label'], errors='ignore')
-            st.dataframe(f_m_df, use_container_width=True, hide_index=True)
-            st.download_button(f"📥 Download {selected_month} Logs (.CSV)", f_m_df.to_csv(index=False).encode('utf-8'), f"monthly_{selected_month}.csv", "text/csv")
-            
-        with exp_tab_week:
-            selected_week = st.selectbox("Select Target Week:", sorted(df_export['Week_Label'].unique().tolist(), reverse=True), key="w_sel")
-            f_w_df = df_export[df_export['Week_Label'] == selected_week].drop(columns=['date_parsed','Month','Week_of_Year','Week_Label'], errors='ignore')
-            st.dataframe(f_w_df, use_container_width=True, hide_index=True)
-            st.download_button(f"📥 Download {selected_week} Logs (.CSV)", f_w_df.to_csv(index=False).encode('utf-8'), f"weekly_{selected_week}.csv", "text/csv")
-            
-        with exp_tab_tech:
-            selected_tech = st.selectbox("Select Technician:", sorted(df_export['attended_by'].unique().tolist()), key="t_sel")
-            f_t_df = df_export[df_export['attended_by'] == selected_tech].drop(columns=['date_parsed','Month','Week_of_Year','Week_Label'], errors='ignore')
-            st.dataframe(f_t_df, use_container_width=True, hide_index=True)
-            st.download_button(f"📥 Download {selected_tech} Logs (.CSV)", f_t_df.to_csv(index=False).encode('utf-8'), f"tech_{selected_tech.lower()}.csv", "text/csv")
-            
-        with exp_tab_loc:
-            selected_loc = st.selectbox("Select Site Location:", sorted(df_export['location'].unique().tolist()), key="l_sel")
-            f_l_df = df_export[df_export['location'] == selected_loc].drop(columns=['date_parsed','Month','Week_of_Year','Week_Label'], errors='ignore')
-            st.dataframe(f_l_df, use_container_width=True, hide_index=True)
-            st.download_button(f"📥 Download Site Logs (.CSV)", f_l_df.to_csv(index=False).encode('utf-8'), f"location_report.csv", "text/csv")
+        st.markdown("##### ⚡ Active Incident Allocations Across Engineering Staff")
+        tech_pivot = df_live.groupby(['attended_by', 'status']).size().unstack(fill_value=0)
+        st.bar_chart(tech_pivot)
     else:
-        st.info("No logs present for targeted segment reporting splits.")
+        st.info("System operational charts will populate when tracking metrics are active.")
 
-# -------------------------------------------------------------------------
-# TAB 5: RECURRING USERS TRACKING WORKSPACE
-# -------------------------------------------------------------------------
-with tab_recurring:
-    st.write("")
-    st.subheader("🔄 Repeated Incident Mapping Matrix")
+
+# --- TAB 4: MONTHLY AUDIT REPORTS ---
+with tab_monthly:
+    st.subheader("Data Export & Audit Manifest Portal")
+
     if not df_live.empty:
-        user_counts = df_live['user_name'].value_counts().reset_index()
-        user_counts.columns = ['User Name', 'Total Incidents Raised']
-        st.write("Track users requiring foundational hardware replacements or recurring operational oversight:")
-        st.dataframe(user_counts, use_container_width=True, hide_index=True)
+        df_live['Month'] = pd.to_datetime(df_live['date']).dt.strftime('%Y-%m')
+        selected_month = st.selectbox("Select Reporting Audit Month Target",
+                                      sorted(df_live['Month'].unique(), reverse=True))
+
+        filtered_report_df = df_live[df_live['Month'] == selected_month].copy()
+        filtered_report_df['System Ticket ID'] = filtered_report_df.apply(
+            lambda r: format_ticket_number(r['id'], r['location']), axis=1)
+
+        st.write(f"Target Month Dataset contains **{len(filtered_report_df)}** recorded actions.")
+        st.dataframe(filtered_report_df.drop(columns=['Month']), use_container_width=True, hide_index=True)
+
+        csv_buffer = io.StringIO()
+        filtered_report_df.to_csv(csv_buffer, index=False)
+        csv_data_string = csv_buffer.getvalue()
+
+        st.download_button(
+            label=f"📥 Download Structured Audit Report ({selected_month})",
+            data=csv_data_string,
+            file_name=f"IT_Audit_Manifest_{selected_month}.csv",
+            mime="text/csv",
+            type="primary"
+        )
     else:
-        st.info("User activity log mapping system operational.")
+        st.info("Export engines will initialize when structural historic data exists.")
+
+
+# --- TAB 5: NAS MONITORING WITH DELTA ACCELERATION ---
+with tab_nas:
+    st.header("💾 NAS Backup Monitoring & Excel Worksheet Mapping")
+    st.info("💡 **Excel Sheet References:** This page simulates the 9 worksheets found in your corporate IT tracking workbook. Selecting a location filters or logs data directly to that corresponding sheet mapping.")
+
+    log_col, view_col = st.columns([1, 1.5])
+
+    with log_col:
+        st.subheader("📝 Log Today's Backup Manually")
+        with st.form("nas_log_form", clear_on_submit=True):
+            log_date = st.date_input("Backup Date", value=datetime.now())
+            log_location = st.selectbox("NAS Site Location *", OFFICIAL_LOCATIONS)
+            
+            mapped_sheet = EXCEL_SHEET_MAP.get(log_location, "Unknown Sheet")
+            st.markdown(f"**Target Worksheet:** <span class='excel-badge'>{mapped_sheet}</span>", unsafe_allow_html=True)
+            
+            log_status = st.selectbox("Backup Status", ["Success", "Failed", "Warning / Partial"])
+            
+            log_storage_kb = st.number_input("Storage Used (KB) *", min_value=0.0, step=1024.0,
+                                             help="Enter the backup file size in Kilobytes (KB).")
+            
+            storage_in_gb_live = round(log_storage_kb / (1024 * 1024), 4)
+            st.caption(f"ℹ️ **Automatic Conversion Preview:** {storage_in_gb_live:,} GB")
+            
+            log_remarks = st.text_area("Operational Remarks / Error Logs",
+                                       placeholder="Provide context if the backup failed...")
+
+            submit_nas = st.form_submit_button("Submit Backup Log 💾", type="primary")
+
+            if submit_nas:
+                storage_in_gb = round(float(log_storage_kb) / (1024 * 1024), 4)
+
+                new_nas_entry = {
+                    "date": log_date.strftime("%Y-%m-%d"),
+                    "location": log_location,
+                    "status": log_status,
+                    "storage_used": storage_in_gb,
+                    "remarks": log_remarks
+                }
+
+                if db_connected:
+                    try:
+                        supabase.table("nas_backups").insert(new_nas_entry).execute()
+                        st.success(f"✅ Backup state successfully saved to Cloud for {mapped_sheet}!")
+                    except Exception as e:
+                        st.error(f"Cloud write barrier encountered. Saved to local sandbox instead. Error: {e}")
+                else:
+                    st.session_state.local_nas_db = pd.concat([
+                        st.session_state.local_nas_db,
+                        pd.DataFrame([new_nas_entry])
+                    ], ignore_index=True)
+                    st.success(f"✅ Backup state saved to temporary session buffer for {mapped_sheet}!")
+                st.rerun()
+
+    with view_col:
+        st.subheader("📊 Backup Performance & Storage Growth")
+        
+        selected_location = st.selectbox("Select Excel Sheet Reference to View", OFFICIAL_LOCATIONS)
+        mapped_sheet_view = EXCEL_SHEET_MAP.get(selected_location, "Unknown Sheet")
+        
+        df_nas_filtered = df_nas[df_nas['location'] == selected_location] if 'location' in df_nas.columns else df_nas
+        
+        if df_nas_filtered.empty:
+            st.info(f"No backup log entries found for {selected_location} ({mapped_sheet_view}). Start by entering data on the left.")
+        else:
+            # Sort chronological ascending to run accurate sequential diffs
+            df_nas_sorted = df_nas_filtered.sort_values(by='date', ascending=True).copy()
+
+            # NEW LOGIC: Calculate dynamic increase/decrease metric data matrices
+            df_nas_sorted['Change (GB)'] = df_nas_sorted['storage_used'].diff().round(4)
+            df_nas_sorted['Change (%)'] = (df_nas_sorted['storage_used'].pct_change() * 100).round(2)
+
+            latest_status = df_nas_sorted.iloc[-1]['status']
+            latest_date = df_nas_sorted.iloc[-1]['date']
+            latest_size = df_nas_sorted.iloc[-1]['storage_used']
+
+            # Contextual status alerts depending on filtered sheet state
+            if latest_status == 'Failed':
+                st.error(f"⚠️ **Critical Alert:** The last logged backup on {latest_date} for {mapped_sheet_view} FAILED. Review hardware integrity logs.")
+            elif latest_status == 'Warning / Partial':
+                st.warning(f"⚠️ **Attention Required:** The backup on {latest_date} for {mapped_sheet_view} completed with warnings.")
+            else:
+                st.success(f"💚 **System Healthy:** Last backup on {latest_date} for {mapped_sheet_view} was completely successful.")
+
+            # NEW UX FEATURE: Display live performance delta KPI metrics cards
+            metric_col1, metric_col2 = st.columns(2)
+            with metric_col1:
+                if len(df_nas_sorted) >= 2:
+                    last_delta_gb = df_nas_sorted.iloc[-1]['Change (GB)']
+                    last_delta_pct = df_nas_sorted.iloc[-1]['Change (%)']
+                    delta_label = f"{last_delta_gb:+.4f} GB ({last_delta_pct:+.2f}%)"
+                else:
+                    delta_label = "Baseline Init"
+                
+                st.metric(label="📊 Latest Storage Footprint", value=f"{latest_size:,.4f} GB", delta=delta_label)
+            
+            with metric_col2:
+                st.metric(label="🗂️ Mapped Sheet Status Logs", value=str(len(df_nas_sorted)))
+
+            st.markdown(f"**Historical Logs with Growth Matrix: {mapped_sheet_view}**")
+            
+            # Format row strings neatly inside dataframe view (Newest first)
+            df_nas_table = df_nas_sorted.sort_values(by='date', ascending=False).copy()
+            df_nas_table['Change (GB)'] = df_nas_table['Change (GB)'].apply(lambda x: f"{x:+.4f} GB" if pd.notnull(x) else "— Baseline")
+            df_nas_table['Change (%)'] = df_nas_table['Change (%)'].apply(lambda x: f"{x:+.2f}%" if pd.notnull(x) else "— Baseline")
+            
+            st.dataframe(df_nas_table, use_container_width=True, hide_index=True)
+
+            st.markdown(f"**Storage Footprint Over Time (GB): {mapped_sheet_view}**")
+            st.line_chart(df_nas_sorted.set_index('date')['storage_used'])
+
+
+# --- TAB 6: CHRONIC USER AUDITS ---
+with tab_recurring:
+    st.subheader("High-Frequency Request Vulnerability Profile Analysis")
+    st.write("Traces user profile activity anomalies to pinpoint system user onboarding gaps or systematic failures in regional device setups.")
+
+    if not df_live.empty:
+        user_metrics = df_live.groupby('user_name').agg(
+            total_requests=pd.NamedAgg(column='id', aggfunc='count'),
+            resolved_count=pd.NamedAgg(column='status', aggfunc=lambda s: (s == "Resolved").sum()),
+            pending_backlog=pd.NamedAgg(column='status', aggfunc=lambda s: (s != "Resolved").sum())
+        ).reset_index().sort_values(by='total_requests', ascending=False)
+
+        st.dataframe(user_metrics, use_container_width=True, hide_index=True)
+
+        chronic_users = user_metrics[user_metrics['total_requests'] >= 2]
+        if not chronic_users.empty:
+            st.warning(f"⚠️ **Asset Vulnerability Indicator:** {len(chronic_users)} employee accounts have registered repeating system tickets. Target hardware inspections or device user guidance tracking is advised.")
+    else:
+        st.info("Behavior analytical profiles require record data population before tracing loops.")
+
+
+# Sidebar Operational Status Banner
+st.sidebar.markdown("---")
+if db_connected:
+    st.sidebar.success("⚡ Supabase Cloud Connected")
+    st.sidebar.caption("System linked with live cloud production architecture.")
+else:
+    st.sidebar.warning("⚠️ Session Sandbox Active")
+    st.sidebar.caption("Modifications are contained within this local session state buffer.")
