@@ -529,23 +529,28 @@ df_nas = load_nas_data()
 # ============================================================================
 # APP HEADER
 # ============================================================================
-logo_col1, logo_col2, title_col = st.columns([1, 1, 5])
+logo_col1, logo_col2, title_col = st.columns([1, 1, 5], vertical_alignment="center")
+
 with logo_col1:
     try:
-        st.image("vega_logo.png", width=135)
+        st.image("vega_logo.png", width=95)
     except Exception:
         st.caption("🔺 Vega")
+
 with logo_col2:
     try:
-        st.image("knitpro_logo.png", width=135)
+        st.image("knitpro_logo.png", width=95)
     except Exception:
         st.caption("🔺 Knitpro")
+
 with title_col:
     st.markdown(
         """
         <div class="app-banner">
             <div class="app-title">🛠️ Vega & Knitpro IT Operations Dashboard</div>
-            <div class="app-subtitle">Single-window support operations, NAS monitoring, reporting, and recurring issue analysis</div>
+            <div class="app-subtitle">
+                Single-window support operations, NAS monitoring, reporting, and recurring issue analysis
+            </div>
         </div>
         """,
         unsafe_allow_html=True,
