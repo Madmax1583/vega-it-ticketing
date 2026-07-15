@@ -815,12 +815,14 @@ if page == "Overview":
             else:
                 nas_trend_server = st.selectbox(
                     "Choose NAS server for trend",
-                    SERVER_NAMES,
+                    ["All"] + SERVER_NAMES,
                     key="nas_trend_server"
                 )
 
                 trend_df = df_nas_filtered_global.copy()
-                trend_df = trend_df[trend_df["server_name"] == nas_trend_server].copy()
+
+                if nas_trend_server != "All":
+                    trend_df = trend_df[trend_df["server_name"] == nas_trend_server].copy()
 
                 if trend_df.empty:
                     st.info(f"No NAS data available for {nas_trend_server}.")
@@ -830,12 +832,15 @@ if page == "Overview":
                     trend_df["date_label"] = trend_df["date"].dt.strftime("%Y-%m-%d")
 
                     st.altair_chart(
-                        build_line_chart(
-                            trend_df,
-                            "date_label:N",
-                            "storage_used:Q",
-                            "#f59e0b"
-                        ),
+                        alt.Chart(trend_df)
+                        .mark_line(point=True, strokeWidth=3)
+                        .encode(
+                            x=alt.X("date_label:N", title=None),
+                            y=alt.Y("storage_used:Q", title=None),
+                            color=alt.Color("server_name:N", title="Server"),
+                            tooltip=["date_label", "server_name", "storage_used", "status"]
+                        )
+                        .properties(height=300),
                         use_container_width=True
                     )
 # ============================================================================
