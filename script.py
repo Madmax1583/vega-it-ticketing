@@ -545,7 +545,7 @@ def normalize_nas_df(df):
     out["storage_used"] = pd.to_numeric(out["storage_used"], errors="coerce").fillna(0.0)
     out["remarks"] = out["remarks"].fillna("").astype(str)
     out["server_name"] = out["server_name"].fillna("").astype(str)
-    out["status"] = out["status"].fillna("").astype(str)
+    out["status"] = out["status"].fillna("").astype(str).str.strip().map(normalize_nas_status)
     out["date"] = pd.to_datetime(out["date"], errors="coerce").dt.strftime("%Y-%m-%d")
     return out[expected]
 
@@ -642,6 +642,7 @@ def prepare_ticket_view(df):
         view["date_parsed"] = pd.to_datetime(view["date"], errors="coerce")
     return view
 
+
 def filtered_tickets(df, site_filter, status_filter, tech_filter):
     out = df.copy()
     if out.empty:
@@ -662,13 +663,37 @@ def filtered_nas(df, server_filter):
         out = out[out["server_name"] == server_filter]
     return out
 
-def render_status_table(df, columns, compact=False):
+
+def normalize_nas_status(value):
+    s = str(value).strip().lower()
+    if s in {"success", "ok", "passed", "pass", "complete", "completed"}:
+        return "Success"
+    if s in {"failed", "fail", "error", "warning", "warn", "partial", "warning / partial"}:
+        return "Failed"
+    return "Failed"
+
+
+def render_nas_status(status):
+    return '<span class="status-chip status-resolved">Success</span>' if str(status).strip() == "Success" else '<span class="status-chip status-open">Failed</span>'
+
+
+def separate_nas_series(df):
+    if df.empty:
+        return df
+    out = df.copy()
+    out["date"] = pd.to_datetime(out["date"], errors="coerce")
+    return out.dropna(subset=["date"])
+
+def render_status_table(df, columns, compact=False, nas_mode=False):
     if df.empty:
         st.info("No records found.")
         return
     show_df = df.copy()
     if "status" in show_df.columns:
-        show_df["status"] = show_df["status"].apply(status_badge_html)
+        if nas_mode:
+            show_df["status"] = show_df["status"].apply(render_nas_status)
+        else:
+            show_df["status"] = show_df["status"].apply(status_badge_html)
     styled = show_df[columns].to_html(escape=False, index=False)
     css_class = "table-scroll compact-table" if compact else "table-scroll"
     st.markdown(f"<div class='{css_class}'>{styled}</div>", unsafe_allow_html=True)
@@ -748,9 +773,8 @@ else:
     st.sidebar.warning("⚠️ Session sandbox active")
 
 df_ticket_filtered = filtered_tickets(df_live, site_filter, status_filter, tech_filter)
+df_nas = normalize_nas_df(df_nas)
 df_nas_filtered_global = filtered_nas(df_nas, server_filter)
-if not df_nas.empty and "status" in df_nas.columns:
-    df_nas.loc[:, "status"] = df_nas["status"].replace({"Open": "Success", "open": "Success", "OPEN": "Success", "Resolved": "Success", "resolved": "Success"})
 
 if page == "Overview":
     st.subheader("Overview")
@@ -798,11 +822,19 @@ if page == "Overview":
         with chart_col4:
             st.markdown("### NAS Storage Trend")
             if not df_nas_filtered_global.empty:
-                trend_df = df_nas_filtered_global.copy()
-                trend_df["date"] = pd.to_datetime(trend_df["date"], errors="coerce")
-                trend_df = trend_df.dropna(subset=["date"]).sort_values("date")
-                trend_df["date_label"] = trend_df["date"].dt.strftime("%Y-%m-%d")
-                st.altair_chart(build_line_chart(trend_df, "date_label:N", "storage_used:Q", "#f59e0b"), use_container_width=True)
+                trend_df = separate_nas_series(df_nas_filtered_global)
+                trend_df = trend_df.sort_values("date")
+                if server_filter == "All":
+                    chart = alt.Chart(trend_df).mark_line(point=True, strokeWidth=3).encode(
+                        x=alt.X("date:T", title=None),
+                        y=alt.Y("storage_used:Q", title=None),
+                        color=alt.Color("server_name:N", title="Server"),
+                        tooltip=["date:T", "server_name:N", "storage_used:Q", "status:N"],
+                    ).properties(height=300)
+                    st.altair_chart(chart, use_container_width=True)
+                else:
+                    trend_df["date_label"] = trend_df["date"].dt.strftime("%Y-%m-%d")
+                    st.altair_chart(build_line_chart(trend_df, "date_label:N", "storage_used:Q", "#f59e0b"), use_container_width=True)
             else:
                 st.info("No NAS data available.")
 
@@ -1028,7 +1060,7 @@ elif page == "NAS Monitoring":
             if not latest_nas.empty:
                 latest_nas = latest_nas.sort_values(by=["id", "date"], ascending=[False, False]).head(3)
                 latest_nas["storage_used"] = latest_nas["storage_used"].map(lambda x: f"{x:.4f} GB")
-                render_status_table(latest_nas, ["id", "date", "server_name", "status", "storage_used", "remarks"], compact=True)
+                render_status_table(latest_nas, ["id", "date", "server_name", "status", "storage_used", "remarks"], compact=True, nas_mode=True)
             else:
                 st.info(f"No previous NAS entries found for server {server_name}.")
         else:
@@ -1072,7 +1104,7 @@ elif page == "NAS Monitoring":
                 table_df["Change (GB)"] = table_df["Change (GB)"].apply(lambda x: f"{x:+.4f} GB" if pd.notnull(x) else "— Baseline")
                 table_df["Change (%)"] = table_df["Change (%)"].apply(lambda x: f"{x:+.2f}%" if pd.notnull(x) else "— Baseline")
                 table_df["storage_used"] = table_df["storage_used"].map(lambda x: f"{x:.4f} GB")
-                render_status_table(table_df, ["id", "date", "server_name", "status", "storage_used", "Change (GB)", "Change (%)", "remarks"], compact=True)
+                render_status_table(table_df, ["id", "date", "server_name", "status", "storage_used", "Change (GB)", "Change (%)", "remarks"], compact=True, nas_mode=True)
 
     with nas_tab3:
         st.markdown("### Raw NAS Logs")
@@ -1081,7 +1113,7 @@ elif page == "NAS Monitoring":
         else:
             raw_view = df_nas_filtered_global.sort_values(by=["date", "id"], ascending=[False, False]).copy()
             raw_view["storage_used"] = raw_view["storage_used"].map(lambda x: f"{x:.4f} GB")
-            render_status_table(raw_view, ["id", "date", "server_name", "status", "storage_used", "remarks"], compact=True)
+            render_status_table(raw_view, ["id", "date", "server_name", "status", "storage_used", "remarks"], compact=True, nas_mode=True)
 
     with nas_tab4:
         st.markdown("### Delete Wrong NAS Entry")
