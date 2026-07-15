@@ -299,52 +299,51 @@ if "local_nas" not in st.session_state:
     st.session_state.local_nas = pd.DataFrame(
         [
             {
+                "id": 1,
                 "date": "2026-07-11",
                 "server_name": "HRI",
                 "status": "Success",
-                "storage_used": 450.0,
+                "storage_used": 43.3975,
                 "remarks": "Daily backup completed.",
             },
             {
+                "id": 2,
                 "date": "2026-07-12",
                 "server_name": "HRI",
                 "status": "Success",
-                "storage_used": 452.6,
+                "storage_used": 43.3985,
                 "remarks": "Daily backup completed.",
             },
             {
+                "id": 3,
                 "date": "2026-07-13",
                 "server_name": "HRI",
-                "status": "Failed",
-                "storage_used": 452.6,
-                "remarks": "Handshake timeout.",
+                "status": "Success",
+                "storage_used": 43.4161,
+                "remarks": "Backup completed.",
             },
             {
-                "date": "2026-07-11",
+                "id": 4,
+                "date": "2026-07-13",
                 "server_name": "Vega",
                 "status": "Success",
-                "storage_used": 890.0,
-                "remarks": "Weekly image backup completed.",
+                "storage_used": 236.1529,
+                "remarks": "Backup completed.",
             },
             {
-                "date": "2026-07-12",
-                "server_name": "Vega",
-                "status": "Warning / Partial",
-                "storage_used": 895.5,
-                "remarks": "Profile sync partial.",
-            },
-            {
-                "date": "2026-07-13",
+                "id": 5,
+                "date": "2026-07-15",
                 "server_name": "Sery",
                 "status": "Success",
-                "storage_used": 310.0,
+                "storage_used": 4.2406,
                 "remarks": "Incremental snapshot success.",
             },
             {
-                "date": "2026-07-13",
+                "id": 6,
+                "date": "2026-07-15",
                 "server_name": "Rise",
                 "status": "Success",
-                "storage_used": 220.0,
+                "storage_used": 6.4914,
                 "remarks": "Replication completed.",
             },
         ]
@@ -379,17 +378,7 @@ def auto_categorize(complaint):
         return "CCTV/Camera"
     if any(
         k in text
-        for k in [
-            "laptop",
-            "desktop",
-            "keyboard",
-            "touchpad",
-            "battery",
-            "hinge",
-            "screen",
-            "power",
-            "hardware",
-        ]
+        for k in ["laptop", "desktop", "keyboard", "touchpad", "battery", "hinge", "screen", "power", "hardware"]
     ):
         return "Laptop/Hardware"
     if any(k in text for k in ["outlook", "email", "mail", "pst"]):
@@ -398,10 +387,7 @@ def auto_categorize(complaint):
         return "Printer"
     if any(k in text for k in ["sap", "erp"]):
         return "SAP"
-    if any(
-        k in text
-        for k in ["network", "wifi", "internet", "vpn", "ping", "ip", "firewall", "switch", "router"]
-    ):
+    if any(k in text for k in ["network", "wifi", "internet", "vpn", "ping", "ip", "firewall", "switch", "router"]):
         return "Network"
     if any(k in text for k in ["server", "ups", "rack", "backup", "domain", "dns"]):
         return "Server/UPS"
@@ -410,6 +396,12 @@ def auto_categorize(complaint):
 
 
 def get_next_ticket_id(df):
+    if df.empty or "id" not in df.columns:
+        return 1
+    return int(pd.to_numeric(df["id"], errors="coerce").fillna(0).max()) + 1
+
+
+def get_next_nas_id(df):
     if df.empty or "id" not in df.columns:
         return 1
     return int(pd.to_numeric(df["id"], errors="coerce").fillna(0).max()) + 1
@@ -446,16 +438,12 @@ def normalize_ticket_df(df):
     out["remarks"] = out["remarks"].fillna("").astype(str)
     out["status"] = out["status"].fillna("").astype(str)
     out["category"] = out["category"].fillna("").astype(str)
-    out["user_name"] = out["user_name"].fillna("").astype(str)
-    out["department"] = out["department"].fillna("").astype(str)
-    out["location"] = out["location"].fillna("").astype(str)
-    out["attended_by"] = out["attended_by"].fillna("").astype(str)
 
     return out[expected]
 
 
 def normalize_nas_df(df):
-    expected = ["date", "server_name", "status", "storage_used", "remarks"]
+    expected = ["id", "date", "server_name", "status", "storage_used", "remarks"]
 
     if df is None or df.empty:
         return pd.DataFrame(columns=expected)
@@ -466,6 +454,7 @@ def normalize_nas_df(df):
         if col not in out.columns:
             out[col] = None
 
+    out["id"] = pd.to_numeric(out["id"], errors="coerce")
     out["date"] = pd.to_datetime(out["date"], errors="coerce").dt.strftime("%Y-%m-%d")
     out["server_name"] = (
         out["server_name"]
@@ -527,13 +516,27 @@ def update_ticket(ticket_id, payload):
 
 def save_nas_log(new_row):
     if db_connected:
-        supabase_client.table("nas_backups").insert(new_row).execute()
+        response = supabase_client.table("nas_backups").insert(new_row).execute()
+        if response.data and "id" in response.data[0]:
+            return int(response.data[0]["id"])
+        return None
+
+    current = st.session_state.local_nas.copy()
+    new_row = dict(new_row)
+    new_row["id"] = get_next_nas_id(current)
+    st.session_state.local_nas = pd.concat([current, pd.DataFrame([new_row])], ignore_index=True)
+    return int(new_row["id"])
+
+
+def delete_nas_log(row_id):
+    if db_connected:
+        supabase_client.table("nas_backups").delete().eq("id", int(row_id)).execute()
         return
 
-    st.session_state.local_nas = pd.concat(
-        [st.session_state.local_nas, pd.DataFrame([new_row])],
-        ignore_index=True,
-    )
+    if "id" in st.session_state.local_nas.columns:
+        st.session_state.local_nas = st.session_state.local_nas[
+            pd.to_numeric(st.session_state.local_nas["id"], errors="coerce") != int(row_id)
+        ].copy()
 
 
 # =========================================================================
@@ -596,10 +599,7 @@ with tab_log:
             st.rerun()
     else:
         existing_users = sorted(df_live["user_name"].dropna().astype(str).unique().tolist()) if not df_live.empty else []
-        selected_user = st.selectbox(
-            "💡 Search Existing User Name to Auto-Fill Details",
-            ["New User / Type Below"] + existing_users,
-        )
+        selected_user = st.selectbox("💡 Search Existing User Name to Auto-Fill Details", ["New User / Type Below"] + existing_users)
 
         default_user_name, default_dept, default_loc = "", "", ""
         if selected_user != "New User / Type Below" and not df_live.empty:
@@ -628,16 +628,8 @@ with tab_log:
                 tech_remarks = st.text_area("Technician Operational Remarks", height=90)
 
                 t1, t2 = st.columns(2)
-                custom_start = t1.time_input(
-                    "Start Time",
-                    value=st.session_state.form_default_start,
-                    key="widget_start_time",
-                )
-                custom_close = t2.time_input(
-                    "Resolve Time",
-                    value=st.session_state.form_default_close,
-                    key="widget_close_time",
-                )
+                custom_start = t1.time_input("Start Time", value=st.session_state.form_default_start, key="widget_start_time")
+                custom_close = t2.time_input("Resolve Time", value=st.session_state.form_default_close, key="widget_close_time")
 
                 submit_btn = st.form_submit_button("Submit Ticket")
 
@@ -652,11 +644,7 @@ with tab_log:
                             start_val, close_val, duration_mins = None, None, 0
                         else:
                             start_val = f"{formatted_date} {custom_start.strftime('%H:%M:%S')}"
-                            close_val = (
-                                f"{formatted_date} {custom_close.strftime('%H:%M:%S')}"
-                                if status == "Resolved"
-                                else None
-                            )
+                            close_val = f"{formatted_date} {custom_close.strftime('%H:%M:%S')}" if status == "Resolved" else None
 
                             if status == "Resolved":
                                 duration_mins = max(
@@ -665,8 +653,7 @@ with tab_log:
                                         (
                                             datetime.combine(datetime.now().date(), custom_close)
                                             - datetime.combine(datetime.now().date(), custom_start)
-                                        ).total_seconds()
-                                        / 60
+                                        ).total_seconds() / 60
                                     ),
                                 )
                             else:
@@ -708,7 +695,6 @@ with tab_log:
 
         with ai_col:
             st.subheader("🧠 AI Copilot Diagnostics")
-
             ai_input = st.text_area(
                 "Type complaint scenario details to extract rapid triage steps:",
                 height=140,
@@ -731,9 +717,7 @@ with tab_log:
                             unsafe_allow_html=True,
                         )
                     else:
-                        st.info(
-                            "🔍 No specific category matched. Proceed with standard physical, network, and permission checks."
-                        )
+                        st.info("🔍 No specific category matched. Proceed with standard physical, network, and permission checks.")
                 else:
                     st.warning("⚠️ Please provide complaint details first.")
 
@@ -757,10 +741,7 @@ with tab_view:
             sel_cat = st.multiselect("Filter by Category", available_cats, default=available_cats)
 
         df_display = df_live.copy()
-        df_display["System Ticket ID"] = df_display.apply(
-            lambda r: format_ticket_number(r["id"], r["location"]),
-            axis=1,
-        )
+        df_display["System Ticket ID"] = df_display.apply(lambda r: format_ticket_number(r["id"], r["location"]), axis=1)
 
         filtered_df = df_display[
             (df_display["status"].isin(sel_status))
@@ -816,16 +797,12 @@ with tab_view:
                     with u1:
                         c_idx = STATUS_OPTIONS.index(ticket_data["status"]) if ticket_data["status"] in STATUS_OPTIONS else 0
                         new_status = st.selectbox("Modify Status", STATUS_OPTIONS, index=c_idx)
-
                         tech_list = list(TECH_MAP.keys())
                         t_idx = tech_list.index(ticket_data["attended_by"]) if ticket_data["attended_by"] in tech_list else 0
                         new_tech = st.selectbox("Reassign Technician", tech_list, index=t_idx)
 
                     with u2:
-                        new_remarks = st.text_area(
-                            "Update Resolution Remarks",
-                            value=str(ticket_data.get("remarks", "")),
-                        )
+                        new_remarks = st.text_area("Update Resolution Remarks", value=str(ticket_data.get("remarks", "")))
                         duration_input = st.number_input(
                             "Resolution Duration (Minutes)",
                             min_value=0,
@@ -836,7 +813,6 @@ with tab_view:
 
                     if save_update_btn:
                         final_remarks = str(new_remarks)
-
                         if new_status == "On Hold - User Busy" and not final_remarks.strip():
                             final_remarks = "Technician reached user, but work was postponed due to business activity."
 
@@ -870,10 +846,7 @@ with tab_analysis:
         resolved_tickets = len(df_live[df_live["status"].astype(str).str.lower() == "resolved"])
         held_tickets = len(df_live[df_live["status"].astype(str).str.lower() == "on hold - user busy"])
         open_tickets = len(df_live[df_live["status"].astype(str).str.lower().isin(["open", "in progress"])])
-        resolved_df = df_live[
-            (df_live["status"].astype(str).str.lower() == "resolved")
-            & (df_live["resolution_time"] > 0)
-        ]
+        resolved_df = df_live[(df_live["status"].astype(str).str.lower() == "resolved") & (df_live["resolution_time"] > 0)]
         avg_res_time = int(resolved_df["resolution_time"].mean()) if not resolved_df.empty else 0
         resolution_rate = round((resolved_tickets / total_tickets) * 100, 1) if total_tickets else 0.0
 
@@ -883,8 +856,8 @@ with tab_analysis:
         k3.metric("On Hold", held_tickets)
         k4.metric("Active Backlog", open_tickets)
         k5.metric("Avg Resolution", f"{avg_res_time} mins")
-
         st.caption(f"Resolution efficiency: {resolution_rate}%")
+
         st.markdown("---")
 
         c1, c2 = st.columns(2)
@@ -918,18 +891,10 @@ with tab_monthly:
         df_export["Month"] = df_export["date_parsed"].dt.strftime("%Y-%m (%B)")
         df_export["Week_of_Year"] = df_export["date_parsed"].dt.isocalendar().week.astype(str)
         df_export["Week_Label"] = df_export["date_parsed"].dt.strftime("%Y-W") + df_export["Week_of_Year"]
-        df_export["System Ticket ID"] = df_export.apply(
-            lambda r: format_ticket_number(r["id"], r["location"]),
-            axis=1,
-        )
+        df_export["System Ticket ID"] = df_export.apply(lambda r: format_ticket_number(r["id"], r["location"]), axis=1)
 
         full_csv = df_export.drop(columns=["date_parsed"], errors="ignore").to_csv(index=False).encode("utf-8")
-        st.download_button(
-            "📥 Download Master Log Sheet (.CSV)",
-            full_csv,
-            "it_master_production_log.csv",
-            "text/csv",
-        )
+        st.download_button("📥 Download Master Log Sheet (.CSV)", full_csv, "it_master_production_log.csv", "text/csv")
 
         st.markdown("---")
         exp_tab_month, exp_tab_week, exp_tab_tech, exp_tab_loc = st.tabs(
@@ -937,11 +902,7 @@ with tab_monthly:
         )
 
         with exp_tab_month:
-            selected_month = st.selectbox(
-                "Select Target Month",
-                sorted(df_export["Month"].unique().tolist(), reverse=True),
-                key="m_sel",
-            )
+            selected_month = st.selectbox("Select Target Month", sorted(df_export["Month"].unique().tolist(), reverse=True), key="m_sel")
             f_m_df = df_export[df_export["Month"] == selected_month].drop(
                 columns=["date_parsed", "Month", "Week_of_Year", "Week_Label"],
                 errors="ignore",
@@ -955,11 +916,7 @@ with tab_monthly:
             )
 
         with exp_tab_week:
-            selected_week = st.selectbox(
-                "Select Target Week",
-                sorted(df_export["Week_Label"].unique().tolist(), reverse=True),
-                key="w_sel",
-            )
+            selected_week = st.selectbox("Select Target Week", sorted(df_export["Week_Label"].unique().tolist(), reverse=True), key="w_sel")
             f_w_df = df_export[df_export["Week_Label"] == selected_week].drop(
                 columns=["date_parsed", "Month", "Week_of_Year", "Week_Label"],
                 errors="ignore",
@@ -973,11 +930,7 @@ with tab_monthly:
             )
 
         with exp_tab_tech:
-            selected_tech = st.selectbox(
-                "Select Technician",
-                sorted(df_export["attended_by"].dropna().astype(str).unique().tolist()),
-                key="t_sel",
-            )
+            selected_tech = st.selectbox("Select Technician", sorted(df_export["attended_by"].dropna().astype(str).unique().tolist()), key="t_sel")
             f_t_df = df_export[df_export["attended_by"] == selected_tech].drop(
                 columns=["date_parsed", "Month", "Week_of_Year", "Week_Label"],
                 errors="ignore",
@@ -991,11 +944,7 @@ with tab_monthly:
             )
 
         with exp_tab_loc:
-            selected_loc = st.selectbox(
-                "Select Site Location",
-                sorted(df_export["location"].dropna().astype(str).unique().tolist()),
-                key="l_sel",
-            )
+            selected_loc = st.selectbox("Select Site Location", sorted(df_export["location"].dropna().astype(str).unique().tolist()), key="l_sel")
             f_l_df = df_export[df_export["location"] == selected_loc].drop(
                 columns=["date_parsed", "Month", "Week_of_Year", "Week_Label"],
                 errors="ignore",
@@ -1069,7 +1018,7 @@ with tab_nas:
         )
 
         if df_nas.empty:
-            df_nas_filtered = pd.DataFrame(columns=["date", "server_name", "status", "storage_used", "remarks"])
+            df_nas_filtered = pd.DataFrame(columns=["id", "date", "server_name", "status", "storage_used", "remarks"])
         else:
             df_nas_filtered = df_nas[
                 df_nas["server_name"].astype(str).str.strip().str.lower()
@@ -1079,7 +1028,7 @@ with tab_nas:
         if df_nas_filtered.empty:
             st.info(f"No backup logs found for server {selected_server_view}.")
         else:
-            df_nas_sorted = df_nas_filtered.sort_values(by="date", ascending=True).copy()
+            df_nas_sorted = df_nas_filtered.sort_values(by=["date", "id"], ascending=[True, True]).copy()
             df_nas_sorted["Change (GB)"] = df_nas_sorted["storage_used"].diff().round(4)
             df_nas_sorted["Change (%)"] = (df_nas_sorted["storage_used"].pct_change() * 100).round(2)
 
@@ -1088,17 +1037,11 @@ with tab_nas:
             latest_size = float(df_nas_sorted.iloc[-1]["storage_used"])
 
             if latest_status == "Failed":
-                st.error(
-                    f"⚠️ Critical alert: last backup on {latest_date} for {selected_server_view} failed."
-                )
+                st.error(f"⚠️ Critical alert: last backup on {latest_date} for {selected_server_view} failed.")
             elif latest_status == "Warning / Partial":
-                st.warning(
-                    f"⚠️ Attention required: backup on {latest_date} for {selected_server_view} completed with warnings."
-                )
+                st.warning(f"⚠️ Attention required: backup on {latest_date} for {selected_server_view} completed with warnings.")
             else:
-                st.success(
-                    f"💚 Last backup on {latest_date} for {selected_server_view} completed successfully."
-                )
+                st.success(f"💚 Last backup on {latest_date} for {selected_server_view} completed successfully.")
 
             m1, m2 = st.columns(2)
 
@@ -1115,7 +1058,7 @@ with tab_nas:
             with m2:
                 st.metric("Mapped Log Entries", str(len(df_nas_sorted)))
 
-            df_nas_table = df_nas_sorted.sort_values(by="date", ascending=False).copy()
+            df_nas_table = df_nas_sorted.sort_values(by=["date", "id"], ascending=[False, False]).copy()
             df_nas_table["Change (GB)"] = df_nas_table["Change (GB)"].apply(
                 lambda x: f"{x:+.4f} GB" if pd.notnull(x) else "— Baseline"
             )
@@ -1124,15 +1067,45 @@ with tab_nas:
             )
 
             st.dataframe(
-                df_nas_table[
-                    ["date", "server_name", "status", "storage_used", "remarks", "Change (GB)", "Change (%)"]
-                ],
+                df_nas_table[["id", "date", "server_name", "status", "storage_used", "remarks", "Change (GB)", "Change (%)"]],
                 use_container_width=True,
                 hide_index=True,
             )
 
             st.markdown(f"**Storage Footprint Over Time (GB) — {selected_server_view}**")
             st.line_chart(df_nas_sorted.set_index("date")["storage_used"])
+
+        st.markdown("---")
+        st.subheader("🗑️ Delete Wrong NAS Entry")
+
+        if df_nas.empty or "id" not in df_nas.columns:
+            st.info("No NAS rows available for deletion.")
+        else:
+            delete_df = df_nas.copy().sort_values(by=["date", "server_name", "id"], ascending=[False, True, False])
+
+            delete_df["delete_label"] = delete_df.apply(
+                lambda r: f"ID {int(r['id'])} | {r['date']} | {r['server_name']} | {r['status']} | {float(r['storage_used']):,.4f} GB",
+                axis=1,
+            )
+
+            selected_delete_label = st.selectbox(
+                "Select wrong NAS row to remove",
+                delete_df["delete_label"].tolist(),
+                key="delete_nas_row_select",
+            )
+
+            target_delete_row = delete_df[delete_df["delete_label"] == selected_delete_label].iloc[0]
+            target_delete_id = int(target_delete_row["id"])
+
+            st.warning("This will permanently delete the selected NAS log row.")
+
+            if st.button("Delete Selected NAS Entry", type="primary"):
+                try:
+                    delete_nas_log(target_delete_id)
+                    st.success(f"Deleted NAS entry ID {target_delete_id}")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Delete failed: {e}")
 
         st.markdown("---")
         st.subheader("📦 Server Summary")
