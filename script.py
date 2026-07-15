@@ -1067,7 +1067,7 @@ elif page == "NAS Monitoring":
             st.caption(f"Mapped worksheet reference: {SERVER_SHEET_MAP.get(server_name, 'N/A')}")
 
             n3, n4 = st.columns(2)
-            log_status = n3.selectbox("Backup Status", NAS_STATUS_OPTIONS)
+            log_status = n3.selectbox("Backup Status", ["Success", "Failed"])
             log_storage_kb = n4.number_input("Storage Used (KB)", min_value=0.0, step=1024.0)
 
             st.caption(f"Automatic conversion preview: {round(log_storage_kb / (1024 * 1024), 4)} GB")
@@ -1146,7 +1146,10 @@ elif page == "NAS Monitoring":
                 trend_df["date_label"] = trend_df["date"].dt.strftime("%Y-%m-%d")
 
                 st.markdown("#### Storage Trend")
-                st.altair_chart(build_line_chart(trend_df, "date_label:N", "storage_used:Q", "#3b82f6"), use_container_width=True)
+                st.altair_chart(
+                    build_line_chart(trend_df, "date_label:N", "storage_used:Q", "#3b82f6"),
+                    use_container_width=True,
+                )
 
                 st.markdown("#### Historical Log Matrix")
                 table_df = server_df.sort_values(by="date", ascending=False).copy()
@@ -1162,7 +1165,7 @@ elif page == "NAS Monitoring":
                     status_type="nas",
                 )
 
-       with nas_tab3:
+    with nas_tab3:
         st.markdown("### Raw NAS Logs")
 
         raw_server_filter = st.selectbox(
@@ -1185,6 +1188,7 @@ elif page == "NAS Monitoring":
                 ["id", "date", "server_name", "status", "storage_used", "remarks"],
                 status_type="nas",
             )
+
     with nas_tab4:
         st.markdown("### Delete Wrong NAS Entry")
         st.warning("Use this only when an incorrect backup log was entered.")
@@ -1212,7 +1216,6 @@ elif page == "NAS Monitoring":
                     st.rerun()
                 except Exception as e:
                     st.error(f"Delete error: {e}")
-
 # ============================================================================
 # PAGE: REPORTS
 # ============================================================================
