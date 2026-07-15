@@ -749,6 +749,8 @@ else:
 
 df_ticket_filtered = filtered_tickets(df_live, site_filter, status_filter, tech_filter)
 df_nas_filtered_global = filtered_nas(df_nas, server_filter)
+if not df_nas.empty and "status" in df_nas.columns:
+    df_nas.loc[:, "status"] = df_nas["status"].replace({"Open": "Success", "open": "Success", "OPEN": "Success", "Resolved": "Success", "resolved": "Success"})
 
 if page == "Overview":
     st.subheader("Overview")
@@ -999,7 +1001,7 @@ elif page == "NAS Monitoring":
             server_name = n2.selectbox("Server Name", SERVER_NAMES)
             st.caption(f"Mapped worksheet reference: {SERVER_SHEET_MAP.get(server_name, 'N/A')}")
             n3, n4 = st.columns(2)
-            log_status = n3.selectbox("Backup Status", ["Success", "Failed", "Warning / Partial"])
+            log_status = n3.selectbox("Backup Status", ["Success", "Failed"])
             log_storage_kb = n4.number_input("Storage Used (KB)", min_value=0.0, step=1024.0)
             st.caption(f"Automatic conversion preview: {round(log_storage_kb / (1024 * 1024), 4)} GB")
             log_remarks = st.text_area("Operational Remarks / Error Logs", height=90)
@@ -1025,6 +1027,7 @@ elif page == "NAS Monitoring":
             latest_nas = latest_nas[latest_nas["server_name"] == server_name].copy()
             if not latest_nas.empty:
                 latest_nas = latest_nas.sort_values(by=["id", "date"], ascending=[False, False]).head(3)
+                latest_nas["storage_used"] = latest_nas["storage_used"].map(lambda x: f"{x:.4f} GB")
                 render_status_table(latest_nas, ["id", "date", "server_name", "status", "storage_used", "remarks"], compact=True)
             else:
                 st.info(f"No previous NAS entries found for server {server_name}.")
@@ -1068,6 +1071,7 @@ elif page == "NAS Monitoring":
                 table_df = server_df.sort_values(by="date", ascending=False).copy()
                 table_df["Change (GB)"] = table_df["Change (GB)"].apply(lambda x: f"{x:+.4f} GB" if pd.notnull(x) else "— Baseline")
                 table_df["Change (%)"] = table_df["Change (%)"].apply(lambda x: f"{x:+.2f}%" if pd.notnull(x) else "— Baseline")
+                table_df["storage_used"] = table_df["storage_used"].map(lambda x: f"{x:.4f} GB")
                 render_status_table(table_df, ["id", "date", "server_name", "status", "storage_used", "Change (GB)", "Change (%)", "remarks"], compact=True)
 
     with nas_tab3:
@@ -1076,6 +1080,7 @@ elif page == "NAS Monitoring":
             st.info("No NAS records found.")
         else:
             raw_view = df_nas_filtered_global.sort_values(by=["date", "id"], ascending=[False, False]).copy()
+            raw_view["storage_used"] = raw_view["storage_used"].map(lambda x: f"{x:.4f} GB")
             render_status_table(raw_view, ["id", "date", "server_name", "status", "storage_used", "remarks"], compact=True)
 
     with nas_tab4:
