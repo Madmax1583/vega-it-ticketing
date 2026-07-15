@@ -16,217 +16,257 @@ st.set_page_config(
 st.markdown(
     """
 <style>
-:root {
-    --bg: #0b1020;
-    --panel: #111827;
-    --panel-2: #0f172a;
-    --border: #273449;
-    --text: #f8fafc;
-    --muted: #94a3b8;
-    --accent: #ef4444;
-    --accent-2: #f87171;
-    --success: #22c55e;
-    --warning: #f59e0b;
-    --info: #3b82f6;
-    --input: #111827;
-}
-
-@media (prefers-color-scheme: light) {
     :root {
-        --bg: #f6f8fb;
-        --panel: #ffffff;
-        --panel-2: #eef3f9;
-        --border: #d7e0ea;
-        --text: #0f172a;
-        --muted: #475569;
-        --accent: #dc2626;
-        --accent-2: #ef4444;
-        --success: #16a34a;
-        --warning: #d97706;
-        --info: #2563eb;
-        --input: #ffffff;
+        --bg: #0b1020;
+        --panel: #111827;
+        --panel-soft: #0f172a;
+        --panel-muted: #131d34;
+        --border: #273449;
+        --text: #f8fafc;
+        --muted: #94a3b8;
+        --accent: #ef4444;
+        --accent-soft: rgba(239, 68, 68, 0.12);
+        --success: #22c55e;
+        --warning: #f59e0b;
+        --info: #3b82f6;
     }
-}
 
-html, body, .stApp, .main {
-    background: var(--bg) !important;
-    color: var(--text) !important;
-}
+    .block-container {
+        padding-top: 1rem;
+        padding-bottom: 2rem;
+    }
 
-.block-container {
-    padding-top: 1rem;
-    padding-bottom: 2rem;
-}
+    .app-banner {
+        background: linear-gradient(135deg, #0f172a 0%, #111827 100%);
+        border: 1px solid #1f2937;
+        border-radius: 16px;
+        padding: 18px 22px;
+        margin-bottom: 10px;
+    }
 
-[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, var(--panel-2) 0%, var(--panel) 100%) !important;
-    border-right: 1px solid var(--border);
-}
+    .app-title {
+        color: var(--text);
+        font-size: 1.85rem;
+        font-weight: 800;
+        margin-bottom: 4px;
+    }
 
-.app-banner {
-    background: linear-gradient(135deg, var(--panel-2) 0%, var(--panel) 100%);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 18px 22px;
-    margin-bottom: 12px;
-}
+    .app-subtitle {
+        color: var(--muted);
+        font-size: 0.95rem;
+        margin-bottom: 0;
+    }
 
-.app-title {
-    color: var(--text);
-    font-size: 1.85rem;
-    font-weight: 800;
-    margin-bottom: 4px;
-}
+    .section-note {
+        background: var(--panel-muted);
+        border: 1px solid rgba(59,130,246,0.25);
+        border-radius: 12px;
+        padding: 12px 14px;
+        color: var(--text);
+        margin-bottom: 10px;
+        font-size: 0.93rem;
+    }
 
-.app-subtitle, .mini-note, label, p, .stCaption {
-    color: var(--muted) !important;
-}
+    .panel-card {
+        background: rgba(15, 23, 42, 0.72);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 14px;
+        color: var(--text);
+        margin-bottom: 12px;
+    }
 
-.recent-card, .summary-card, .card-shell {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 14px;
-    margin-top: 10px;
-    color: var(--text);
-}
+    .summary-card {
+        background: var(--panel-soft);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 14px;
+        color: var(--text);
+        margin-bottom: 12px;
+    }
 
-.summary-card .sum-label {
-    color: var(--muted);
-    font-size: 0.78rem;
-    text-transform: uppercase;
-    letter-spacing: .04em;
-    margin-top: 8px;
-}
+    .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px 16px;
+    }
 
-.summary-card .sum-value {
-    color: var(--text);
-    font-size: 0.98rem;
-    font-weight: 700;
-    line-height: 1.45;
-}
+    .sum-label {
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+        margin-bottom: 2px;
+    }
 
-.ai-box {
-    background: var(--panel);
-    border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
-    border-radius: 12px;
-    padding: 14px 16px;
-    margin-top: 10px;
-}
+    .sum-value {
+        font-size: 1rem;
+        font-weight: 700;
+        color: var(--text);
+        word-break: break-word;
+    }
 
-.ai-box-title {
-    color: var(--accent-2);
-    font-size: 1rem;
-    font-weight: 700;
-    margin-bottom: 8px;
-}
+    .span-2 {
+        grid-column: span 2;
+    }
 
-.status-chip {
-    display: inline-block;
-    padding: 4px 10px;
-    border-radius: 999px;
-    font-size: 0.78rem;
-    font-weight: 700;
-    border: 1px solid transparent;
-}
+    .status-chip {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 0.78rem;
+        font-weight: 700;
+        border: 1px solid transparent;
+        white-space: nowrap;
+    }
 
-.status-open { color: #fecaca; background: rgba(239,68,68,.14); border-color: rgba(239,68,68,.28); }
-.status-progress { color: #bfdbfe; background: rgba(59,130,246,.14); border-color: rgba(59,130,246,.28); }
-.status-hold { color: #fde68a; background: rgba(245,158,11,.14); border-color: rgba(245,158,11,.28); }
-.status-resolved { color: #bbf7d0; background: rgba(34,197,94,.14); border-color: rgba(34,197,94,.28); }
+    .status-open {
+        color: #fecaca;
+        background: rgba(239, 68, 68, 0.12);
+        border-color: rgba(239, 68, 68, 0.28);
+    }
 
-[data-testid="stMetric"] {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    padding: 12px;
-    border-radius: 14px;
-}
+    .status-progress {
+        color: #bfdbfe;
+        background: rgba(59, 130, 246, 0.12);
+        border-color: rgba(59, 130, 246, 0.28);
+    }
 
-[data-testid="stMetricLabel"], [data-testid="stMetricDelta"] {
-    color: var(--muted) !important;
-}
+    .status-hold {
+        color: #fde68a;
+        background: rgba(245, 158, 11, 0.12);
+        border-color: rgba(245, 158, 11, 0.28);
+    }
 
-.stTabs [data-baseweb="tab-list"] { gap: 8px; }
-.stTabs [data-baseweb="tab"] {
-    background: var(--panel);
-    border-radius: 10px 10px 0 0;
-    color: var(--text);
-    padding: 10px 14px;
-    border: 1px solid var(--border);
-}
-.stTabs [aria-selected="true"] {
-    background: var(--accent) !important;
-    color: white !important;
-}
+    .status-resolved {
+        color: #bbf7d0;
+        background: rgba(34, 197, 94, 0.12);
+        border-color: rgba(34, 197, 94, 0.28);
+    }
 
-div.stButton > button:first-child,
-button[kind="primary"] {
-    background-color: var(--accent) !important;
-    color: white !important;
-    border: none !important;
-    border-radius: 12px !important;
-}
+    .queue-shell {
+        background: rgba(15, 23, 42, 0.72);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 14px;
+        margin-top: 8px;
+    }
 
-div[data-testid="stForm"] {
-    background: color-mix(in srgb, var(--panel-2) 62%, transparent);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 1rem;
-}
+    .table-scroll {
+        width: 100%;
+        overflow-x: auto;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        background: var(--panel-soft);
+    }
 
-.stTextInput input,
-.stTextArea textarea,
-.stSelectbox div[data-baseweb="select"] > div,
-.stDateInput input,
-.stTimeInput input,
-.stNumberInput input {
-    background: var(--input) !important;
-    color: var(--text) !important;
-    border: 1px solid var(--border) !important;
-    border-radius: 12px !important;
-}
+    .table-scroll table {
+        width: 100%;
+        border-collapse: collapse;
+        min-width: 940px;
+    }
 
-.stTextInput input::placeholder,
-.stTextArea textarea::placeholder {
-    color: var(--muted) !important;
-}
+    .table-scroll th, .table-scroll td {
+        padding: 10px 12px;
+        border-bottom: 1px solid rgba(39, 52, 73, 0.9);
+        vertical-align: top;
+        text-align: left;
+        font-size: 0.88rem;
+    }
 
-table {
-    width: 100%;
-    border-collapse: collapse;
-    min-width: 980px;
-}
+    .table-scroll th {
+        position: sticky;
+        top: 0;
+        background: #162033;
+        color: #e5eefc;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        z-index: 1;
+    }
 
-thead tr th, tbody tr td {
-    border: 1px solid rgba(148,163,184,.14);
-    padding: 10px 12px;
-    vertical-align: top;
-    color: var(--text) !important;
-    background: transparent !important;
-}
+    .table-scroll tr:last-child td {
+        border-bottom: none;
+    }
 
-thead tr th {
-    background: color-mix(in srgb, var(--panel-2) 84%, transparent) !important;
-    position: sticky;
-    top: 0;
-    z-index: 1;
-}
+    .compact-table table {
+        min-width: 760px;
+    }
 
-.table-scroll {
-    overflow-x: auto;
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    background: var(--panel);
-}
+    .compact-table th, .compact-table td {
+        padding: 8px 10px;
+        font-size: 0.85rem;
+    }
 
-.form-help {
-    background: color-mix(in srgb, var(--info) 10%, transparent);
-    border: 1px solid color-mix(in srgb, var(--info) 25%, var(--border));
-    border-radius: 12px;
-    padding: 10px 12px;
-    color: var(--text);
-    margin-bottom: 10px;
-}
+    .danger-box {
+        background: rgba(127, 29, 29, 0.22);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        border-radius: 14px;
+        padding: 14px;
+    }
+
+    .danger-box h4 {
+        margin: 0 0 8px 0;
+        color: #fecaca;
+    }
+
+    .mini-note {
+        color: var(--muted);
+        font-size: 0.84rem;
+        margin-bottom: 0.5rem;
+    }
+
+    [data-testid="stMetric"] {
+        background: #0f172a;
+        border: 1px solid #1e293b;
+        padding: 12px;
+        border-radius: 14px;
+    }
+
+    [data-testid="stMetricLabel"] {
+        color: var(--muted);
+    }
+
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+    }
+
+    .stTabs [data-baseweb="tab"] {
+        background: #111827;
+        border-radius: 8px 8px 0 0;
+        color: #cbd5e1;
+        padding: 10px 14px;
+    }
+
+    .stTabs [aria-selected="true"] {
+        background: #ef4444 !important;
+        color: white !important;
+    }
+
+    div[data-testid="stForm"] {
+        background: rgba(15, 23, 42, 0.55);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 0.9rem;
+    }
+
+    div.stButton > button:first-child,
+    div[data-testid="stDownloadButton"] > button:first-child,
+    div[data-testid="baseButton-secondary"] > button:first-child {
+        background-color: #ef4444;
+        color: white;
+        border: none;
+        border-radius: 10px;
+    }
+
+    @media (max-width: 900px) {
+        .summary-grid {
+            grid-template-columns: 1fr;
+        }
+        .span-2 {
+            grid-column: span 1;
+        }
+    }
 </style>
 """,
     unsafe_allow_html=True,
@@ -379,21 +419,67 @@ AI_SUGGESTIONS = {
 }
 
 if "local_tickets" not in st.session_state:
-    st.session_state.local_tickets = pd.DataFrame([
-        {"id": 1, "date": "2026-07-01", "user_name": "Amit Sharma", "department": "Production", "complaint": "CCTV camera in main corridor is flickering", "location": "Sector - 136 Vega", "attended_by": "Satish", "status": "In Progress", "category": "CCTV/Camera", "start_time": "2026-07-01 10:15:00", "close_time": None, "resolution_time": 0, "remarks": "POE check in progress"},
-        {"id": 2, "date": "2026-07-03", "user_name": "Sunita Rao", "department": "Finance", "complaint": "Desktop showing blue screen after update", "location": "Knitpro 28-29", "attended_by": "Priyanshu", "status": "Open", "category": "Laptop/Hardware", "start_time": None, "close_time": None, "resolution_time": 0, "remarks": ""},
-        {"id": 3, "date": "2026-07-05", "user_name": "Rajesh Kumar", "department": "HR", "complaint": "Office printer offline and queue is stuck", "location": "Sector - 155 Vega", "attended_by": "Amit", "status": "Resolved", "category": "Printer", "start_time": "2026-07-05 10:00:00", "close_time": "2026-07-05 10:35:00", "resolution_time": 35, "remarks": "Spooler restarted and queue flushed"},
-    ])
+    st.session_state.local_tickets = pd.DataFrame(
+        [
+            {
+                "id": 1,
+                "date": "2026-07-01",
+                "user_name": "Amit Sharma",
+                "department": "Production",
+                "complaint": "CCTV camera in main corridor is flickering",
+                "location": "Sector - 136 Vega",
+                "attended_by": "Satish",
+                "status": "In Progress",
+                "category": "CCTV/Camera",
+                "start_time": "2026-07-01 10:15:00",
+                "close_time": None,
+                "resolution_time": 0,
+                "remarks": "POE check in progress",
+            },
+            {
+                "id": 2,
+                "date": "2026-07-03",
+                "user_name": "Sunita Rao",
+                "department": "Finance",
+                "complaint": "Desktop showing blue screen after update",
+                "location": "Knitpro 28-29",
+                "attended_by": "Priyanshu",
+                "status": "Open",
+                "category": "Laptop/Hardware",
+                "start_time": None,
+                "close_time": None,
+                "resolution_time": 0,
+                "remarks": "",
+            },
+            {
+                "id": 3,
+                "date": "2026-07-05",
+                "user_name": "Rajesh Kumar",
+                "department": "HR",
+                "complaint": "Office printer offline and queue is stuck",
+                "location": "Sector - 155 Vega",
+                "attended_by": "Amit",
+                "status": "Resolved",
+                "category": "Printer",
+                "start_time": "2026-07-05 10:00:00",
+                "close_time": "2026-07-05 10:35:00",
+                "resolution_time": 35,
+                "remarks": "Spooler restarted and queue flushed",
+            },
+        ]
+    )
 
 if "local_nas" not in st.session_state:
-    st.session_state.local_nas = pd.DataFrame([
-        {"id": 1, "date": "2026-07-11", "server_name": "HRI", "status": "Success", "storage_used": 43.3975, "remarks": "Daily backup completed."},
-        {"id": 2, "date": "2026-07-12", "server_name": "HRI", "status": "Success", "storage_used": 43.3985, "remarks": "Daily backup completed."},
-        {"id": 3, "date": "2026-07-13", "server_name": "HRI", "status": "Failed", "storage_used": 43.3985, "remarks": "Handshake timeout."},
-        {"id": 4, "date": "2026-07-13", "server_name": "Vega", "status": "Success", "storage_used": 236.1529, "remarks": "Backup completed."},
-        {"id": 5, "date": "2026-07-15", "server_name": "Sery", "status": "Success", "storage_used": 4.2406, "remarks": "Incremental snapshot success."},
-        {"id": 6, "date": "2026-07-15", "server_name": "Rise", "status": "Success", "storage_used": 6.4914, "remarks": "Replication completed."},
-    ])
+    st.session_state.local_nas = pd.DataFrame(
+        [
+            {"id": 1, "date": "2026-07-11", "server_name": "HRI", "status": "Success", "storage_used": 43.3975, "remarks": "Daily backup completed."},
+            {"id": 2, "date": "2026-07-12", "server_name": "HRI", "status": "Success", "storage_used": 43.3985, "remarks": "Daily backup completed."},
+            {"id": 3, "date": "2026-07-13", "server_name": "HRI", "status": "Failed", "storage_used": 43.3985, "remarks": "Handshake timeout."},
+            {"id": 4, "date": "2026-07-13", "server_name": "Vega", "status": "Success", "storage_used": 236.1529, "remarks": "Backup completed."},
+            {"id": 5, "date": "2026-07-15", "server_name": "Sery", "status": "Success", "storage_used": 4.2406, "remarks": "Incremental snapshot success."},
+            {"id": 6, "date": "2026-07-15", "server_name": "Rise", "status": "Success", "storage_used": 6.4914, "remarks": "Replication completed."},
+        ]
+    )
 
 def format_ticket_number(ticket_id, location_str):
     try:
@@ -411,21 +497,34 @@ def format_ticket_number(ticket_id, location_str):
 
 def auto_categorize(complaint):
     text = str(complaint).lower()
-    if any(k in text for k in ["cctv", "camera", "nvr"]): return "CCTV/Camera"
-    if any(k in text for k in ["laptop", "desktop", "keyboard", "touchpad", "battery", "screen", "hardware", "monitor"]): return "Laptop/Hardware"
-    if any(k in text for k in ["outlook", "email", "mail", "pst", "ost"]): return "Email/Outlook"
-    if any(k in text for k in ["printer", "scanner", "cartridge", "print"]): return "Printer"
-    if any(k in text for k in ["sap", "erp"]): return "SAP"
-    if any(k in text for k in ["network", "wifi", "internet", "vpn", "ping", "ip", "router", "switch", "lan"]): return "Network"
-    if any(k in text for k in ["server", "ups", "rack", "dns", "domain", "backup"]): return "Server/UPS"
+    if any(k in text for k in ["cctv", "camera", "nvr"]):
+        return "CCTV/Camera"
+    if any(k in text for k in ["laptop", "desktop", "keyboard", "touchpad", "battery", "screen", "hardware", "monitor"]):
+        return "Laptop/Hardware"
+    if any(k in text for k in ["outlook", "email", "mail", "pst", "ost"]):
+        return "Email/Outlook"
+    if any(k in text for k in ["printer", "scanner", "cartridge", "print"]):
+        return "Printer"
+    if any(k in text for k in ["sap", "erp"]):
+        return "SAP"
+    if any(k in text for k in ["network", "wifi", "internet", "vpn", "ping", "ip", "router", "switch", "lan"]):
+        return "Network"
+    if any(k in text for k in ["server", "ups", "rack", "dns", "domain", "backup"]):
+        return "Server/UPS"
     return "Other"
 
 def normalize_ticket_df(df):
-    expected = ["id", "date", "user_name", "department", "complaint", "location", "attended_by", "status", "category", "start_time", "close_time", "resolution_time", "remarks"]
-    if df is None or df.empty: return pd.DataFrame(columns=expected)
+    expected = [
+        "id", "date", "user_name", "department", "complaint", "location",
+        "attended_by", "status", "category", "start_time", "close_time",
+        "resolution_time", "remarks",
+    ]
+    if df is None or df.empty:
+        return pd.DataFrame(columns=expected)
     out = df.copy()
     for col in expected:
-        if col not in out.columns: out[col] = None
+        if col not in out.columns:
+            out[col] = None
     out["id"] = pd.to_numeric(out["id"], errors="coerce").fillna(0).astype(int)
     out["resolution_time"] = pd.to_numeric(out["resolution_time"], errors="coerce").fillna(0).astype(int)
     out["remarks"] = out["remarks"].fillna("").astype(str)
@@ -436,10 +535,12 @@ def normalize_ticket_df(df):
 
 def normalize_nas_df(df):
     expected = ["id", "date", "server_name", "status", "storage_used", "remarks"]
-    if df is None or df.empty: return pd.DataFrame(columns=expected)
+    if df is None or df.empty:
+        return pd.DataFrame(columns=expected)
     out = df.copy()
     for col in expected:
-        if col not in out.columns: out[col] = None
+        if col not in out.columns:
+            out[col] = None
     out["id"] = pd.to_numeric(out["id"], errors="coerce").fillna(0).astype(int)
     out["storage_used"] = pd.to_numeric(out["storage_used"], errors="coerce").fillna(0.0)
     out["remarks"] = out["remarks"].fillna("").astype(str)
@@ -449,11 +550,13 @@ def normalize_nas_df(df):
     return out[expected]
 
 def get_next_ticket_id(df):
-    if df.empty or "id" not in df.columns: return 1
+    if df.empty or "id" not in df.columns:
+        return 1
     return int(pd.to_numeric(df["id"], errors="coerce").fillna(0).max()) + 1
 
 def get_next_nas_id(df):
-    if df.empty or "id" not in df.columns: return 1
+    if df.empty or "id" not in df.columns:
+        return 1
     return int(pd.to_numeric(df["id"], errors="coerce").fillna(0).max()) + 1
 
 def load_tickets():
@@ -477,7 +580,8 @@ def load_nas_data():
 def save_ticket(new_row):
     if db_connected:
         response = supabase_client.table("tickets").insert(new_row).execute()
-        if response.data and "id" in response.data[0]: return int(response.data[0]["id"])
+        if response.data and "id" in response.data[0]:
+            return int(response.data[0]["id"])
         return None
     current = st.session_state.local_tickets.copy()
     row = dict(new_row)
@@ -497,12 +601,15 @@ def delete_ticket(ticket_id):
     if db_connected:
         supabase_client.table("tickets").delete().eq("id", int(ticket_id)).execute()
         return
-    st.session_state.local_tickets = st.session_state.local_tickets[st.session_state.local_tickets["id"] != int(ticket_id)].reset_index(drop=True)
+    st.session_state.local_tickets = st.session_state.local_tickets[
+        st.session_state.local_tickets["id"] != int(ticket_id)
+    ].reset_index(drop=True)
 
 def save_nas_log(new_row):
     if db_connected:
         response = supabase_client.table("nas_backups").insert(new_row).execute()
-        if response.data and "id" in response.data[0]: return int(response.data[0]["id"])
+        if response.data and "id" in response.data[0]:
+            return int(response.data[0]["id"])
         return None
     current = st.session_state.local_nas.copy()
     row = dict(new_row)
@@ -514,13 +621,18 @@ def delete_nas_log(log_id):
     if db_connected:
         supabase_client.table("nas_backups").delete().eq("id", int(log_id)).execute()
         return
-    st.session_state.local_nas = st.session_state.local_nas[st.session_state.local_nas["id"] != int(log_id)].reset_index(drop=True)
+    st.session_state.local_nas = st.session_state.local_nas[
+        st.session_state.local_nas["id"] != int(log_id)
+    ].reset_index(drop=True)
 
 def status_badge_html(status):
     s = str(status).strip().lower()
-    if s == "resolved": return '<span class="status-chip status-resolved">Resolved</span>'
-    if s == "in progress": return '<span class="status-chip status-progress">In Progress</span>'
-    if s == "on hold - user busy": return '<span class="status-chip status-hold">On Hold</span>'
+    if s == "resolved":
+        return '<span class="status-chip status-resolved">Resolved</span>'
+    if s == "in progress":
+        return '<span class="status-chip status-progress">In Progress</span>'
+    if s == "on hold - user busy":
+        return '<span class="status-chip status-hold">On Hold</span>'
     return '<span class="status-chip status-open">Open</span>'
 
 def prepare_ticket_view(df):
@@ -532,19 +644,25 @@ def prepare_ticket_view(df):
 
 def filtered_tickets(df, site_filter, status_filter, tech_filter):
     out = df.copy()
-    if out.empty: return out
-    if site_filter != "All": out = out[out["location"] == site_filter]
-    if status_filter != "All": out = out[out["status"] == status_filter]
-    if tech_filter != "All": out = out[out["attended_by"] == tech_filter]
+    if out.empty:
+        return out
+    if site_filter != "All":
+        out = out[out["location"] == site_filter]
+    if status_filter != "All":
+        out = out[out["status"] == status_filter]
+    if tech_filter != "All":
+        out = out[out["attended_by"] == tech_filter]
     return out
 
 def filtered_nas(df, server_filter):
     out = df.copy()
-    if out.empty: return out
-    if server_filter != "All": out = out[out["server_name"] == server_filter]
+    if out.empty:
+        return out
+    if server_filter != "All":
+        out = out[out["server_name"] == server_filter]
     return out
 
-def render_status_table(df, columns):
+def render_status_table(df, columns, compact=False):
     if df.empty:
         st.info("No records found.")
         return
@@ -552,43 +670,82 @@ def render_status_table(df, columns):
     if "status" in show_df.columns:
         show_df["status"] = show_df["status"].apply(status_badge_html)
     styled = show_df[columns].to_html(escape=False, index=False)
-    st.markdown(f"<div class='table-scroll'>{styled}</div>", unsafe_allow_html=True)
+    css_class = "table-scroll compact-table" if compact else "table-scroll"
+    st.markdown(f"<div class='{css_class}'>{styled}</div>", unsafe_allow_html=True)
 
 def build_bar_chart(df, x_col, y_col, color="#ef4444", title=""):
-    return alt.Chart(df).mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(x=alt.X(x_col, sort="-y", title=None), y=alt.Y(y_col, title=None), tooltip=list(df.columns), color=alt.value(color)).properties(height=300, title=title)
+    return (
+        alt.Chart(df)
+        .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
+        .encode(
+            x=alt.X(x_col, sort="-y", title=None),
+            y=alt.Y(y_col, title=None),
+            tooltip=list(df.columns),
+            color=alt.value(color),
+        )
+        .properties(height=300, title=title)
+    )
 
 def build_line_chart(df, x_col, y_col, color="#3b82f6", title=""):
-    return alt.Chart(df).mark_line(point=True, strokeWidth=3).encode(x=alt.X(x_col, title=None), y=alt.Y(y_col, title=None), tooltip=list(df.columns), color=alt.value(color)).properties(height=300, title=title)
+    return (
+        alt.Chart(df)
+        .mark_line(point=True, strokeWidth=3)
+        .encode(
+            x=alt.X(x_col, title=None),
+            y=alt.Y(y_col, title=None),
+            tooltip=list(df.columns),
+            color=alt.value(color),
+        )
+        .properties(height=300, title=title)
+    )
+
+def to_csv_bytes(df):
+    return df.to_csv(index=False).encode("utf-8")
 
 df_live = prepare_ticket_view(load_tickets())
 df_nas = load_nas_data()
 
 logo_col1, logo_col2, title_col = st.columns([1, 1, 5], vertical_alignment="center")
 with logo_col1:
-    try: st.image("vega_logo.png", width=95)
-    except Exception: st.caption("🔺 Vega")
+    try:
+        st.image("vega_logo.png", width=95)
+    except Exception:
+        st.caption("🔺 Vega")
 with logo_col2:
-    try: st.image("knitpro_logo.png", width=95)
-    except Exception: st.caption("🔺 KnitPro")
+    try:
+        st.image("knitpro_logo.png", width=95)
+    except Exception:
+        st.caption("🔺 KnitPro")
 with title_col:
-    st.markdown("""
+    st.markdown(
+        """
         <div class="app-banner">
             <div class="app-title">🛠️ Vega & Knitpro IT Operations Dashboard</div>
             <div class="app-subtitle">Single-window support operations, NAS monitoring, reporting, and recurring issue analysis</div>
         </div>
-    """, unsafe_allow_html=True)
+        """,
+        unsafe_allow_html=True,
+    )
 
 st.sidebar.markdown("## Navigation")
-page = st.sidebar.radio("Go to", ["Overview", "Ticket Operations", "NAS Monitoring", "Reports", "Admin Tools"], label_visibility="collapsed")
+page = st.sidebar.radio(
+    "Go to",
+    ["Overview", "Ticket Operations", "NAS Monitoring", "Reports", "Admin Tools"],
+    label_visibility="collapsed",
+)
+
 st.sidebar.markdown("---")
 st.sidebar.markdown("## Global Filters")
 site_filter = st.sidebar.selectbox("Site", ["All"] + OFFICIAL_LOCATIONS)
 status_filter = st.sidebar.selectbox("Ticket Status", ["All"] + STATUS_OPTIONS)
 tech_filter = st.sidebar.selectbox("Technician", ["All"] + list(TECH_MAP.keys()))
 server_filter = st.sidebar.selectbox("NAS Server", ["All"] + SERVER_NAMES)
+
 st.sidebar.markdown("---")
-if db_connected: st.sidebar.success("⚡ Supabase cloud connected")
-else: st.sidebar.warning("⚠️ Session sandbox active")
+if db_connected:
+    st.sidebar.success("⚡ Supabase cloud connected")
+else:
+    st.sidebar.warning("⚠️ Session sandbox active")
 
 df_ticket_filtered = filtered_tickets(df_live, site_filter, status_filter, tech_filter)
 df_nas_filtered_global = filtered_nas(df_nas, server_filter)
@@ -605,54 +762,63 @@ if page == "Overview":
         resolved_df = df_ticket_filtered[(df_ticket_filtered["status"] == "Resolved") & (df_ticket_filtered["resolution_time"] > 0)]
         avg_res_time = int(resolved_df["resolution_time"].mean()) if not resolved_df.empty else 0
         nas_failures = int((df_nas_filtered_global["status"] == "Failed").sum()) if not df_nas_filtered_global.empty else 0
+
         c1, c2, c3, c4, c5 = st.columns(5)
         c1.metric("Total Tickets", total_tickets)
         c2.metric("Open Backlog", open_tickets)
         c3.metric("Resolved", resolved_tickets)
         c4.metric("On Hold", hold_tickets)
         c5.metric("Avg Resolution", f"{avg_res_time} min")
-        if nas_failures > 0: st.error(f"Critical NAS alerts: {nas_failures} failed backup entries in current filter.")
-        else: st.success("No NAS failure alert in the current filtered view.")
+
+        if nas_failures > 0:
+            st.error(f"Critical NAS alerts: {nas_failures} failed backup entries in current filter.")
+        else:
+            st.success("No NAS failure alert in the current filtered view.")
+
         chart_col1, chart_col2 = st.columns(2)
         with chart_col1:
             st.markdown("### Ticket Volume by Category")
-            cat_df = df_ticket_filtered["category"].value_counts().reset_index(); cat_df.columns = ["category", "count"]
+            cat_df = df_ticket_filtered["category"].value_counts().reset_index()
+            cat_df.columns = ["category", "count"]
             st.altair_chart(build_bar_chart(cat_df, "category:N", "count:Q", "#ef4444"), use_container_width=True)
         with chart_col2:
             st.markdown("### Ticket Volume by Location")
-            loc_df = df_ticket_filtered["location"].value_counts().reset_index(); loc_df.columns = ["location", "count"]
+            loc_df = df_ticket_filtered["location"].value_counts().reset_index()
+            loc_df.columns = ["location", "count"]
             st.altair_chart(build_bar_chart(loc_df, "location:N", "count:Q", "#3b82f6"), use_container_width=True)
+
         chart_col3, chart_col4 = st.columns(2)
         with chart_col3:
             st.markdown("### Technician Load")
-            tech_df = df_ticket_filtered["attended_by"].value_counts().reset_index(); tech_df.columns = ["attended_by", "count"]
+            tech_df = df_ticket_filtered["attended_by"].value_counts().reset_index()
+            tech_df.columns = ["attended_by", "count"]
             st.altair_chart(build_bar_chart(tech_df, "attended_by:N", "count:Q", "#22c55e"), use_container_width=True)
         with chart_col4:
             st.markdown("### NAS Storage Trend")
             if not df_nas_filtered_global.empty:
                 trend_df = df_nas_filtered_global.copy()
                 trend_df["date"] = pd.to_datetime(trend_df["date"], errors="coerce")
-                trend_df = trend_df.dropna(subset=["date"]).sort_values(["server_name", "date"])
+                trend_df = trend_df.dropna(subset=["date"]).sort_values("date")
                 trend_df["date_label"] = trend_df["date"].dt.strftime("%Y-%m-%d")
-                if server_filter == "All":
-                    chart = alt.Chart(trend_df).mark_line(point=True, strokeWidth=3).encode(x='date:T', y='storage_used:Q', color='server_name:N', tooltip=['date:T','server_name:N','storage_used:Q','status:N']).properties(height=300)
-                else:
-                    chart = build_line_chart(trend_df, "date_label:N", "storage_used:Q", "#f59e0b")
-                st.altair_chart(chart, use_container_width=True)
+                st.altair_chart(build_line_chart(trend_df, "date_label:N", "storage_used:Q", "#f59e0b"), use_container_width=True)
             else:
                 st.info("No NAS data available.")
+
         st.markdown("### Recent Ticket Activity")
         recent = df_ticket_filtered.sort_values(by="id", ascending=False).head(8).copy()
-        render_status_table(recent, ["System Ticket ID", "date", "user_name", "department", "location", "category", "attended_by", "status", "resolution_time"])
+        render_status_table(recent, ["System Ticket ID", "date", "user_name", "department", "location", "category", "attended_by", "status", "resolution_time"], compact=True)
 
 elif page == "Ticket Operations":
     st.subheader("Ticket Operations")
-    left_col, right_col = st.columns([1.02, 1.18], gap="large")
+    left_col, right_col = st.columns([1.05, 1.2], gap="large")
+
     with left_col:
         st.markdown("### Log New Ticket")
-        st.markdown("<div class='form-help'>Use existing user details when possible. Keep complaint text short but specific: device, error, site, and urgency.</div>", unsafe_allow_html=True)
+        st.markdown("<div class='section-note'>Use existing user details when possible. Keep complaint text short but specific: device, error, site, and urgency.</div>", unsafe_allow_html=True)
+
         existing_users = sorted(df_live["user_name"].dropna().astype(str).unique().tolist()) if not df_live.empty else []
         selected_user = st.selectbox("Use existing user details", ["New User / Type Below"] + existing_users)
+
         default_user_name, default_dept, default_loc = "", "", OFFICIAL_LOCATIONS[0]
         if selected_user != "New User / Type Below" and not df_live.empty:
             hist = df_live[df_live["user_name"] == selected_user].sort_values(by="id", ascending=False)
@@ -660,22 +826,27 @@ elif page == "Ticket Operations":
                 default_user_name = selected_user
                 default_dept = str(hist.iloc[0].get("department", ""))
                 default_loc = str(hist.iloc[0].get("location", OFFICIAL_LOCATIONS[0]))
+
         with st.form("new_ticket_form", clear_on_submit=True):
             a1, a2 = st.columns(2)
             user_name = a1.text_input("User Name *", value=default_user_name, placeholder="Employee name")
             attended_by = a2.selectbox("Technician", list(TECH_MAP.keys()))
+
             b1, b2 = st.columns(2)
             department = b1.text_input("Department *", value=default_dept, placeholder="Department / team")
             status = b2.selectbox("Initial Status", STATUS_OPTIONS)
+
             loc_index = OFFICIAL_LOCATIONS.index(default_loc) if default_loc in OFFICIAL_LOCATIONS else 0
             location = st.selectbox("Location / Sector *", OFFICIAL_LOCATIONS, index=loc_index)
             ticket_date = st.date_input("Ticket Date *", value=datetime.now().date())
-            complaint_desc = st.text_area("Complaint Description *", height=120, placeholder="Example: Printer offline in HR on Sector-155, queue stuck after paper jam.")
-            tech_remarks = st.text_area("Technician Remarks", height=90, placeholder="Optional technician notes.")
+            complaint_desc = st.text_area("Complaint Description *", height=110, placeholder="Example: Printer offline in HR on Sector-155, queue stuck after paper jam.")
+            tech_remarks = st.text_area("Technician Remarks", height=90)
+
             c1, c2 = st.columns(2)
             start_input = c1.time_input("Start Time", value=time(datetime.now().hour, datetime.now().minute))
             close_input = c2.time_input("Close Time", value=time(datetime.now().hour, datetime.now().minute))
-            submit_ticket = st.form_submit_button("Submit Ticket")
+
+            submit_ticket = st.form_submit_button("Submit Ticket", use_container_width=True)
             if submit_ticket:
                 if not user_name.strip() or not department.strip() or not complaint_desc.strip():
                     st.error("Please fill all required fields.")
@@ -685,27 +856,45 @@ elif page == "Ticket Operations":
                     if status == "Open":
                         start_val, close_val, duration_mins = None, None, 0
                     elif status == "In Progress":
-                        start_val = f"{date_str} {start_input.strftime('%H:%M:%S')}"; close_val = None; duration_mins = 0
+                        start_val = f"{date_str} {start_input.strftime('%H:%M:%S')}"
+                        close_val = None
+                        duration_mins = 0
                     elif status == "On Hold - User Busy":
                         start_val, close_val, duration_mins = None, None, 0
                     else:
                         start_val = f"{date_str} {start_input.strftime('%H:%M:%S')}"
                         close_val = f"{date_str} {close_input.strftime('%H:%M:%S')}"
                         duration_mins = max(1, int((datetime.combine(ticket_date, close_input) - datetime.combine(ticket_date, start_input)).total_seconds() / 60))
-                    new_row = {"date": date_str, "user_name": user_name.strip(), "department": department.strip(), "complaint": complaint_desc.strip(), "location": location, "attended_by": attended_by, "status": status, "category": category, "remarks": tech_remarks.strip(), "start_time": start_val, "close_time": close_val, "resolution_time": duration_mins}
+
+                    new_row = {
+                        "date": date_str,
+                        "user_name": user_name.strip(),
+                        "department": department.strip(),
+                        "complaint": complaint_desc.strip(),
+                        "location": location,
+                        "attended_by": attended_by,
+                        "status": status,
+                        "category": category,
+                        "remarks": tech_remarks.strip(),
+                        "start_time": start_val,
+                        "close_time": close_val,
+                        "resolution_time": duration_mins,
+                    }
                     try:
                         new_id = save_ticket(new_row)
                         st.success(f"Ticket saved: {format_ticket_number(new_id, location)}")
                         st.rerun()
                     except Exception as e:
                         st.error(f"Insertion error: {e}")
+
         st.markdown("### Last 3 Recent Tickets")
         recent_tickets = df_live.copy()
         if not recent_tickets.empty:
             recent_tickets = recent_tickets.sort_values(by="id", ascending=False).head(3)
-            render_status_table(recent_tickets, ["System Ticket ID", "date", "user_name", "location", "attended_by", "status", "remarks"])
+            render_status_table(recent_tickets, ["System Ticket ID", "date", "user_name", "location", "attended_by", "status", "remarks"], compact=True)
         else:
             st.info("No recent ticket entries available.")
+
         st.markdown("### AI Copilot")
         ai_text = st.text_area("Paste issue text for troubleshooting help", height=120, placeholder="Example: Outlook asking password again and again on Wi-Fi...")
         ai_lang = st.radio("Language", ["English", "हिंदी"], horizontal=True)
@@ -718,70 +907,90 @@ elif page == "Ticket Operations":
                     details = AI_SUGGESTIONS[cat]
                     title = details["title_en"] if ai_lang == "English" else details["title_hi"]
                     steps = details["English"] if ai_lang == "English" else details["Hindi"]
-                    html = f"<div class='ai-box'><div class='ai-box-title'>{title}</div>"
-                    for step in steps: html += f"<div style='margin-bottom:6px;color:var(--text);'>🔹 {step}</div>"
+                    html = f"<div class='panel-card'><div style='font-weight:700;color:#f87171;margin-bottom:8px;'>{title}</div>"
+                    for step in steps:
+                        html += f"<div style='margin-bottom:6px;'>🔹 {step}</div>"
                     html += "</div>"
                     st.markdown(html, unsafe_allow_html=True)
                 else:
                     st.info("No specific category found. Use standard physical, network, and access checks.")
+
     with right_col:
-        st.markdown("### Active Queue")
         if df_ticket_filtered.empty:
             st.info("No tickets found for the current filters.")
         else:
             queue_df = df_ticket_filtered.sort_values(by="id", ascending=False).copy()
-            render_status_table(queue_df, ["System Ticket ID", "date", "user_name", "department", "location", "category", "attended_by", "status", "resolution_time", "remarks"])
             st.markdown("### Update Existing Ticket")
             ticket_options = {f"{row['System Ticket ID']} — {row['user_name']} [{row['status']}]": int(row["id"]) for _, row in queue_df.iterrows()}
             selected_label = st.selectbox("Choose a ticket", list(ticket_options.keys()))
             target_id = ticket_options[selected_label]
             target_row = queue_df[queue_df["id"] == target_id].iloc[0]
-            st.markdown(f"""
-                <div class="summary-card">
-                    <div class="sum-label">User</div><div class="sum-value">{target_row['user_name']}</div>
-                    <div class="sum-label">Department</div><div class="sum-value">{target_row['department']}</div>
-                    <div class="sum-label">Location</div><div class="sum-value">{target_row['location']}</div>
-                    <div class="sum-label">Status</div><div class="sum-value">{target_row['status']}</div>
-                    <div class="sum-label">Complaint</div><div class="sum-value">{target_row['complaint']}</div>
-                </div>
-            """, unsafe_allow_html=True)
-            with st.form(f"update_ticket_form_{target_id}"):
-                u1, u2 = st.columns(2)
-                current_status_idx = STATUS_OPTIONS.index(target_row["status"]) if target_row["status"] in STATUS_OPTIONS else 0
-                tech_list = list(TECH_MAP.keys())
-                current_tech_idx = tech_list.index(target_row["attended_by"]) if target_row["attended_by"] in tech_list else 0
-                new_status = u1.selectbox("Modify Status", STATUS_OPTIONS, index=current_status_idx)
-                new_tech = u2.selectbox("Reassign Technician", tech_list, index=current_tech_idx)
-                new_duration = st.number_input("Resolution Duration (minutes)", min_value=0, value=int(target_row["resolution_time"]) if pd.notna(target_row["resolution_time"]) else 0)
-                new_remarks = st.text_area("Update Remarks", value=str(target_row.get("remarks", "")), height=90)
-                save_update = st.form_submit_button("Save Changes")
-                if save_update:
-                    final_remarks = new_remarks.strip()
-                    if new_status == "On Hold - User Busy" and not final_remarks:
-                        final_remarks = "Technician reached user, but action postponed due to business activity."
-                    payload = {"status": new_status, "attended_by": new_tech, "resolution_time": int(new_duration), "remarks": final_remarks}
-                    if new_status == "Resolved" and not target_row.get("close_time"):
-                        payload["close_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            summary_col, delete_col = st.columns([1.75, 1], gap="medium")
+            with summary_col:
+                st.markdown(
+                    f"""
+                    <div class="summary-card">
+                        <div class="summary-grid">
+                            <div><div class="sum-label">User</div><div class="sum-value">{target_row['user_name']}</div></div>
+                            <div><div class="sum-label">Department</div><div class="sum-value">{target_row['department']}</div></div>
+                            <div><div class="sum-label">Location</div><div class="sum-value">{target_row['location']}</div></div>
+                            <div><div class="sum-label">Status</div><div class="sum-value">{target_row['status']}</div></div>
+                            <div class="span-2"><div class="sum-label">Complaint</div><div class="sum-value">{target_row['complaint']}</div></div>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                with st.form(f"update_ticket_form_{target_id}"):
+                    u1, u2 = st.columns(2)
+                    current_status_idx = STATUS_OPTIONS.index(target_row["status"]) if target_row["status"] in STATUS_OPTIONS else 0
+                    tech_list = list(TECH_MAP.keys())
+                    current_tech_idx = tech_list.index(target_row["attended_by"]) if target_row["attended_by"] in tech_list else 0
+                    new_status = u1.selectbox("Modify Status", STATUS_OPTIONS, index=current_status_idx)
+                    new_tech = u2.selectbox("Reassign Technician", tech_list, index=current_tech_idx)
+                    new_duration = st.number_input("Resolution Duration (minutes)", min_value=0, value=int(target_row["resolution_time"]) if pd.notna(target_row["resolution_time"]) else 0)
+                    new_remarks = st.text_area("Update Remarks", value=str(target_row.get("remarks", "")), height=90)
+                    save_update = st.form_submit_button("Save Changes")
+                    if save_update:
+                        final_remarks = new_remarks.strip()
+                        if new_status == "On Hold - User Busy" and not final_remarks:
+                            final_remarks = "Technician reached user, but action postponed due to business activity."
+                        payload = {
+                            "status": new_status,
+                            "attended_by": new_tech,
+                            "resolution_time": int(new_duration),
+                            "remarks": final_remarks,
+                        }
+                        if new_status == "Resolved" and not target_row.get("close_time"):
+                            payload["close_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        try:
+                            update_ticket(target_id, payload)
+                            st.success("Ticket updated successfully.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Update error: {e}")
+
+            with delete_col:
+                st.markdown("<div class='danger-box'><h4>Delete Ticket</h4><div class='mini-note'>Delete only if the ticket was created incorrectly.</div></div>", unsafe_allow_html=True)
+                confirm_ticket_delete = st.checkbox("I confirm this ticket should be deleted.", key="ticket_delete_confirm")
+                if st.button("Delete Selected Ticket", disabled=not confirm_ticket_delete, use_container_width=True):
                     try:
-                        update_ticket(target_id, payload)
-                        st.success("Ticket updated successfully.")
+                        delete_ticket(target_id)
+                        st.success("Ticket deleted successfully.")
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Update error: {e}")
-            st.markdown("### Delete Ticket")
-            st.warning("Delete only if the ticket was created incorrectly.")
-            confirm_ticket_delete = st.checkbox("I confirm this ticket should be deleted.", key="ticket_delete_confirm")
-            if st.button("Delete Selected Ticket", disabled=not confirm_ticket_delete):
-                try:
-                    delete_ticket(target_id)
-                    st.success("Ticket deleted successfully.")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Delete error: {e}")
+                        st.error(f"Delete error: {e}")
+
+            st.markdown("### Active Queue")
+            st.markdown("<div class='queue-shell'>", unsafe_allow_html=True)
+            render_status_table(queue_df.head(10), ["System Ticket ID", "date", "user_name", "department", "location", "category", "attended_by", "status"], compact=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
 elif page == "NAS Monitoring":
     st.subheader("NAS Monitoring")
     nas_tab1, nas_tab2, nas_tab3, nas_tab4 = st.tabs(["Log Entry", "Health Dashboard", "Raw Logs", "Delete Wrong Entry"])
+
     with nas_tab1:
         st.markdown("### Log Backup Entry")
         with st.form("nas_form", clear_on_submit=True):
@@ -797,69 +1006,78 @@ elif page == "NAS Monitoring":
             submit_nas = st.form_submit_button("Submit Backup Log")
             if submit_nas:
                 try:
-                    new_log = {"date": log_date.strftime("%Y-%m-%d"), "server_name": server_name, "status": log_status, "storage_used": round(float(log_storage_kb) / (1024 * 1024), 4), "remarks": log_remarks.strip()}
+                    new_log = {
+                        "date": log_date.strftime("%Y-%m-%d"),
+                        "server_name": server_name,
+                        "status": log_status,
+                        "storage_used": round(float(log_storage_kb) / (1024 * 1024), 4),
+                        "remarks": log_remarks.strip(),
+                    }
                     new_id = save_nas_log(new_log)
                     st.success(f"NAS log saved successfully. Entry ID: {new_id}")
                     st.rerun()
                 except Exception as e:
                     st.error(f"NAS save error: {e}")
+
         st.markdown("### Last 3 Backup Entries for Selected Server")
         latest_nas = df_nas.copy()
         if not latest_nas.empty:
             latest_nas = latest_nas[latest_nas["server_name"] == server_name].copy()
             if not latest_nas.empty:
                 latest_nas = latest_nas.sort_values(by=["id", "date"], ascending=[False, False]).head(3)
-                render_status_table(latest_nas, ["id", "date", "server_name", "status", "storage_used", "remarks"])
+                render_status_table(latest_nas, ["id", "date", "server_name", "status", "storage_used", "remarks"], compact=True)
             else:
                 st.info(f"No previous NAS entries found for server {server_name}.")
         else:
             st.info("No NAS records available.")
+
     with nas_tab2:
         st.markdown("### Health Dashboard")
         if df_nas_filtered_global.empty:
             st.info("No NAS logs found for the selected filter.")
         else:
-            selected_server = st.selectbox("Choose server view", ["All"] + SERVER_NAMES, key="nas_server_dashboard")
-            if selected_server == "All":
-                all_df = df_nas.copy().sort_values(by="date", ascending=True).copy()
-                all_df["date"] = pd.to_datetime(all_df["date"], errors="coerce")
-                st.altair_chart(alt.Chart(all_df).mark_line(point=True, strokeWidth=3).encode(x='date:T', y='storage_used:Q', color='server_name:N', tooltip=['date:T','server_name:N','status:N','storage_used:Q']).properties(height=340), use_container_width=True)
-                render_status_table(all_df.sort_values(by=["date", "id"], ascending=[False, False]), ["id", "date", "server_name", "status", "storage_used", "remarks"])
+            selected_server = st.selectbox("Choose server view", SERVER_NAMES, key="nas_server_dashboard")
+            server_df = df_nas[df_nas["server_name"] == selected_server].copy()
+            if server_df.empty:
+                st.info("No logs available for this server.")
             else:
-                server_df = df_nas[df_nas["server_name"] == selected_server].copy()
-                if server_df.empty:
-                    st.info("No logs available for this server.")
+                server_df = server_df.sort_values(by="date", ascending=True).copy()
+                server_df["Change (GB)"] = server_df["storage_used"].diff().round(4)
+                server_df["Change (%)"] = (server_df["storage_used"].pct_change() * 100).round(2)
+                latest = server_df.iloc[-1]
+                latest_status = latest["status"]
+                latest_date = latest["date"]
+                latest_size = latest["storage_used"]
+                if latest_status == "Failed":
+                    st.error(f"Critical alert: latest backup on {latest_date} for {selected_server} failed.")
+                elif latest_status == "Warning / Partial":
+                    st.warning(f"Attention required: latest backup on {latest_date} for {selected_server} has warnings.")
                 else:
-                    server_df = server_df.sort_values(by="date", ascending=True).copy()
-                    server_df["Change (GB)"] = server_df["storage_used"].diff().round(4)
-                    server_df["Change (%)"] = (server_df["storage_used"].pct_change() * 100).round(2)
-                    latest = server_df.iloc[-1]
-                    latest_status = latest["status"]
-                    latest_date = latest["date"]
-                    latest_size = latest["storage_used"]
-                    if latest_status == "Failed": st.error(f"Critical alert: latest backup on {latest_date} for {selected_server} failed.")
-                    elif latest_status == "Warning / Partial": st.warning(f"Attention required: latest backup on {latest_date} for {selected_server} has warnings.")
-                    else: st.success(f"Latest backup on {latest_date} for {selected_server} completed successfully.")
-                    m1, m2, m3 = st.columns(3)
-                    delta_text = f"{server_df.iloc[-1]['Change (GB)']:+.4f} GB" if len(server_df) >= 2 and pd.notna(server_df.iloc[-1]["Change (GB)"]) else "Baseline"
-                    m1.metric("Latest Footprint", f"{latest_size:,.4f} GB", delta=delta_text)
-                    m2.metric("Total Logs", len(server_df))
-                    m3.metric("Failures", int((server_df["status"] == "Failed").sum()))
-                    trend_df = server_df.copy(); trend_df["date"] = pd.to_datetime(trend_df["date"], errors="coerce"); trend_df["date_label"] = trend_df["date"].dt.strftime("%Y-%m-%d")
-                    st.markdown("#### Storage Trend")
-                    st.altair_chart(build_line_chart(trend_df, "date_label:N", "storage_used:Q", "#3b82f6"), use_container_width=True)
-                    st.markdown("#### Historical Log Matrix")
-                    table_df = server_df.sort_values(by="date", ascending=False).copy()
-                    table_df["Change (GB)"] = table_df["Change (GB)"].apply(lambda x: f"{x:+.4f} GB" if pd.notnull(x) else "— Baseline")
-                    table_df["Change (%)"] = table_df["Change (%)"].apply(lambda x: f"{x:+.2f}%" if pd.notnull(x) else "— Baseline")
-                    render_status_table(table_df, ["id", "date", "server_name", "status", "storage_used", "Change (GB)", "Change (%)", "remarks"])
+                    st.success(f"Latest backup on {latest_date} for {selected_server} completed successfully.")
+                m1, m2, m3 = st.columns(3)
+                delta_text = f"{server_df.iloc[-1]['Change (GB)']:+.4f} GB" if len(server_df) >= 2 and pd.notna(server_df.iloc[-1]["Change (GB)"]) else "Baseline"
+                m1.metric("Latest Footprint", f"{latest_size:,.4f} GB", delta=delta_text)
+                m2.metric("Total Logs", len(server_df))
+                m3.metric("Failures", int((server_df["status"] == "Failed").sum()))
+                trend_df = server_df.copy()
+                trend_df["date"] = pd.to_datetime(trend_df["date"], errors="coerce")
+                trend_df["date_label"] = trend_df["date"].dt.strftime("%Y-%m-%d")
+                st.markdown("#### Storage Trend")
+                st.altair_chart(build_line_chart(trend_df, "date_label:N", "storage_used:Q", "#3b82f6"), use_container_width=True)
+                st.markdown("#### Historical Log Matrix")
+                table_df = server_df.sort_values(by="date", ascending=False).copy()
+                table_df["Change (GB)"] = table_df["Change (GB)"].apply(lambda x: f"{x:+.4f} GB" if pd.notnull(x) else "— Baseline")
+                table_df["Change (%)"] = table_df["Change (%)"].apply(lambda x: f"{x:+.2f}%" if pd.notnull(x) else "— Baseline")
+                render_status_table(table_df, ["id", "date", "server_name", "status", "storage_used", "Change (GB)", "Change (%)", "remarks"], compact=True)
+
     with nas_tab3:
         st.markdown("### Raw NAS Logs")
         if df_nas_filtered_global.empty:
             st.info("No NAS records found.")
         else:
             raw_view = df_nas_filtered_global.sort_values(by=["date", "id"], ascending=[False, False]).copy()
-            render_status_table(raw_view, ["id", "date", "server_name", "status", "storage_used", "remarks"])
+            render_status_table(raw_view, ["id", "date", "server_name", "status", "storage_used", "remarks"], compact=True)
+
     with nas_tab4:
         st.markdown("### Delete Wrong NAS Entry")
         st.warning("Use this only when an incorrect backup log was entered.")
@@ -893,34 +1111,35 @@ elif page == "Reports":
         export_df["Week_Label"] = export_df["date_parsed"].dt.strftime("%Y-W") + export_df["Week_of_Year"]
         full_csv = export_df.drop(columns=["date_parsed"], errors="ignore").to_csv(index=False).encode("utf-8")
         st.download_button("Download Master Ticket Log (.csv)", full_csv, file_name="it_master_production_log.csv", mime="text/csv")
+
         rep_tab1, rep_tab2, rep_tab3, rep_tab4 = st.tabs(["Monthly", "Weekly", "Technician", "Location"])
         with rep_tab1:
             months = sorted(export_df["Month"].dropna().unique().tolist(), reverse=True)
             if months:
                 selected_month = st.selectbox("Select month", months)
                 month_df = export_df[export_df["Month"] == selected_month].drop(columns=["date_parsed", "Month", "Week_of_Year", "Week_Label"], errors="ignore")
-                render_status_table(month_df, ["System Ticket ID", "date", "user_name", "department", "location", "attended_by", "status", "resolution_time", "remarks"])
+                render_status_table(month_df, ["System Ticket ID", "date", "user_name", "department", "location", "attended_by", "status", "resolution_time", "remarks"], compact=True)
                 st.download_button(f"Download {selected_month} report", month_df.to_csv(index=False).encode("utf-8"), file_name=f"monthly_{selected_month}.csv", mime="text/csv")
         with rep_tab2:
             weeks = sorted(export_df["Week_Label"].dropna().unique().tolist(), reverse=True)
             if weeks:
                 selected_week = st.selectbox("Select week", weeks)
                 week_df = export_df[export_df["Week_Label"] == selected_week].drop(columns=["date_parsed", "Month", "Week_of_Year", "Week_Label"], errors="ignore")
-                render_status_table(week_df, ["System Ticket ID", "date", "user_name", "department", "location", "attended_by", "status", "resolution_time", "remarks"])
+                render_status_table(week_df, ["System Ticket ID", "date", "user_name", "department", "location", "attended_by", "status", "resolution_time", "remarks"], compact=True)
                 st.download_button(f"Download {selected_week} report", week_df.to_csv(index=False).encode("utf-8"), file_name=f"weekly_{selected_week}.csv", mime="text/csv")
         with rep_tab3:
             techs = sorted(export_df["attended_by"].dropna().astype(str).unique().tolist())
             if techs:
                 selected_tech = st.selectbox("Select technician", techs)
                 tech_df = export_df[export_df["attended_by"] == selected_tech].drop(columns=["date_parsed", "Month", "Week_of_Year", "Week_Label"], errors="ignore")
-                render_status_table(tech_df, ["System Ticket ID", "date", "user_name", "department", "location", "status", "resolution_time", "remarks"])
+                render_status_table(tech_df, ["System Ticket ID", "date", "user_name", "department", "location", "status", "resolution_time", "remarks"], compact=True)
                 st.download_button(f"Download {selected_tech} report", tech_df.to_csv(index=False).encode("utf-8"), file_name=f"tech_{selected_tech.lower()}.csv", mime="text/csv")
         with rep_tab4:
             locations = sorted(export_df["location"].dropna().astype(str).unique().tolist())
             if locations:
                 selected_loc = st.selectbox("Select location", locations)
                 loc_df = export_df[export_df["location"] == selected_loc].drop(columns=["date_parsed", "Month", "Week_of_Year", "Week_Label"], errors="ignore")
-                render_status_table(loc_df, ["System Ticket ID", "date", "user_name", "department", "attended_by", "status", "resolution_time", "remarks"])
+                render_status_table(loc_df, ["System Ticket ID", "date", "user_name", "department", "attended_by", "status", "resolution_time", "remarks"], compact=True)
                 st.download_button("Download location report", loc_df.to_csv(index=False).encode("utf-8"), file_name="location_report.csv", mime="text/csv")
 
 elif page == "Admin Tools":
@@ -931,7 +1150,16 @@ elif page == "Admin Tools":
         if df_live.empty:
             st.info("No ticket data available.")
         else:
-            recurring = df_live.groupby("user_name").agg(total_requests=("id", "count"), resolved_count=("status", lambda s: (s == "Resolved").sum()), pending_backlog=("status", lambda s: (s != "Resolved").sum())).reset_index().sort_values(by="total_requests", ascending=False)
+            recurring = (
+                df_live.groupby("user_name")
+                .agg(
+                    total_requests=("id", "count"),
+                    resolved_count=("status", lambda s: (s == "Resolved").sum()),
+                    pending_backlog=("status", lambda s: (s != "Resolved").sum()),
+                )
+                .reset_index()
+                .sort_values(by="total_requests", ascending=False)
+            )
             st.dataframe(recurring, use_container_width=True, hide_index=True)
             chronic = recurring[recurring["total_requests"] >= 2]
             if not chronic.empty:
@@ -942,7 +1170,11 @@ elif page == "Admin Tools":
         st.metric("Ticket Rows", len(df_live))
         st.metric("NAS Rows", len(df_nas))
         st.markdown("### Quick Health Check")
-        if not df_nas.empty and (df_nas["status"] == "Failed").any(): st.error("There are failed NAS backup entries that need review.")
-        else: st.success("No NAS failures currently visible.")
-        if not df_live.empty and (df_live["status"].isin(["Open", "In Progress"])).sum() > 0: st.warning("There are active ticket backlogs pending action.")
-        else: st.success("No active ticket backlog detected.")
+        if not df_nas.empty and (df_nas["status"] == "Failed").any():
+            st.error("There are failed NAS backup entries that need review.")
+        else:
+            st.success("No NAS failures currently visible.")
+        if not df_live.empty and (df_live["status"].isin(["Open", "In Progress"])).sum() > 0:
+            st.warning("There are active ticket backlogs pending action.")
+        else:
+            st.success("No active ticket backlog detected.")
