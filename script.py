@@ -1163,17 +1163,28 @@ elif page == "NAS Monitoring":
                 )
 
     with nas_tab3:
-        st.markdown("### Raw NAS Logs")
-        if df_nas_filtered_global.empty:
-            st.info("No NAS records found.")
-        else:
-            raw_view = df_nas_filtered_global.sort_values(by=["date", "id"], ascending=[False, False]).copy()
-            render_status_table(
-                raw_view,
-                ["id", "date", "server_name", "status", "storage_used", "remarks"],
-                status_type="nas",
-            )
+    st.markdown("### Raw NAS Logs")
 
+    raw_server_filter = st.selectbox(
+        "Filter by Server",
+        ["All"] + SERVER_NAMES,
+        key="raw_nas_server_filter"
+    )
+
+    raw_view = df_nas.copy()
+
+    if raw_server_filter != "All":
+        raw_view = raw_view[raw_view["server_name"] == raw_server_filter]
+
+    if raw_view.empty:
+        st.info("No NAS records found for the selected server.")
+    else:
+        raw_view = raw_view.sort_values(by=["date", "id"], ascending=[False, False]).copy()
+        render_status_table(
+            raw_view,
+            ["id", "date", "server_name", "status", "storage_used", "remarks"],
+            status_type="nas",
+        )
     with nas_tab4:
         st.markdown("### Delete Wrong NAS Entry")
         st.warning("Use this only when an incorrect backup log was entered.")
