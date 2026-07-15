@@ -1067,7 +1067,7 @@ elif page == "NAS Monitoring":
             st.caption(f"Mapped worksheet reference: {SERVER_SHEET_MAP.get(server_name, 'N/A')}")
 
             n3, n4 = st.columns(2)
-            log_status = n3.selectbox("Backup Status", ["Success", "Failed"])
+            log_status = n3.selectbox("Backup Status", ["Success", "Failed", "Warning / Partial"])
             log_storage_kb = n4.number_input("Storage Used (KB)", min_value=0.0, step=1024.0)
 
             st.caption(f"Automatic conversion preview: {round(log_storage_kb / (1024 * 1024), 4)} GB")
@@ -1128,6 +1128,8 @@ elif page == "NAS Monitoring":
 
                 if latest_status == "Failed":
                     st.error(f"Critical alert: latest backup on {latest_date} for {selected_server} failed.")
+                elif latest_status == "Warning / Partial":
+                    st.warning(f"Attention required: latest backup on {latest_date} for {selected_server} has warnings.")
                 else:
                     st.success(f"Latest backup on {latest_date} for {selected_server} completed successfully.")
 
@@ -1165,100 +1167,127 @@ elif page == "NAS Monitoring":
                     status_type="nas",
                 )
 
-with nas_tab3:
-    st.markdown("### Raw NAS Logs")
+    with nas_tab3:
+        st.markdown("### Raw NAS Logs")
 
-    raw_server_filter = st.selectbox(
-        "Filter by Server",
-        ["All"] + SERVER_NAMES,
-        key="raw_nas_server_filter"
-    )
+        raw_server_filter = st.selectbox(
+            "Filter by Server",
+            ["All"] + SERVER_NAMES,
+            key="raw_nas_server_filter"
+        )
 
-    raw_view = df_nas.copy()
+        raw_view = df_nas.copy()
+        if raw_server_filter != "All":
+            raw_view = raw_view[raw_view["server_name"] == raw_server_filter]
 
-    if raw_server_filter != "All":
-        raw_view = raw_view[raw_view["server_name"] == raw_server_filter]
+        left_col, right_col = st.columns([1.3, 0.7], gap="large")
 
-    left_col, right_col = st.columns([1.3, 0.7], gap="large")
-
-    with left_col:
-        if raw_view.empty:
-            st.info("No NAS records found for the selected server.")
-        else:
-            raw_view = raw_view.sort_values(by=["date", "id"], ascending=[False, False]).copy()
-            render_status_table(
-                raw_view,
-                ["id", "date", "server_name", "status", "storage_used", "remarks"],
-                status_type="nas",
-            )
-
-    with right_col:
-        st.markdown("### Backup Analytics")
-
-        if raw_view.empty:
-            st.info("Analytics will appear when NAS records are available.")
-        else:
-            analytics_df = raw_view.copy()
-            analytics_df["date"] = pd.to_datetime(analytics_df["date"], errors="coerce")
-            analytics_df = analytics_df.dropna(subset=["date"]).sort_values("date").copy()
-            analytics_df["Change (GB)"] = analytics_df["storage_used"].diff().round(4)
-
-            latest = analytics_df.iloc[-1]
-            latest_storage = float(latest["storage_used"])
-            total_logs = len(analytics_df)
-            success_count = int((analytics_df["status"] == "Success").sum())
-            failed_count = int((analytics_df["status"] == "Failed").sum())
-
-            if len(analytics_df) >= 2 and pd.notna(analytics_df.iloc[-1]["Change (GB)"]):
-                delta_value = f"{analytics_df.iloc[-1]['Change (GB)']:+.4f} GB"
+        with left_col:
+            if raw_view.empty:
+                st.info("No NAS records found for the selected server.")
             else:
-                delta_value = "Baseline"
-
-            k1, k2 = st.columns(2)
-            k1.metric("Latest Storage", f"{latest_storage:,.4f} GB", delta=delta_value)
-            k2.metric("Total Logs", total_logs)
-
-            k3, k4 = st.columns(2)
-            k3.metric("Success Count", success_count)
-            k4.metric("Failed Count", failed_count)
-
-            trend_df = analytics_df.copy()
-            trend_df["date_label"] = trend_df["date"].dt.strftime("%Y-%m-%d")
-
-            st.markdown("#### Storage Trend")
-            st.altair_chart(
-                build_line_chart(trend_df, "date_label:N", "storage_used:Q", "#3b82f6"),
-                use_container_width=True,
-            )
-
-            status_df = analytics_df["status"].value_counts().reset_index()
-            status_df.columns = ["status", "count"]
-
-            st.markdown("#### Status Split")
-            st.altair_chart(
-                alt.Chart(status_df)
-                .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
-                .encode(
-                    x=alt.X("status:N", title=None),
-                    y=alt.Y("count:Q", title=None),
-                    color=alt.Color(
-                        "status:N",
-                        scale=alt.Scale(
-                            domain=["Success", "Failed", "Warning / Partial"],
-                            range=["#22c55e", "#ef4444", "#f59e0b"]
-                        ),
-                        legend=None
-                    ),
-                    tooltip=["status", "count"]
+                raw_view = raw_view.sort_values(by=["date", "id"], ascending=[False, False]).copy()
+                render_status_table(
+                    raw_view,
+                    ["id", "date", "server_name", "status", "storage_used", "remarks"],
+                    status_type="nas",
                 )
-                .properties(height=220),
-                use_container_width=True,
-            )
 
-            if failed_count == 0:
-                st.success("No backup failure found in the current filtered dataset.")
+        with right_col:
+            st.markdown("### Backup Analytics")
+
+            if raw_view.empty:
+                st.info("Analytics will appear when NAS records are available.")
             else:
-                st.error(f"{failed_count} failed backup entries found in the current filtered dataset.")
+                analytics_df = raw_view.copy()
+                analytics_df["date"] = pd.to_datetime(analytics_df["date"], errors="coerce")
+                analytics_df = analytics_df.dropna(subset=["date"]).sort_values("date").copy()
+                analytics_df["Change (GB)"] = analytics_df["storage_used"].diff().round(4)
+
+                latest = analytics_df.iloc[-1]
+                latest_storage = float(latest["storage_used"])
+                total_logs = len(analytics_df)
+                success_count = int((analytics_df["status"] == "Success").sum())
+                failed_count = int((analytics_df["status"] == "Failed").sum())
+
+                if len(analytics_df) >= 2 and pd.notna(analytics_df.iloc[-1]["Change (GB)"]):
+                    delta_value = f"{analytics_df.iloc[-1]['Change (GB)']:+.4f} GB"
+                else:
+                    delta_value = "Baseline"
+
+                k1, k2 = st.columns(2)
+                k1.metric("Latest Storage", f"{latest_storage:,.4f} GB", delta=delta_value)
+                k2.metric("Total Logs", total_logs)
+
+                k3, k4 = st.columns(2)
+                k3.metric("Success Count", success_count)
+                k4.metric("Failed Count", failed_count)
+
+                trend_df = analytics_df.copy()
+                trend_df["date_label"] = trend_df["date"].dt.strftime("%Y-%m-%d")
+
+                st.markdown("#### Storage Trend")
+                st.altair_chart(
+                    build_line_chart(trend_df, "date_label:N", "storage_used:Q", "#3b82f6"),
+                    use_container_width=True,
+                )
+
+                status_df = analytics_df["status"].value_counts().reset_index()
+                status_df.columns = ["status", "count"]
+
+                st.markdown("#### Status Split")
+                st.altair_chart(
+                    alt.Chart(status_df)
+                    .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
+                    .encode(
+                        x=alt.X("status:N", title=None),
+                        y=alt.Y("count:Q", title=None),
+                        color=alt.Color(
+                            "status:N",
+                            scale=alt.Scale(
+                                domain=["Success", "Failed", "Warning / Partial"],
+                                range=["#22c55e", "#ef4444", "#f59e0b"]
+                            ),
+                            legend=None,
+                        ),
+                        tooltip=["status", "count"],
+                    )
+                    .properties(height=220),
+                    use_container_width=True,
+                )
+
+                if failed_count == 0:
+                    st.success("No backup failure found in the current filtered dataset.")
+                else:
+                    st.error(f"{failed_count} failed backup entries found in the current filtered dataset.")
+
+    with nas_tab4:
+        st.markdown("### Delete Wrong NAS Entry")
+        st.warning("Use this only when an incorrect backup log was entered.")
+
+        if df_nas.empty:
+            st.info("No NAS entries available to delete.")
+        else:
+            delete_view = df_nas.sort_values(by=["date", "id"], ascending=[False, False]).copy()
+            delete_view["entry_label"] = delete_view.apply(
+                lambda r: f"ID {r['id']} | {r['date']} | {r['server_name']} | {r['status']} | {r['storage_used']:.4f} GB",
+                axis=1,
+            )
+            selected_entry = st.selectbox("Select wrong NAS entry", delete_view["entry_label"].tolist())
+            row = delete_view[delete_view["entry_label"] == selected_entry].iloc[0]
+
+            st.info(
+                f"Selected entry: ID {row['id']} | {row['date']} | {row['server_name']} | {row['status']} | {row['storage_used']:.4f} GB"
+            )
+            confirm_delete = st.checkbox("I confirm this entry is wrong and should be deleted.")
+
+            if st.button("Delete Selected NAS Entry", disabled=not confirm_delete):
+                try:
+                    delete_nas_log(int(row["id"]))
+                    st.success(f"NAS entry ID {int(row['id'])} deleted successfully.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Delete error: {e}")
 # ============================================================================
 # PAGE: REPORTS
 # ============================================================================
