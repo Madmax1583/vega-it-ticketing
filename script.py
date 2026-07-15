@@ -97,7 +97,6 @@ st.markdown(
         font-size: 0.78rem;
         font-weight: 700;
         border: 1px solid transparent;
-        white-space: nowrap;
     }
 
     .status-open {
@@ -189,7 +188,7 @@ supabase_client = init_supabase()
 db_connected = supabase_client is not None
 
 # ============================================================================
-# CONSTANTS
+# CONSTANTS & MAPS
 # ============================================================================
 TECH_MAP = {
     "Satish": "TECH-01",
@@ -212,7 +211,6 @@ OFFICIAL_LOCATIONS = [
 ]
 
 STATUS_OPTIONS = ["Open", "In Progress", "On Hold - User Busy", "Resolved"]
-NAS_STATUS_OPTIONS = ["Success", "Failed"]
 SERVER_NAMES = ["HRI", "Vega", "Sery", "Rise"]
 
 SERVER_SHEET_MAP = {
@@ -324,7 +322,7 @@ AI_SUGGESTIONS = {
 }
 
 # ============================================================================
-# SESSION DATA
+# INITIAL SESSION DATA (SANDBOX APP FALLBACKS)
 # ============================================================================
 if "local_tickets" not in st.session_state:
     st.session_state.local_tickets = pd.DataFrame(
@@ -390,8 +388,15 @@ if "local_nas" not in st.session_state:
     )
 
 # ============================================================================
-# HELPERS
+# CORE UTILITY & COMPATIBILITY HELPERS
 # ============================================================================
+def safe_rerun():
+    if hasattr(st, "rerun"):
+        st.rerun()
+    else:
+        st.experimental_rerun()
+
+
 def format_ticket_number(ticket_id, location_str):
     try:
         clean_id = int(float(ticket_id))
@@ -459,7 +464,7 @@ def normalize_nas_df(df):
     out["storage_used"] = pd.to_numeric(out["storage_used"], errors="coerce").fillna(0.0)
     out["remarks"] = out["remarks"].fillna("").astype(str)
     out["server_name"] = out["server_name"].fillna("").astype(str)
-    out["status"] = out["status"].replace({"Warning / Partial": "Failed"}).fillna("").astype(str)
+    out["status"] = out["status"].fillna("").astype(str)
     out["date"] = pd.to_datetime(out["date"], errors="coerce").dt.strftime("%Y-%m-%d")
     return out[expected]
 
@@ -476,6 +481,9 @@ def get_next_nas_id(df):
     return int(pd.to_numeric(df["id"], errors="coerce").fillna(0).max()) + 1
 
 
+# ============================================================================
+# DATA ACCESS LAYER (DB WRAPPER / STATE HANDLERS)
+# ============================================================================
 def load_tickets():
     if db_connected:
         try:
@@ -549,7 +557,10 @@ def delete_nas_log(log_id):
     ].reset_index(drop=True)
 
 
-def ticket_status_badge_html(status):
+# ============================================================================
+# DATA PRESENTATION COMPONENTS
+# ============================================================================
+def status_badge_html(status):
     s = str(status).strip().lower()
     if s == "resolved":
         return '<span class="status-chip status-resolved">Resolved</span>'
@@ -558,15 +569,6 @@ def ticket_status_badge_html(status):
     if s == "on hold - user busy":
         return '<span class="status-chip status-hold">On Hold</span>'
     return '<span class="status-chip status-open">Open</span>'
-
-
-def nas_status_badge_html(status):
-    s = str(status).strip().lower()
-    if s == "success":
-        return '<span class="status-chip status-resolved">Success</span>'
-    if s == "failed":
-        return '<span class="status-chip status-open">Failed</span>'
-    return f'<span class="status-chip status-hold">{status}</span>'
 
 
 def prepare_ticket_view(df):
@@ -599,41 +601,15 @@ def filtered_nas(df, server_filter):
     return out
 
 
-def render_status_table(df, columns, status_type="ticket"):
+def render_status_table(df, columns):
     if df.empty:
         st.info("No records found.")
         return
     show_df = df.copy()
     if "status" in show_df.columns:
-        if status_type == "nas":
-            show_df["status"] = show_df["status"].apply(nas_status_badge_html)
-        else:
-            show_df["status"] = show_df["status"].apply(ticket_status_badge_html)
+        show_df["status"] = show_df["status"].apply(status_badge_html)
     styled = show_df[columns].to_html(escape=False, index=False)
     st.markdown(styled, unsafe_allow_html=True)
-
-
-def prepare_ticket_dataframe_display(df):
-    if df.empty:
-        return df
-    out = df.copy()
-    out["Status"] = out["status"]
-    cols = [
-        "System Ticket ID", "date", "user_name", "department", "location",
-        "category", "attended_by", "Status", "resolution_time", "remarks"
-    ]
-    rename_map = {
-        "date": "Date",
-        "user_name": "User",
-        "department": "Department",
-        "location": "Location",
-        "category": "Category",
-        "attended_by": "Technician",
-        "resolution_time": "Resolution (min)",
-        "remarks": "Remarks",
-    }
-    out = out[cols].rename(columns=rename_map)
-    return out
 
 
 def build_bar_chart(df, x_col, y_col, color="#ef4444", title=""):
@@ -664,38 +640,14 @@ def build_line_chart(df, x_col, y_col, color="#3b82f6", title=""):
     )
 
 
-def build_nas_overview_chart(df):
-    chart_df = df.copy()
-    chart_df["date"] = pd.to_datetime(chart_df["date"], errors="coerce")
-    chart_df = chart_df.dropna(subset=["date"])
-    if chart_df.empty:
-        return None
-    chart_df = (
-        chart_df.groupby(["date", "server_name"], as_index=False)["storage_used"]
-        .max()
-        .sort_values(["server_name", "date"])
-    )
-    chart_df["date_label"] = chart_df["date"].dt.strftime("%Y-%m-%d")
-    return (
-        alt.Chart(chart_df)
-        .mark_line(point=True, strokeWidth=3)
-        .encode(
-            x=alt.X("date_label:N", title=None),
-            y=alt.Y("storage_used:Q", title=None),
-            color=alt.Color("server_name:N", title="Server"),
-            tooltip=["date_label", "server_name", "storage_used"],
-        )
-        .properties(height=300)
-    )
-
 # ============================================================================
-# LOAD DATA
+# SYSTEM CORNERSTONE DATA EXTRACTION
 # ============================================================================
 df_live = prepare_ticket_view(load_tickets())
 df_nas = load_nas_data()
 
 # ============================================================================
-# HEADER
+# APP TITLE HEADER LAYER
 # ============================================================================
 logo_col1, logo_col2, title_col = st.columns([1, 1, 5], vertical_alignment="center")
 
@@ -725,7 +677,7 @@ with title_col:
     )
 
 # ============================================================================
-# SIDEBAR
+# APPLICATION SIDEBAR CONTROL PANEL
 # ============================================================================
 st.sidebar.markdown("## Navigation")
 page = st.sidebar.radio(
@@ -749,13 +701,13 @@ else:
     st.sidebar.warning("⚠️ Session sandbox active")
 
 # ============================================================================
-# FILTERED DATA
+# GLOBAL SLICING EVALUATION
 # ============================================================================
 df_ticket_filtered = filtered_tickets(df_live, site_filter, status_filter, tech_filter)
 df_nas_filtered_global = filtered_nas(df_nas, server_filter)
 
 # ============================================================================
-# PAGE: OVERVIEW
+# PAGE TARGET 1: OVERVIEW SCREEN
 # ============================================================================
 if page == "Overview":
     st.subheader("Overview")
@@ -809,42 +761,24 @@ if page == "Overview":
 
         with chart_col4:
             st.markdown("### NAS Storage Trend")
-
-            if df_nas_filtered_global.empty:
-                st.info("No NAS data available.")
-            else:
-                nas_trend_server = st.selectbox(
-                    "Choose NAS server for trend",
-                    ["All"] + SERVER_NAMES,
-                    key="nas_trend_server"
-                )
-
+            if not df_nas_filtered_global.empty:
                 trend_df = df_nas_filtered_global.copy()
+                trend_df["date"] = pd.to_datetime(trend_df["date"], errors="coerce")
+                trend_df = trend_df.dropna(subset=["date"]).sort_values("date")
+                trend_df["date_label"] = trend_df["date"].dt.strftime("%Y-%m-%d")
+                st.altair_chart(build_line_chart(trend_df, "date_label:N", "storage_used:Q", "#f59e0b"), use_container_width=True)
+            else:
+                st.info("No NAS data available.")
 
-                if nas_trend_server != "All":
-                    trend_df = trend_df[trend_df["server_name"] == nas_trend_server].copy()
+        st.markdown("### Recent Ticket Activity")
+        recent = df_ticket_filtered.sort_values(by="id", ascending=False).head(8).copy()
+        render_status_table(
+            recent,
+            ["System Ticket ID", "date", "user_name", "department", "location", "category", "attended_by", "status", "resolution_time"],
+        )
 
-                if trend_df.empty:
-                    st.info(f"No NAS data available for {nas_trend_server}.")
-                else:
-                    trend_df["date"] = pd.to_datetime(trend_df["date"], errors="coerce")
-                    trend_df = trend_df.dropna(subset=["date"]).sort_values("date")
-                    trend_df["date_label"] = trend_df["date"].dt.strftime("%Y-%m-%d")
-
-                    st.altair_chart(
-                        alt.Chart(trend_df)
-                        .mark_line(point=True, strokeWidth=3)
-                        .encode(
-                            x=alt.X("date_label:N", title=None),
-                            y=alt.Y("storage_used:Q", title=None),
-                            color=alt.Color("server_name:N", title="Server"),
-                            tooltip=["date_label", "server_name", "storage_used", "status"]
-                        )
-                        .properties(height=300),
-                        use_container_width=True
-                    )
 # ============================================================================
-# PAGE: TICKET OPERATIONS
+# PAGE TARGET 2: TICKET OPERATIONS LAYER
 # ============================================================================
 elif page == "Ticket Operations":
     st.subheader("Ticket Operations")
@@ -894,30 +828,29 @@ elif page == "Ticket Operations":
                     category = auto_categorize(complaint_desc)
                     date_str = ticket_date.strftime("%Y-%m-%d")
 
+                    start_dt = datetime.combine(ticket_date, start_input)
+                    close_dt = datetime.combine(ticket_date, close_input)
+
                     if status == "Open":
                         start_val = None
                         close_val = None
                         duration_mins = 0
                     elif status == "In Progress":
-                        start_val = f"{date_str} {start_input.strftime('%H:%M:%S')}"
+                        start_val = start_dt.strftime('%Y-%m-%d %H:%M:%S')
                         close_val = None
                         duration_mins = 0
                     elif status == "On Hold - User Busy":
                         start_val = None
                         close_val = None
                         duration_mins = 0
-                    else:
-                        start_val = f"{date_str} {start_input.strftime('%H:%M:%S')}"
-                        close_val = f"{date_str} {close_input.strftime('%H:%M:%S')}"
-                        duration_mins = max(
-                            1,
-                            int(
-                                (
-                                    datetime.combine(ticket_date, close_input)
-                                    - datetime.combine(ticket_date, start_input)
-                                ).total_seconds() / 60
-                            ),
-                        )
+                        if not tech_remarks.strip():
+                            tech_remarks = "System Action: Postponed until user is available."
+                    else:  # Status == "Resolved"
+                        if close_dt <= start_dt:
+                            close_dt += pd.Timedelta(days=1)
+                        start_val = start_dt.strftime('%Y-%m-%d %H:%M:%S')
+                        close_val = close_dt.strftime('%Y-%m-%d %H:%M:%S')
+                        duration_mins = max(1, int((close_dt - start_dt).total_seconds() / 60))
 
                     new_row = {
                         "date": date_str,
@@ -937,7 +870,7 @@ elif page == "Ticket Operations":
                     try:
                         new_id = save_ticket(new_row)
                         st.success(f"Ticket saved: {format_ticket_number(new_id, location)}")
-                        st.rerun()
+                        safe_rerun()
                     except Exception as e:
                         st.error(f"Insertion error: {e}")
 
@@ -948,7 +881,6 @@ elif page == "Ticket Operations":
             render_status_table(
                 recent_tickets,
                 ["System Ticket ID", "date", "user_name", "location", "attended_by", "status", "remarks"],
-                status_type="ticket",
             )
         else:
             st.info("No recent ticket entries available.")
@@ -986,10 +918,9 @@ elif page == "Ticket Operations":
             st.info("No tickets found for the current filters.")
         else:
             queue_df = df_ticket_filtered.sort_values(by="id", ascending=False).copy()
-            st.dataframe(
-                prepare_ticket_dataframe_display(queue_df),
-                use_container_width=True,
-                hide_index=True,
+            render_status_table(
+                queue_df,
+                ["System Ticket ID", "date", "user_name", "department", "location", "category", "attended_by", "status", "resolution_time", "remarks"],
             )
 
             st.markdown("### Update Existing Ticket")
@@ -1000,72 +931,78 @@ elif page == "Ticket Operations":
 
             selected_label = st.selectbox("Choose a ticket", list(ticket_options.keys()))
             target_id = ticket_options[selected_label]
-            target_row = queue_df[queue_df["id"] == target_id].iloc[0]
+            matching_rows = queue_df[queue_df["id"] == target_id]
+            
+            if matching_rows.empty:
+                st.warning("Selected ticket is no longer available in the active workspace view.")
+            else:
+                target_row = matching_rows.iloc[0]
 
-            st.markdown(
-                f"""
-                <div class="recent-card">
-                    <div><b>User:</b> {target_row['user_name']}</div>
-                    <div><b>Department:</b> {target_row['department']}</div>
-                    <div><b>Location:</b> {target_row['location']}</div>
-                    <div><b>Status:</b> {target_row['status']}</div>
-                    <div style="margin-top:8px;"><b>Complaint:</b> {target_row['complaint']}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-            with st.form(f"update_ticket_form_{target_id}"):
-                u1, u2 = st.columns(2)
-                current_status_idx = STATUS_OPTIONS.index(target_row["status"]) if target_row["status"] in STATUS_OPTIONS else 0
-                tech_list = list(TECH_MAP.keys())
-                current_tech_idx = tech_list.index(target_row["attended_by"]) if target_row["attended_by"] in tech_list else 0
-
-                new_status = u1.selectbox("Modify Status", STATUS_OPTIONS, index=current_status_idx)
-                new_tech = u2.selectbox("Reassign Technician", tech_list, index=current_tech_idx)
-                new_duration = st.number_input(
-                    "Resolution Duration (minutes)",
-                    min_value=0,
-                    value=int(target_row["resolution_time"]) if pd.notna(target_row["resolution_time"]) else 0,
+                st.markdown(
+                    f"""
+                    <div class="recent-card">
+                        <div><b>User:</b> {target_row['user_name']}</div>
+                        <div><b>Department:</b> {target_row['department']}</div>
+                        <div><b>Location:</b> {target_row['location']}</div>
+                        <div><b>Status:</b> {target_row['status']}</div>
+                        <div style="margin-top:8px;"><b>Complaint:</b> {target_row['complaint']}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
                 )
-                new_remarks = st.text_area("Update Remarks", value=str(target_row.get("remarks", "")), height=90)
 
-                save_update = st.form_submit_button("Save Changes")
+                with st.form(f"update_ticket_form_{target_id}"):
+                    u1, u2 = st.columns(2)
+                    current_status_idx = STATUS_OPTIONS.index(target_row["status"]) if target_row["status"] in STATUS_OPTIONS else 0
+                    tech_list = list(TECH_MAP.keys())
+                    current_tech_idx = tech_list.index(target_row["attended_by"]) if target_row["attended_by"] in tech_list else 0
 
-                if save_update:
-                    final_remarks = new_remarks.strip()
-                    if new_status == "On Hold - User Busy" and not final_remarks:
-                        final_remarks = "Technician reached user, but action postponed due to business activity."
+                    new_status = u1.selectbox("Modify Status", STATUS_OPTIONS, index=current_status_idx, key=f"status_sel_{target_id}")
+                    new_tech = u2.selectbox("Reassign Technician", tech_list, index=current_tech_idx, key=f"tech_sel_{target_id}")
+                    new_duration = st.number_input(
+                        "Resolution Duration (minutes)",
+                        min_value=0,
+                        value=int(target_row["resolution_time"]) if pd.notna(target_row["resolution_time"]) else 0,
+                        key=f"dur_in_{target_id}"
+                    )
+                    new_remarks = st.text_area("Update Remarks", value=str(target_row.get("remarks", "")), height=90, key=f"rem_ta_{target_id}")
 
-                    payload = {
-                        "status": new_status,
-                        "attended_by": new_tech,
-                        "resolution_time": int(new_duration),
-                        "remarks": final_remarks,
-                    }
-                    if new_status == "Resolved" and not target_row.get("close_time"):
-                        payload["close_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    save_update = st.form_submit_button("Save Changes")
 
+                    if save_update:
+                        final_remarks = new_remarks.strip()
+                        if new_status == "On Hold - User Busy" and not final_remarks:
+                            final_remarks = "System Action: Postponed until user is available."
+
+                        payload = {
+                            "status": new_status,
+                            "attended_by": new_tech,
+                            "resolution_time": int(new_duration),
+                            "remarks": final_remarks,
+                        }
+                        if new_status == "Resolved" and not target_row.get("close_time"):
+                            payload["close_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                        try:
+                            update_ticket(target_id, payload)
+                            st.success("Ticket updated successfully.")
+                            safe_rerun()
+                        except Exception as e:
+                            st.error(f"Update error: {e}")
+
+                st.markdown("### Delete Ticket")
+                st.warning("Delete only if the ticket was created incorrectly.")
+                confirm_ticket_delete = st.checkbox("I confirm this ticket should be deleted.", key=f"ticket_delete_confirm_{target_id}")
+                if st.button("Delete Selected Ticket", disabled=not confirm_ticket_delete):
                     try:
-                        update_ticket(target_id, payload)
-                        st.success("Ticket updated successfully.")
-                        st.rerun()
+                        delete_ticket(target_id)
+                        st.success("Ticket deleted successfully.")
+                        safe_rerun()
                     except Exception as e:
-                        st.error(f"Update error: {e}")
-
-            st.markdown("### Delete Ticket")
-            st.warning("Delete only if the ticket was created incorrectly.")
-            confirm_ticket_delete = st.checkbox("I confirm this ticket should be deleted.", key="ticket_delete_confirm")
-            if st.button("Delete Selected Ticket", disabled=not confirm_ticket_delete):
-                try:
-                    delete_ticket(target_id)
-                    st.success("Ticket deleted successfully.")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Delete error: {e}")
+                        st.error(f"Delete error: {e}")
 
 # ============================================================================
-# PAGE: NAS MONITORING
+# PAGE TARGET 3: NAS INFRASTRUCTURE MONITORING
 # ============================================================================
 elif page == "NAS Monitoring":
     st.subheader("NAS Monitoring")
@@ -1102,7 +1039,7 @@ elif page == "NAS Monitoring":
                     }
                     new_id = save_nas_log(new_log)
                     st.success(f"NAS log saved successfully. Entry ID: {new_id}")
-                    st.rerun()
+                    safe_rerun()
                 except Exception as e:
                     st.error(f"NAS save error: {e}")
 
@@ -1115,7 +1052,6 @@ elif page == "NAS Monitoring":
                 render_status_table(
                     latest_nas,
                     ["id", "date", "server_name", "status", "storage_used", "remarks"],
-                    status_type="nas",
                 )
             else:
                 st.info(f"No previous NAS entries found for server {server_name}.")
@@ -1165,10 +1101,7 @@ elif page == "NAS Monitoring":
                 trend_df["date_label"] = trend_df["date"].dt.strftime("%Y-%m-%d")
 
                 st.markdown("#### Storage Trend")
-                st.altair_chart(
-                    build_line_chart(trend_df, "date_label:N", "storage_used:Q", "#3b82f6"),
-                    use_container_width=True,
-                )
+                st.altair_chart(build_line_chart(trend_df, "date_label:N", "storage_used:Q", "#3b82f6"), use_container_width=True)
 
                 st.markdown("#### Historical Log Matrix")
                 table_df = server_df.sort_values(by="date", ascending=False).copy()
@@ -1181,102 +1114,18 @@ elif page == "NAS Monitoring":
                 render_status_table(
                     table_df,
                     ["id", "date", "server_name", "status", "storage_used", "Change (GB)", "Change (%)", "remarks"],
-                    status_type="nas",
                 )
 
     with nas_tab3:
         st.markdown("### Raw NAS Logs")
-
-        raw_server_filter = st.selectbox(
-            "Filter by Server",
-            ["All"] + SERVER_NAMES,
-            key="raw_nas_server_filter"
-        )
-
-        raw_view = df_nas.copy()
-        if raw_server_filter != "All":
-            raw_view = raw_view[raw_view["server_name"] == raw_server_filter]
-
-        left_col, right_col = st.columns([1.3, 0.7], gap="large")
-
-        with left_col:
-            if raw_view.empty:
-                st.info("No NAS records found for the selected server.")
-            else:
-                raw_view = raw_view.sort_values(by=["date", "id"], ascending=[False, False]).copy()
-                render_status_table(
-                    raw_view,
-                    ["id", "date", "server_name", "status", "storage_used", "remarks"],
-                    status_type="nas",
-                )
-
-        with right_col:
-            st.markdown("### Backup Analytics")
-
-            if raw_view.empty:
-                st.info("Analytics will appear when NAS records are available.")
-            else:
-                analytics_df = raw_view.copy()
-                analytics_df["date"] = pd.to_datetime(analytics_df["date"], errors="coerce")
-                analytics_df = analytics_df.dropna(subset=["date"]).sort_values("date").copy()
-                analytics_df["Change (GB)"] = analytics_df["storage_used"].diff().round(4)
-
-                latest = analytics_df.iloc[-1]
-                latest_storage = float(latest["storage_used"])
-                total_logs = len(analytics_df)
-                success_count = int((analytics_df["status"] == "Success").sum())
-                failed_count = int((analytics_df["status"] == "Failed").sum())
-
-                if len(analytics_df) >= 2 and pd.notna(analytics_df.iloc[-1]["Change (GB)"]):
-                    delta_value = f"{analytics_df.iloc[-1]['Change (GB)']:+.4f} GB"
-                else:
-                    delta_value = "Baseline"
-
-                k1, k2 = st.columns(2)
-                k1.metric("Latest Storage", f"{latest_storage:,.4f} GB", delta=delta_value)
-                k2.metric("Total Logs", total_logs)
-
-                k3, k4 = st.columns(2)
-                k3.metric("Success Count", success_count)
-                k4.metric("Failed Count", failed_count)
-
-                trend_df = analytics_df.copy()
-                trend_df["date_label"] = trend_df["date"].dt.strftime("%Y-%m-%d")
-
-                st.markdown("#### Storage Trend")
-                st.altair_chart(
-                    build_line_chart(trend_df, "date_label:N", "storage_used:Q", "#3b82f6"),
-                    use_container_width=True,
-                )
-
-                status_df = analytics_df["status"].value_counts().reset_index()
-                status_df.columns = ["status", "count"]
-
-                st.markdown("#### Status Split")
-                st.altair_chart(
-                    alt.Chart(status_df)
-                    .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
-                    .encode(
-                        x=alt.X("status:N", title=None),
-                        y=alt.Y("count:Q", title=None),
-                        color=alt.Color(
-                            "status:N",
-                            scale=alt.Scale(
-                                domain=["Success", "Failed", "Warning / Partial"],
-                                range=["#22c55e", "#ef4444", "#f59e0b"]
-                            ),
-                            legend=None,
-                        ),
-                        tooltip=["status", "count"],
-                    )
-                    .properties(height=220),
-                    use_container_width=True,
-                )
-
-                if failed_count == 0:
-                    st.success("No backup failure found in the current filtered dataset.")
-                else:
-                    st.error(f"{failed_count} failed backup entries found in the current filtered dataset.")
+        if df_nas_filtered_global.empty:
+            st.info("No NAS records found.")
+        else:
+            raw_view = df_nas_filtered_global.sort_values(by=["date", "id"], ascending=[False, False]).copy()
+            render_status_table(
+                raw_view,
+                ["id", "date", "server_name", "status", "storage_used", "remarks"],
+            )
 
     with nas_tab4:
         st.markdown("### Delete Wrong NAS Entry")
@@ -1290,23 +1139,30 @@ elif page == "NAS Monitoring":
                 lambda r: f"ID {r['id']} | {r['date']} | {r['server_name']} | {r['status']} | {r['storage_used']:.4f} GB",
                 axis=1,
             )
+
             selected_entry = st.selectbox("Select wrong NAS entry", delete_view["entry_label"].tolist())
-            row = delete_view[delete_view["entry_label"] == selected_entry].iloc[0]
+            matching_nas_rows = delete_view[delete_view["entry_label"] == selected_entry]
+            
+            if matching_nas_rows.empty:
+                st.warning("Selected entry is no longer available.")
+            else:
+                row = matching_nas_rows.iloc[0]
 
-            st.info(
-                f"Selected entry: ID {row['id']} | {row['date']} | {row['server_name']} | {row['status']} | {row['storage_used']:.4f} GB"
-            )
-            confirm_delete = st.checkbox("I confirm this entry is wrong and should be deleted.")
+                st.info(
+                    f"Selected entry: ID {row['id']} | {row['date']} | {row['server_name']} | {row['status']} | {row['storage_used']:.4f} GB"
+                )
+                confirm_delete = st.checkbox("I confirm this entry is wrong and should be deleted.")
 
-            if st.button("Delete Selected NAS Entry", disabled=not confirm_delete):
-                try:
-                    delete_nas_log(int(row["id"]))
-                    st.success(f"NAS entry ID {int(row['id'])} deleted successfully.")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Delete error: {e}")
+                if st.button("Delete Selected NAS Entry", disabled=not confirm_delete):
+                    try:
+                        delete_nas_log(int(row["id"]))
+                        st.success(f"NAS entry ID {int(row['id'])} deleted successfully.")
+                        safe_rerun()
+                    except Exception as e:
+                        st.error(f"Delete error: {e}")
+
 # ============================================================================
-# PAGE: REPORTS
+# PAGE TARGET 4: MASTER REPORTING & DATA EXPORT CHANNELS
 # ============================================================================
 elif page == "Reports":
     st.subheader("Reports")
@@ -1343,13 +1199,13 @@ elif page == "Reports":
                 render_status_table(
                     month_df,
                     ["System Ticket ID", "date", "user_name", "department", "location", "attended_by", "status", "resolution_time", "remarks"],
-                    status_type="ticket",
                 )
                 st.download_button(
                     f"Download {selected_month} report",
                     month_df.to_csv(index=False).encode("utf-8"),
                     file_name=f"monthly_{selected_month}.csv",
                     mime="text/csv",
+                    key="dl_month_btn"
                 )
 
         with rep_tab2:
@@ -1362,13 +1218,13 @@ elif page == "Reports":
                 render_status_table(
                     week_df,
                     ["System Ticket ID", "date", "user_name", "department", "location", "attended_by", "status", "resolution_time", "remarks"],
-                    status_type="ticket",
                 )
                 st.download_button(
                     f"Download {selected_week} report",
                     week_df.to_csv(index=False).encode("utf-8"),
                     file_name=f"weekly_{selected_week}.csv",
                     mime="text/csv",
+                    key="dl_week_btn"
                 )
 
         with rep_tab3:
@@ -1381,13 +1237,13 @@ elif page == "Reports":
                 render_status_table(
                     tech_df,
                     ["System Ticket ID", "date", "user_name", "department", "location", "status", "resolution_time", "remarks"],
-                    status_type="ticket",
                 )
                 st.download_button(
                     f"Download {selected_tech} report",
                     tech_df.to_csv(index=False).encode("utf-8"),
                     file_name=f"tech_{selected_tech.lower()}.csv",
                     mime="text/csv",
+                    key="dl_tech_btn"
                 )
 
         with rep_tab4:
@@ -1400,17 +1256,17 @@ elif page == "Reports":
                 render_status_table(
                     loc_df,
                     ["System Ticket ID", "date", "user_name", "department", "attended_by", "status", "resolution_time", "remarks"],
-                    status_type="ticket",
                 )
                 st.download_button(
                     "Download location report",
                     loc_df.to_csv(index=False).encode("utf-8"),
                     file_name="location_report.csv",
                     mime="text/csv",
+                    key="dl_loc_btn"
                 )
 
 # ============================================================================
-# PAGE: ADMIN TOOLS
+# PAGE TARGET 5: ADMIN METRICS & ROOT CAUSE ANALYSIS TOOLS
 # ============================================================================
 elif page == "Admin Tools":
     st.subheader("Admin Tools")
