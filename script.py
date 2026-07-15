@@ -808,22 +808,30 @@ if page == "Overview":
             st.altair_chart(build_bar_chart(tech_df, "attended_by:N", "count:Q", "#22c55e"), use_container_width=True)
 
         with chart_col4:
-            st.markdown("### NAS Storage Trend")
-            if not df_nas_filtered_global.empty:
-                nas_chart = build_nas_overview_chart(df_nas_filtered_global)
-                if nas_chart is not None:
-                    st.altair_chart(nas_chart, use_container_width=True)
-                else:
-                    st.info("No NAS data available.")
-            else:
-                st.info("No NAS data available.")
+           st.markdown("### NAS Storage Trend")
 
-        st.markdown("### Recent Ticket Activity")
-        recent = df_ticket_filtered.sort_values(by="id", ascending=False).head(8).copy()
-        render_status_table(
-            recent,
-            ["System Ticket ID", "date", "user_name", "department", "location", "category", "attended_by", "status", "resolution_time"],
-            status_type="ticket",
+       if df_nas_filtered_global.empty:
+          st.info("No NAS data available.")
+ else:
+    nas_trend_server = st.selectbox(
+        "Choose NAS server for trend",
+        SERVER_NAMES,
+        key="nas_trend_server"
+    )
+
+    trend_df = df_nas_filtered_global.copy()
+    trend_df = trend_df[trend_df["server_name"] == nas_trend_server].copy()
+
+    if trend_df.empty:
+        st.info(f"No NAS data available for {nas_trend_server}.")
+    else:
+        trend_df["date"] = pd.to_datetime(trend_df["date"], errors="coerce")
+        trend_df = trend_df.dropna(subset=["date"]).sort_values("date")
+        trend_df["date_label"] = trend_df["date"].dt.strftime("%Y-%m-%d")
+
+        st.altair_chart(
+            build_line_chart(trend_df, "date_label:N", "storage_used:Q", "#f59e0b"),
+            use_container_width=True
         )
 
 # ============================================================================
