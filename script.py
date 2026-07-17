@@ -1,4 +1,5 @@
 import io
+import hashlib
 from datetime import datetime, time
 
 import altair as alt
@@ -1215,3 +1216,196 @@ elif page == "Admin Tools":
             st.warning("There are active ticket backlogs pending action.")
         else:
             st.success("No active ticket backlog detected.")
+
+
+# --- Enhancement scaffold for role-based access, tasks, notifications, and vendors ---
+
+def ensure_auth_tables():
+    pass
+
+
+def ensure_task_tables():
+    pass
+
+
+def ensure_notification_tables():
+    pass
+
+
+def ensure_vendor_tables():
+    pass
+
+
+def main_auth_router():
+    pass
+
+
+USERS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    display_name TEXT NOT NULL,
+    role TEXT NOT NULL,
+    password_hash TEXT,
+    active INTEGER DEFAULT 1,
+    must_change_password INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+)
+"""
+
+TASKS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    description TEXT,
+    assigned_by TEXT,
+    assigned_to TEXT,
+    priority TEXT DEFAULT 'Medium',
+    status TEXT DEFAULT 'Open',
+    progress INTEGER DEFAULT 0,
+    due_date TEXT,
+    vendor_flag INTEGER DEFAULT 0,
+    vendor_status TEXT,
+    vendor_remark TEXT,
+    reminder_date TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+)
+"""
+
+COMMENTS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS task_comments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL,
+    comment TEXT NOT NULL,
+    commented_by TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+)
+"""
+
+NOTIFICATIONS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL,
+    message TEXT NOT NULL,
+    is_read INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+)
+"""
+
+VENDOR_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS vendor_followups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticket_id INTEGER NOT NULL,
+    vendor_name TEXT,
+    followup_status TEXT DEFAULT 'Pending from Vendor',
+    vendor_remark TEXT,
+    due_date TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+)
+"""
+
+DEFAULT_USERS = [
+    ('amit', 'Amit', 'IT Manager'),
+    ('satish', 'Satish', 'IT AM'),
+    ('ranjan', 'Ranjan', 'Sr. Executive'),
+    ('priyanshu', 'Priyanshu', 'IT Executive'),
+    ('manish', 'Manish', 'IT Executive'),
+    ('satender', 'Mr. Satender Vashisht', 'AVP'),
+]
+
+
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode('utf-8')).hexdigest()
+
+
+def ensure_support_tables(conn):
+    conn.execute(USERS_TABLE_SQL)
+    conn.execute(TASKS_TABLE_SQL)
+    conn.execute(COMMENTS_TABLE_SQL)
+    conn.execute(NOTIFICATIONS_TABLE_SQL)
+    conn.execute(VENDOR_TABLE_SQL)
+    conn.commit()
+
+
+def seed_default_users(conn):
+    cur = conn.cursor()
+    for username, display_name, role in DEFAULT_USERS:
+        cur.execute('SELECT id FROM users WHERE username=?', (username,))
+        if cur.fetchone() is None:
+            cur.execute(
+                'INSERT INTO users (username, display_name, role, password_hash, active, must_change_password) VALUES (?, ?, ?, ?, 1, 1)',
+                (username, display_name, role, None)
+            )
+    conn.commit()
+
+
+def get_user_by_username(conn, username):
+    cur = conn.cursor()
+    cur.execute('SELECT id, username, display_name, role, password_hash, active, must_change_password FROM users WHERE username=?', (username,))
+    row = cur.fetchone()
+    if row is None:
+        return None
+    keys = ['id', 'username', 'display_name', 'role', 'password_hash', 'active', 'must_change_password']
+    return dict(zip(keys, row))
+
+
+def set_user_password(conn, username, password):
+    conn.execute('UPDATE users SET password_hash=?, must_change_password=0, active=1, updated_at=CURRENT_TIMESTAMP WHERE username=?', (hash_password(password), username))
+    conn.commit()
+
+
+def authenticate_user(conn, username, password):
+    user = get_user_by_username(conn, username)
+    if not user or not user['active']:
+        return None
+    if not user['password_hash']:
+        return {'must_change_password': True, **user}
+    if user['password_hash'] == hash_password(password):
+        return {'must_change_password': bool(user['must_change_password']), **user}
+    return None
+
+
+def init_support_data(conn):
+    ensure_support_tables(conn)
+    seed_default_users(conn)
+
+
+def login_page(conn):
+    st.title('Vega IT System Login')
+    col1, col2 = st.columns(2)
+    with col1:
+        username = st.text_input('Username').strip().lower()
+    with col2:
+        password = st.text_input('Password', type='password')
+    if st.button('Login'):
+        user = authenticate_user(conn, username, password)
+        if not user:
+            st.error('Invalid credentials or inactive account')
+            return None
+        st.session_state['current_user'] = user
+        if user['must_change_password'] or not user['password_hash']:
+            st.session_state['must_set_password'] = True
+        st.success(f"Welcome {user['display_name']}")
+        st.rerun()
+    return None
+
+
+def first_password_setup(conn):
+    user = st.session_state.get('current_user')
+    if not user:
+        return
+    st.warning('Set your password to continue')
+    p1 = st.text_input('New password', type='password')
+    p2 = st.text_input('Confirm password', type='password')
+    if st.button('Save Password'):
+        if not p1 or p1 != p2:
+            st.error('Passwords do not match')
+            return
+        set_user_password(conn, user['username'], p1)
+        user = get_user_by_username(conn, user['username'])
+        st.session_state['current_user'] = user
+        st.session_state['must_set_password'] = False
+        st.success('Password saved')
+        st.rerun()
