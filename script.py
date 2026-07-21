@@ -6,6 +6,23 @@ from datetime import datetime, time
 import altair as alt
 import pandas as pd
 import streamlit as st
+
+from pathlib import Path
+
+def find_logo(filename: str):
+    base_dir = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
+    candidates = [
+        base_dir / filename,
+        Path.cwd() / filename,
+        base_dir / "assets" / filename,
+        Path.cwd() / "assets" / filename,
+    ]
+    for path in candidates:
+        if path.exists():
+            return str(path)
+    return None
+
+
 from supabase import create_client
 
 # ==========================================
