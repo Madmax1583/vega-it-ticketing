@@ -233,6 +233,17 @@ st.markdown(
     .login-title-sub {font-size:1.38rem; max-width:28ch;}
     .login-note {max-width:44ch;}
     @media (max-width: 900px){div[data-testid="column"]:has(.login-panel-right), div[data-testid="column"]:has(.login-panel-left){min-height:auto;} .login-form-shell{border-radius:18px; padding:24px 20px;}}
+
+    div[data-testid="column"]:has(.login-panel-right) {display:flex; align-items:center; justify-content:center; min-height:84vh;}
+    div[data-testid="column"]:has(.login-panel-right) > div {width:100%; display:flex; align-items:center; justify-content:center;}
+    div[data-testid="column"]:has(.login-panel-left) {display:flex; align-items:stretch; min-height:84vh;}
+    .login-panel-left {min-height: 82vh;}
+    .login-panel-right {width:100%; min-height:82vh; display:flex !important; align-items:center !important; justify-content:center !important; padding-top:0 !important;}
+    .login-form-shell {width:min(100%, 560px); margin-inline:auto; margin-top:0; transform: translateY(-18px);} 
+    .login-panel-right [data-testid="stTextInput"], .login-panel-right .stButton {width:100%;}
+    .login-brand-lockup {margin-bottom: 22px;}
+    .login-note {padding-top: 1.5rem;}
+    @media (max-width: 900px){.login-form-shell{transform:none;} .login-panel-left,.login-panel-right{min-height:auto;}}
 </style>
 """,
     unsafe_allow_html=True,
@@ -899,7 +910,7 @@ def login_page(conn):
     vega_html = f'<img src="data:image/png;base64,{image_to_base64(vega_logo)}" alt="Vega logo" style="max-width:220px; height:auto;">' if vega_logo else '<div style="font-size:2.8rem;font-weight:800;color:#22d3ee;">VEGA</div>'
     knitpro_html = f'<img src="data:image/png;base64,{image_to_base64(knitpro_logo)}" alt="KnitPro logo" style="max-width:168px; height:auto;">' if knitpro_logo else ''
 
-    left_col, right_col = st.columns([1.45, 1.0], gap="large")
+    left_col, spacer_col, right_col = st.columns([1.28, 0.08, 0.84], gap="medium")
     with left_col:
         st.markdown(f"""
         <div class="login-panel-left">
@@ -911,6 +922,9 @@ def login_page(conn):
             <div class="login-note">Built for structured incident logging, role-based access, and cleaner operational reporting across Vega and KnitPro support environments.</div>
         </div>
         """, unsafe_allow_html=True)
+
+    with spacer_col:
+        st.markdown('<div style="height:1px;"></div>', unsafe_allow_html=True)
 
     with right_col:
         st.markdown('<div class="login-panel-right"><div class="login-form-shell"><div class="login-accent-line"></div><div class="login-mini">Vega IT Access</div><div class="login-h1">Sign in</div><div class="login-subcopy">Use your assigned account to access the dashboard.</div>', unsafe_allow_html=True)
