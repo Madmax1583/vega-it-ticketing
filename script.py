@@ -964,7 +964,18 @@ def render_dashboard(conn):
                 st.markdown("### NAS Server Summary"); st.dataframe(nas_serverwise, use_container_width=True)
             else: st.info("No sufficient historical NAS data to calculate deltas.")
         with tab3:
-            st.download_button("📥 Download Multi-Tab Formatted Excel Report", data=build_excel_report(df_ticket_filtered.drop(columns=["date_parsed"], errors="ignore"), df_nas_filtered), file_name="IT_Operations_Master_Report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            try:
+                excel_bytes = build_excel_report(df_ticket_filtered.drop(columns=["date_parsed"], errors="ignore"), df_nas_filtered)
+                st.download_button(
+                    "📥 Download Multi-Tab Formatted Excel Report",
+                    data=excel_bytes,
+                    file_name="IT_Operations_Master_Report.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            except ModuleNotFoundError:
+                st.warning("Excel export is unavailable because openpyxl is not installed in this environment.")
+            except Exception as e:
+                st.error(f"Excel export failed: {e}")
     elif page == "Task Center":
         st.subheader("Operational Tasks & Assignments")
         t1, t2, t3, t4 = st.tabs(["Task Board", "Create Task", "Comments", "Notifications"])
