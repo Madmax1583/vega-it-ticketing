@@ -7,6 +7,26 @@ from pathlib import Path
 import altair as alt
 import pandas as pd
 import streamlit as st
+
+import os
+import base64
+
+def find_logo_filename(filename: str):
+    candidates = [
+        filename,
+        os.path.join(os.getcwd(), filename),
+        os.path.join(os.getcwd(), 'assets', filename),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), filename) if '__file__' in globals() else None,
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets', filename) if '__file__' in globals() else None,
+    ]
+    for path in candidates:
+        if path and os.path.exists(path):
+            return path
+    return None
+
+def image_to_base64(path: str) -> str:
+    with open(path, 'rb') as f:
+        return base64.b64encode(f.read()).decode('utf-8')
 from supabase import create_client
 
 # ==========================================
