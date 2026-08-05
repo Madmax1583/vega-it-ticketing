@@ -347,15 +347,40 @@ def format_ticket_number(ticket_id, location_str):
     except Exception:
         return f"IT-2026-{ticket_id}"
 
+def normalize_category(value):
+    s = str(value).strip().lower().replace("&", "/")
+    mapping = {
+        "cctv/camera": "CCTVCamera",
+        "cctv camera": "CCTVCamera",
+        "camera": "CCTVCamera",
+        "cctvcamera": "CCTVCamera",
+        "laptop/hardware": "LaptopHardware",
+        "laptop hardware": "LaptopHardware",
+        "laptophardware": "LaptopHardware",
+        "desktop": "LaptopHardware",
+        "email/outlook": "EmailOutlook",
+        "email outlook": "EmailOutlook",
+        "emailoutlook": "EmailOutlook",
+        "printer": "Printer",
+        "sap": "SAP",
+        "network": "Network",
+        "server/ups": "ServerUPS",
+        "server ups": "ServerUPS",
+        "serverups": "ServerUPS",
+        "other": "Other",
+    }
+    return mapping.get(s, value if pd.notna(value) and str(value).strip() else "Other")
+
+
 def auto_categorize(complaint):
     text = str(complaint).lower()
-    if any(k in text for k in ["cctv", "camera", "nvr"]): return "CCTV/Camera"
-    if any(k in text for k in ["laptop", "desktop", "keyboard", "touchpad", "battery", "screen", "hardware", "monitor"]): return "Laptop/Hardware"
-    if any(k in text for k in ["outlook", "email", "mail", "pst", "ost"]): return "Email/Outlook"
+    if any(k in text for k in ["cctv", "camera", "nvr"]): return "CCTVCamera"
+    if any(k in text for k in ["laptop", "desktop", "keyboard", "touchpad", "battery", "screen", "hardware", "monitor"]): return "LaptopHardware"
+    if any(k in text for k in ["outlook", "email", "mail", "pst", "ost"]): return "EmailOutlook"
     if any(k in text for k in ["printer", "scanner", "cartridge", "print"]): return "Printer"
     if any(k in text for k in ["sap", "erp"]): return "SAP"
     if any(k in text for k in ["network", "wifi", "internet", "vpn", "ping", "ip", "router", "switch", "lan"]): return "Network"
-    if any(k in text for k in ["server", "ups", "rack", "dns", "domain", "backup"]): return "Server/UPS"
+    if any(k in text for k in ["server", "ups", "rack", "dns", "domain", "backup"]): return "ServerUPS"
     return "Other"
 
 def normalize_nas_status(value):
@@ -374,7 +399,7 @@ def normalize_ticket_df(df):
     out["resolution_time"] = pd.to_numeric(out["resolution_time"], errors="coerce").fillna(0).astype(int)
     out["remarks"] = out["remarks"].fillna("").astype(str)
     out["status"] = out["status"].fillna("").astype(str)
-    out["category"] = out["category"].fillna("").astype(str)
+    out["category"] = out["category"].fillna("").astype(str).map(normalize_category)
     out["date"] = pd.to_datetime(out["date"], errors="coerce").dt.strftime("%Y-%m-%d")
     return out[expected]
 
@@ -455,10 +480,23 @@ def build_excel_report(tickets_df, nas_df):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         tickets_df.to_excel(writer, sheet_name="Master Tickets", index=False)
-        nas_master, nas_monthly, nas_serverwise = build_nas_reports(nas_df)
+        ticket_monthly, ticket_weekly, ticket_technician, ticket_location = build_ticket_reports(tickets_df)
+        if not ticket_monthly.empty:
+            ticket_monthly.to_excel(writer, sheet_name="Ticket Monthly", index=False)
+        if not ticket_weekly.empty:
+            ticket_weekly.to_excel(writer, sheet_name="Ticket Weekly", index=False)
+        if not ticket_technician.empty:
+            ticket_technician.to_excel(writer, sheet_name="Ticket Technician", index=False)
+        if not ticket_location.empty:
+            ticket_location.to_excel(writer, sheet_name="Ticket Location", index=False)
+        nas_master, nas_monthly, nas_weekly, nas_serverwise = build_nas_reports_extended(nas_df)
         if not nas_master.empty:
             nas_master.to_excel(writer, sheet_name="NAS Storage Logs", index=False)
+        if not nas_monthly.empty:
             nas_monthly.to_excel(writer, sheet_name="NAS Monthly Summary", index=False)
+        if not nas_weekly.empty:
+            nas_weekly.to_excel(writer, sheet_name="NAS Weekly Summary", index=False)
+        if not nas_serverwise.empty:
             nas_serverwise.to_excel(writer, sheet_name="NAS Server Summary", index=False)
     return output.getvalue()
 
@@ -547,6 +585,37 @@ def build_repeat_issue_summary(df):
     return out.rename(columns={"complaint_norm": "Complaint Pattern"}).head(10)
 
 
+
+
+def build_ticket_reports(df):
+    if df is None or df.empty:
+        empty = pd.DataFrame()
+        return empty, empty, empty, empty
+    x = df.copy()
+    x["date_parsed"] = pd.to_datetime(x.get("date"), errors="coerce")
+    x = x.dropna(subset=["date_parsed"])
+    if x.empty:
+        empty = pd.DataFrame()
+        return empty, empty, empty, empty
+    x["Month"] = x["date_parsed"].dt.strftime("%Y-%m")
+    x["Week"] = x["date_parsed"].dt.strftime("%Y-W") + x["date_parsed"].dt.isocalendar().week.astype(str)
+    monthly = x.groupby("Month", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum()), Open=("status", lambda s: (s == "Open").sum()), In_Progress=("status", lambda s: (s == "In Progress").sum()), On_Hold=("status", lambda s: (s == "On Hold - User Busy").sum()))
+    weekly = x.groupby("Week", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum()), Open=("status", lambda s: (s == "Open").sum()), In_Progress=("status", lambda s: (s == "In Progress").sum()), On_Hold=("status", lambda s: (s == "On Hold - User Busy").sum()))
+    technician = x.groupby("attended_by", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum()), Avg_Resolution_Min=("resolution_time", lambda s: int(pd.to_numeric(s, errors='coerce').fillna(0)[pd.to_numeric(s, errors='coerce').fillna(0) > 0].mean()) if (pd.to_numeric(s, errors='coerce').fillna(0) > 0).any() else 0))
+    location = x.groupby("location", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum()))
+    return monthly, weekly, technician, location
+
+
+def build_nas_reports_extended(df):
+    master, monthly, serverwise = build_nas_reports(df)
+    changes = compute_nas_changes(df)
+    if changes.empty:
+        return master, monthly, pd.DataFrame(), serverwise
+    changes["Week"] = changes["date"].dt.strftime("%Y-W") + changes["date"].dt.isocalendar().week.astype(str)
+    weekly = changes.groupby(["Week", "server_name"], as_index=False).agg(Logs=("server_name", "size"), Avg_Storage=("storage_used", "mean"), Total_Increment=("delta_gb", lambda s: s[s > 0].sum()), Total_Decrement=("delta_gb", lambda s: abs(s[s < 0].sum())), Failures=("status", lambda s: (s == "Failed").sum()))
+    return master, monthly, weekly, serverwise
+
+
 def load_tickets():
     if db_connected:
         try:
@@ -572,6 +641,7 @@ def save_ticket(new_row):
         return None
     current = st.session_state.local_tickets.copy()
     row = dict(new_row)
+        if "category" in row: row["category"] = normalize_category(row["category"])
     row["id"] = get_next_ticket_id(current)
     st.session_state.local_tickets = pd.concat([current, pd.DataFrame([row])], ignore_index=True)
     return int(row["id"])
@@ -582,7 +652,7 @@ def update_ticket(ticket_id, payload):
         return
     idx = st.session_state.local_tickets[st.session_state.local_tickets["id"] == int(ticket_id)].index
     for key, value in payload.items():
-        st.session_state.local_tickets.loc[idx, key] = value
+        st.session_state.local_tickets.loc[idx, key] = normalize_category(value) if key == "category" else value
 
 def delete_ticket(ticket_id):
     if db_connected:
@@ -597,6 +667,7 @@ def save_nas_log(new_row):
         return None
     current = st.session_state.local_nas.copy()
     row = dict(new_row)
+        if "category" in row: row["category"] = normalize_category(row["category"])
     row["id"] = get_next_nas_id(current)
     st.session_state.local_nas = pd.concat([current, pd.DataFrame([row])], ignore_index=True)
     return int(row["id"])
@@ -1009,6 +1080,10 @@ def render_dashboard(conn):
                         st.error(f"Delete error: {e}")
     elif page == "Reports":
         st.subheader("Advanced Reports & Analytics Portal")
+        ticket_monthly, ticket_weekly, ticket_technician, ticket_location = build_ticket_reports(df_ticket_filtered)
+        nas_master, nas_monthly, nas_weekly, nas_serverwise = build_nas_reports_extended(df_nas_filtered)
+        excel_bytes = build_excel_report(df_ticket_filtered, df_nas_filtered)
+        st.download_button("Download Multi-Sheet Excel Report (.xlsx)", data=excel_bytes, file_name="vega_it_multi_report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         exec_metrics = build_ticket_exec_metrics(df_ticket_filtered)
         k1, k2, k3, k4, k5, k6 = st.columns(6)
         with k1:
