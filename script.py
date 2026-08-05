@@ -196,6 +196,43 @@ st.markdown(
         .summary-grid { grid-template-columns: 1fr; }
         .span-2 { grid-column: span 1; }
     }
+
+    .stApp [data-testid="stAppViewContainer"] {background: linear-gradient(135deg, #09111f 0%, #0b1426 55%, #0a1220 100%);}    
+    .stApp [data-testid="stHeader"] {background: rgba(9, 17, 31, 0.35);}    
+    section.main > div {max-width: 1460px; padding-top: 1.6rem;}    
+    .login-panel-left {min-height: 84vh; border-radius: 30px; padding: 48px 42px; display:flex; flex-direction:column; justify-content:space-between; background: radial-gradient(circle at 10% 12%, rgba(34,211,238,0.20), transparent 22%), radial-gradient(circle at 78% 22%, rgba(59,130,246,0.16), transparent 26%), radial-gradient(circle at 64% 86%, rgba(239,68,68,0.14), transparent 22%), linear-gradient(160deg, #0b223d 0%, #0c1c33 48%, #0f1a2b 100%); border: 1px solid rgba(148,163,184,0.14); box-shadow: 0 28px 64px rgba(0,0,0,0.30); position: relative; overflow: hidden;}    
+    .login-panel-left::after {content:''; position:absolute; inset:auto -20% -18% auto; width:280px; height:280px; background: radial-gradient(circle, rgba(34,211,238,0.18), transparent 65%); filter: blur(8px);}    
+    .login-eyebrow {font-size: 0.92rem; color:#bfdbfe; letter-spacing:0.08em; text-transform:uppercase; margin-bottom: 1rem;}    
+    .login-brand-lockup img {display:block; margin-bottom: 14px;}    
+    .login-title-sub {font-size:1.32rem; font-weight:600; color:#f8fafc; max-width:30ch; line-height:1.45; margin-top: 18px;}    
+    .login-note {font-size:0.98rem; color:#cbd5e1; max-width:48ch; line-height:1.7;}    
+    .login-panel-right {min-height: 84vh; display:flex; align-items:center; justify-content:center;}    
+    .login-form-shell {width:min(100%, 520px); padding: 1.25rem 0.5rem 1.25rem 0.75rem;}    
+    .login-accent-line {width:72px; height:4px; border-radius:999px; background: linear-gradient(90deg, #22d3ee 0%, #3b82f6 55%, #ef4444 100%); margin-bottom: 1.4rem;}    
+    .login-mini {color:#8fb7ff; font-size:0.88rem; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; margin-bottom: 0.7rem;}    
+    .login-h1 {font-size: 2.2rem; font-weight: 750; color:#ffffff; margin-bottom: 0.35rem;}    
+    .login-subcopy {color:#d1d5db; font-size:1rem; line-height:1.6; margin-bottom: 1.7rem; max-width:34ch;}    
+    .login-support {margin-top:14px; color:#cbd5e1; font-size:0.92rem;}    
+    .login-support .linkish, .login-footer .linkish {color:#7dd3fc; font-weight:600;}    
+    .login-footer {margin-top: 1.4rem; display:flex; gap:14px; flex-wrap:wrap; font-size:0.84rem; color:#94a3b8;}    
+    div[data-testid="stTextInput"] {margin-bottom: 1rem;}    
+    div[data-testid="stTextInput"] label p {color:#e5eefc !important; font-weight:600; font-size:0.95rem;}    
+    div[data-testid="stTextInput"] input {background: linear-gradient(180deg, #121a28 0%, #182132 100%) !important; border:1px solid #263248 !important; color:#f8fafc !important; border-radius:14px !important; min-height:3.2rem !important; box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);}    
+    div[data-testid="stTextInput"] input::placeholder {color:#7c8799 !important;}    
+    div[data-testid="stTextInput"] input:focus {border-color:#38bdf8 !important; box-shadow:0 0 0 1px rgba(56,189,248,0.55), 0 0 0 4px rgba(56,189,248,0.12) !important;}    
+    div.stButton {margin-top: 0.5rem;}    
+    div.stButton > button {background: linear-gradient(90deg, #0ea5e9 0%, #2563eb 58%, #ef4444 100%) !important; color:white !important; border:none !important; border-radius:14px !important; height:3.15rem !important; font-weight:700 !important; box-shadow: 0 14px 28px rgba(37,99,235,0.22) !important;}    
+    div.stButton > button:hover {filter: brightness(1.04); transform: translateY(-1px);}    
+    div.stButton > button:active {transform: translateY(0);}    
+    @media (max-width: 900px){section.main > div{padding-top:0.8rem;} .login-panel-left,.login-panel-right{min-height:auto; padding:24px 20px;} .login-form-shell{width:100%; padding:0.5rem 0 1rem 0;} .login-h1{font-size:1.8rem;} .login-title-sub{font-size:1.12rem;}}    
+
+    div[data-testid="column"]:has(.login-panel-right) {display:flex; align-items:center; min-height:84vh;}
+    div[data-testid="column"]:has(.login-panel-left) {display:flex; min-height:84vh;}
+    .login-panel-right {width:100%; min-height:84vh; display:flex !important; align-items:center !important; justify-content:center !important;}
+    .login-form-shell {width:min(100%, 560px); margin-inline:auto; background: linear-gradient(180deg, rgba(16,24,39,0.82) 0%, rgba(17,24,39,0.70) 100%); border:1px solid rgba(56,189,248,0.14); border-radius:24px; padding:32px 28px 26px 28px; box-shadow:0 24px 60px rgba(0,0,0,0.28); backdrop-filter: blur(10px);}
+    .login-title-sub {font-size:1.38rem; max-width:28ch;}
+    .login-note {max-width:44ch;}
+    @media (max-width: 900px){div[data-testid="column"]:has(.login-panel-right), div[data-testid="column"]:has(.login-panel-left){min-height:auto;} .login-form-shell{border-radius:18px; padding:24px 20px;}}
 </style>
 """,
     unsafe_allow_html=True,
@@ -860,9 +897,9 @@ def login_page(conn):
     vega_logo = find_logo_filename("vega_logo.png")
     knitpro_logo = find_logo_filename("knitpro_logo.png")
     vega_html = f'<img src="data:image/png;base64,{image_to_base64(vega_logo)}" alt="Vega logo" style="max-width:220px; height:auto;">' if vega_logo else '<div style="font-size:2.8rem;font-weight:800;color:#22d3ee;">VEGA</div>'
-    knitpro_html = f'<img src="data:image/png;base64,{image_to_base64(knitpro_logo)}" alt="KnitPro logo" style="max-width:170px; height:auto;">' if knitpro_logo else ''
+    knitpro_html = f'<img src="data:image/png;base64,{image_to_base64(knitpro_logo)}" alt="KnitPro logo" style="max-width:168px; height:auto;">' if knitpro_logo else ''
 
-    left_col, right_col = st.columns([1.85, 1], gap="large")
+    left_col, right_col = st.columns([1.45, 1.0], gap="large")
     with left_col:
         st.markdown(f"""
         <div class="login-panel-left">
@@ -876,11 +913,11 @@ def login_page(conn):
         """, unsafe_allow_html=True)
 
     with right_col:
-        st.markdown('<div class="login-panel-right"><div class="login-mini">Vega IT Access</div><div class="login-h1">Sign in</div><div class="login-subcopy">Use your assigned account to access the dashboard.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="login-panel-right"><div class="login-form-shell"><div class="login-accent-line"></div><div class="login-mini">Vega IT Access</div><div class="login-h1">Sign in</div><div class="login-subcopy">Use your assigned account to access the dashboard.</div>', unsafe_allow_html=True)
         username = st.text_input("Username", placeholder="Enter your username", key="login_username").strip().lower()
         password = st.text_input("Password", type="password", placeholder="Enter your password", key="login_password")
         login_clicked = st.button("Login", use_container_width=True, key="login_button")
-        st.markdown('<div style="margin-top:14px; color:#d1d5db; font-size:0.92rem;">Need account support? <span style="color:#76a7ff; font-weight:600;">Contact administrator</span></div><div class="login-footer"><span class="linkish">Terms</span><span class="linkish">Policy</span><span>© 2026 Vega Industries Pvt. Ltd.</span></div></div>', unsafe_allow_html=True)
+        st.markdown('<div class="login-support">Need account support? <span class="linkish">Contact administrator</span></div><div class="login-footer"><span class="linkish">Terms</span><span class="linkish">Policy</span><span>© 2026 Vega Industries Pvt. Ltd.</span></div></div></div>', unsafe_allow_html=True)
 
     if login_clicked:
         user = authenticate_user(conn, username, password)
