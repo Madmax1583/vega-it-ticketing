@@ -314,18 +314,92 @@ STATUS_OPTIONS = ["Open", "In Progress", "On Hold - User Busy", "Resolved"]
 SERVER_NAMES = ["HRI", "Vega", "Sery", "Rise"]
 SERVER_SHEET_MAP = {"HRI": "Sheet 1", "Vega": "Sheet 2", "Sery": "Sheet 3", "Rise": "Sheet 4"}
 AI_SUGGESTIONS = {
-    "CCTV/Camera": {"title_en": "📷 AI Video Infrastructure Diagnostics", "title_hi": "📷 एआई वीडियो इन्फ्रास्ट्रक्चर डायग्नोस्टिक्स", "English": ["Check whether the camera POE switch port light is blinking.", "Ping the camera IP address through CMD to confirm network continuity.", "If NVR shows no video, restart the camera channel or re-login the device."], "Hindi": ["जांचें कि कैमरा POE स्विच पोर्ट की लाइट ब्लिंक कर रही है या नहीं।", "नेटवर्क कनेक्टिविटी जांचने के लिए कैमरा IP एड्रेस को पिंग करें।", "यदि NVR 'No Video' दिखाए, तो कैमरा चैनल रीस्टार्ट या री-लॉगिन करें।"]},
-    "Laptop/Hardware": {"title_en": "💻 AI Endpoint Hardware Diagnostics", "title_hi": "💻 एआई एंडपॉइंट हार्डवेयर डायग्नोस्टिक्स", "English": ["Perform a hard reset by disconnecting power and holding the power button for 30 seconds.", "Connect to an external display to isolate panel versus motherboard issues.", "Check Device Manager and reinstall chipset or hardware drivers if needed."], "Hindi": ["पावर डिस्कनेक्ट करके 30 सेकंड तक पावर बटन दबाकर हार्ड रीसेट करें।", "LCD और मदरबोर्ड समस्या अलग करने के लिए बाहरी मॉनिटर लगाएं।", "Device Manager जांचें और आवश्यक होने पर ड्राइवर पुनः इंस्टॉल करें।"]},
-    "Email/Outlook": {"title_en": "📧 AI Communication Layer Diagnostics", "title_hi": "📧 एआई कम्यूनिकेशन लेयर डायग्नोस्टिक्स", "English": ["Run outlook.exe /safe to isolate add-in conflicts.", "Check PST or OST file size and compact it if very large.", "Clear Credential Manager entries if password prompts repeat."], "Hindi": ["Add-in conflict जांचने के लिए outlook.exe /safe चलाएं।", "PST या OST फ़ाइल का आकार जांचें और जरूरत हो तो compact करें।", "बार-बार पासवर्ड आने पर Credential Manager entries साफ करें।"]},
+    "CCTVCamera": {"title_en": "📷 AI Video Infrastructure Diagnostics", "title_hi": "📷 एआई वीडियो इन्फ्रास्ट्रक्चर डायग्नोस्टिक्स", "English": ["Check whether the camera POE switch port light is blinking.", "Ping the camera IP address through CMD to confirm network continuity.", "If NVR shows no video, restart the camera channel or re-login the device."], "Hindi": ["जांचें कि कैमरा POE स्विच पोर्ट की लाइट ब्लिंक कर रही है या नहीं।", "नेटवर्क कनेक्टिविटी जांचने के लिए कैमरा IP एड्रेस को पिंग करें।", "यदि NVR 'No Video' दिखाए, तो कैमरा चैनल रीस्टार्ट या री-लॉगिन करें।"]},
+    "LaptopHardware": {"title_en": "💻 AI Endpoint Hardware Diagnostics", "title_hi": "💻 एआई एंडपॉइंट हार्डवेयर डायग्नोस्टिक्स", "English": ["Perform a hard reset by disconnecting power and holding the power button for 30 seconds.", "Connect to an external display to isolate panel versus motherboard issues.", "Check Device Manager and reinstall chipset or hardware drivers if needed."], "Hindi": ["पावर डिस्कनेक्ट करके 30 सेकंड तक पावर बटन दबाकर हार्ड रीसेट करें।", "LCD और मदरबोर्ड समस्या अलग करने के लिए बाहरी मॉनिटर लगाएं।", "Device Manager जांचें और आवश्यक होने पर ड्राइवर पुनः इंस्टॉल करें।"]},
+    "EmailOutlook": {"title_en": "📧 AI Communication Layer Diagnostics", "title_hi": "📧 एआई कम्यूनिकेशन लेयर डायग्नोस्टिक्स", "English": ["Run outlook.exe /safe to isolate add-in conflicts.", "Check PST or OST file size and compact it if very large.", "Clear Credential Manager entries if password prompts repeat."], "Hindi": ["Add-in conflict जांचने के लिए outlook.exe /safe चलाएं।", "PST या OST फ़ाइल का आकार जांचें और जरूरत हो तो compact करें।", "बार-बार पासवर्ड आने पर Credential Manager entries साफ करें।"]},
     "Printer": {"title_en": "🖨️ AI Print Management Diagnostics", "title_hi": "🖨️ एआई प्रिंट मैनेजमेंट डायग्नोस्टिक्स", "English": ["Verify Printer Properties, configured port, and SNMP setting.", "Restart Print Spooler and clear stuck jobs in the PRINTERS folder.", "Inspect cartridge, rollers, and scanner glass for quality issues."], "Hindi": ["Printer Properties, port configuration और SNMP setting जांचें।", "Print Spooler restart करें और stuck jobs साफ करें।", "कार्ट्रिज, रोलर्स और स्कैनर ग्लास जांचें।"]},
     "SAP": {"title_en": "🏢 AI Enterprise ERP Diagnostics", "title_hi": "🏢 एआई एंटरप्राइज ईआरपी डायग्नोस्टिक्स", "English": ["Verify SAP logon configuration and network reachability.", "Check for locked or hung sessions through SAP tools.", "Repair SAP GUI or clear cache if the client is unstable."], "Hindi": ["SAP logon configuration और network connectivity जांचें।", "Locked या hung sessions जांचें।", "Client unstable होने पर SAP GUI repair या cache clear करें।"]},
     "Network": {"title_en": "🌐 AI Network Routing Diagnostics", "title_hi": "🌐 एआई नेटवर्क राउटिंग डायग्नोस्टिक्स", "English": ["Reset Winsock and inspect the adapter driver for frequent drops.", "Release and renew IP configuration if conflict is suspected.", "Check the SSID and frequency band being used by the device."], "Hindi": ["बार-बार डिस्कनेक्ट होने पर Winsock reset और adapter driver जांचें।", "IP conflict शक होने पर release और renew करें।", "SSID और frequency band की पुष्टि करें।"]},
-    "Server/UPS": {"title_en": "🖥️ Server & Power Infrastructure Diagnostics", "title_hi": "🖥️ सर्वर और पावर इन्फ्रास्ट्रक्चर डायग्नोस्टिक्स", "English": ["Check UPS load and input power if alarms are active.", "Verify rack airflow and server room temperature.", "Review DNS and authentication dependencies if logins fail."], "Hindi": ["अलार्म आने पर UPS load और input power जांचें।", "Rack airflow और server room temperature जांचें।", "Login fail होने पर DNS और authentication dependencies देखें।"]},
+    "ServerUPS": {"title_en": "🖥️ Server & Power Infrastructure Diagnostics", "title_hi": "🖥️ सर्वर और पावर इन्फ्रास्ट्रक्चर डायग्नोस्टिक्स", "English": ["Check UPS load and input power if alarms are active.", "Verify rack airflow and server room temperature.", "Review DNS and authentication dependencies if logins fail."], "Hindi": ["अलार्म आने पर UPS load और input power जांचें।", "Rack airflow और server room temperature जांचें।", "Login fail होने पर DNS और authentication dependencies देखें।"]},
 }
+
+CATEGORY_OPTIONS = [
+    "LaptopHardware",
+    "Printer",
+    "EmailOutlook",
+    "Network",
+    "CCTVCamera",
+    "SAP",
+    "ServerUPS",
+    "AVSupport",
+    "AccessControl",
+    "Telephony",
+    "SoftwareSupport",
+    "FileShareAccess",
+    "InstallationSetup",
+    "Other",
+]
+
+CATEGORY_SUBCATEGORY_MAP = {
+    "LaptopHardware": ["Slow/Hanging", "Boot/Startup", "Power", "Battery", "Charging", "Keyboard/Mouse", "Display/Monitor", "RAM Upgrade", "Driver/Update", "User Profile/Login", "Device Handover"],
+    "Printer": ["Printer Install", "Driver Issue", "Print Queue", "Paper Jam", "Cartridge/Drum", "Scanner Issue", "USB/LAN Printer", "Page Size/Settings"],
+    "EmailOutlook": ["Outlook Not Opening", "Mail Send/Receive", "PST/Archive", "O365 License", "New Email ID", "Delete/Reactivate ID", "Forwarding", "Signature", "Mobile Config"],
+    "Network": ["Internet Down", "Wi-Fi", "LAN", "Router/Booster", "Firewall", "VPN", "RDP Access", "Remote Access"],
+    "CCTVCamera": ["Live View", "Playback", "Recording", "Camera Install", "Camera Relocation", "NVR Status", "IVMS Tool"],
+    "SAP": ["SAP Login", "SAP Slow/Hang", "SAP Attachment", "SAP Mail", "RDP for SAP", "DTW/Data Transfer"],
+    "ServerUPS": ["Server Health Check", "Backup", "UPS Issue", "Virus on Server", "Warranty/Renewal", "Server Restart"],
+    "AVSupport": ["Projector Install", "TV/OPS Setup", "Boardroom Support", "Meeting Join Support", "HDMI/Display Sharing"],
+    "AccessControl": ["Attendance Portal", "Biometric Device", "Spintly", "Door Access", "Punching Device"],
+    "Telephony": ["Telephone Instrument", "Extension Issue", "EPBX Setting", "Intercom", "IO Box"],
+    "SoftwareSupport": ["Zoom Install", "Adobe/PDF Reader", "AutoCAD Renewal", "Photoshop", "Java Update", "Browser/Website/App Issue"],
+    "FileShareAccess": ["OneDrive Sync/Backup", "Shared Folder Access", "File Search", "File Open Issue", "Data Copy/Migration"],
+    "InstallationSetup": ["New System Install", "Software Install", "New Joiner Setup", "Device Configuration", "LCD/Display Install"],
+    "Other": ["Other"],
+}
+
+AUTO_CATEGORY_RULES = [
+    ("CCTVCamera", ["cctv", "camera", "nvr", "playback", "recording", "footage", "ivms"]),
+    ("AccessControl", ["attendance", "biometric", "spintly", "door access", "punching"]),
+    ("AVSupport", ["projector", "tv", "ops", "meeting room", "board room", "boardroom", "conference room", "hdmi", "display sharing"]),
+    ("Telephony", ["telephone", "extension", "epbx", "intercom", "io box"]),
+    ("Printer", ["printer", "scanner", "scan", "cartridge", "drum", "print", "spooler", "paper jam"]),
+    ("EmailOutlook", ["outlook", "email", "mail", "pst", "ost", "o365", "office 365", "mailbox", "forwarding", "signature"]),
+    ("SAP", ["sap", "erp", "dtw", "data transfer workbench"]),
+    ("Network", ["network", "wifi", "wi-fi", "internet", "vpn", "ping", "ip", "router", "switch", "lan", "rdp", "remote access"]),
+    ("ServerUPS", ["server", "ups", "rack", "dns", "domain", "backup", "replication", "nas"]),
+    ("FileShareAccess", ["onedrive", "shared folder", "shared drive", "file search", "windows explorer", "file not opening", "data copy", "data backup", "cloud storage"]),
+    ("SoftwareSupport", ["zoom", "autocad", "photoshop", "adobe", "pdf", "java", "browser", "website", "web side", "software", "application"]),
+    ("InstallationSetup", ["new system install", "new joining", "new joiner", "configured", "configuration", "setup", "install software", "device handover"]),
+    ("LaptopHardware", ["laptop", "desktop", "keyboard", "touchpad", "battery", "charger", "charging", "screen", "hardware", "monitor", "slow", "hanging", "hang", "boot", "startup", "power issue", "ram", "display", "mouse", "login issue", "stuck"]),
+]
+
+SUBCATEGORY_HINT_RULES = {
+    "LaptopHardware": [("Slow/Hanging", ["slow", "hang", "hanging", "stuck", "not responding"]), ("Boot/Startup", ["boot", "startup", "turning on", "not turning on", "start"]), ("Battery", ["battery", "backup", "swollen"]), ("Charging", ["charging", "charger", "socket", "dc jack", "adapter", "adopter"]), ("Keyboard/Mouse", ["keyboard", "mouse", "touchpad"]), ("Display/Monitor", ["display", "monitor", "screen", "hdmi", "ghosting", "font"]), ("RAM Upgrade", ["ram"]), ("Driver/Update", ["driver", "windows update", "bios", "patch"]), ("User Profile/Login", ["login", "credential", "profile"]), ("Device Handover", ["handover", "transfer the laptop", "configured in new joineer"] )],
+    "Printer": [("Scanner Issue", ["scanner", "scan"]), ("Cartridge/Drum", ["cartridge", "drum"]), ("Paper Jam", ["paper jam"]), ("Print Queue", ["queue", "pending print", "spooler"]), ("USB/LAN Printer", ["usb", "lan"]), ("Page Size/Settings", ["page size", "settings"]), ("Driver Issue", ["driver"]), ("Printer Install", ["install", "add"] )],
+    "EmailOutlook": [("Mail Send/Receive", ["send", "receive", "incoming", "attachment"]), ("PST/Archive", ["pst", "archive"]), ("O365 License", ["license", "licence", "o365 basic", "standard"]), ("New Email ID", ["create new", "new joining email", "new email id"]), ("Delete/Reactivate ID", ["delete", "reactivate", "remove the email"]), ("Forwarding", ["forwarding"]), ("Signature", ["signature"]), ("Mobile Config", ["mobile", "phone"]), ("Outlook Not Opening", ["outlook is not opening", "outlook problem", "mail open problem"] )],
+    "Network": [("Wi-Fi", ["wifi", "wi-fi"]), ("LAN", ["lan"]), ("Router/Booster", ["router", "signal booster"]), ("Firewall", ["firewall"]), ("VPN", ["vpn"]), ("RDP Access", ["rdp"]), ("Remote Access", ["remote access", "any desk", "anydesk"]), ("Internet Down", ["internet"] )],
+    "CCTVCamera": [("Playback", ["playback", "footage"]), ("Recording", ["recording"]), ("Camera Install", ["install"]), ("Camera Relocation", ["relocated", "reposition", "coverage"]), ("NVR Status", ["nvr status", "matrix nvr"]), ("IVMS Tool", ["ivms"]), ("Live View", ["live"] )],
+    "SAP": [("SAP Login", ["login"]), ("SAP Slow/Hang", ["slow", "hang"]), ("SAP Attachment", ["attachment", "file not open"]), ("SAP Mail", ["sap mail"]), ("RDP for SAP", ["rdp"]), ("DTW/Data Transfer", ["dtw", "data transfer"] )],
+    "ServerUPS": [("Backup", ["backup"]), ("UPS Issue", ["ups"]), ("Virus on Server", ["virus"]), ("Warranty/Renewal", ["warranty", "renewal"]), ("Server Restart", ["restart", "down"]), ("Server Health Check", ["health", "server"] )],
+    "AVSupport": [("Projector Install", ["projector"]), ("TV/OPS Setup", ["tv", "ops"]), ("Meeting Join Support", ["meeting joining", "meeting"]), ("Boardroom Support", ["board room", "boardroom", "conference room"]), ("HDMI/Display Sharing", ["hdmi", "display sharing", "tv share"] )],
+    "AccessControl": [("Attendance Portal", ["attendance"]), ("Biometric Device", ["biometric"]), ("Spintly", ["spintly"]), ("Door Access", ["door access"]), ("Punching Device", ["punching"] )],
+    "Telephony": [("Telephone Instrument", ["telephone"]), ("Extension Issue", ["extension"]), ("EPBX Setting", ["epbx"]), ("Intercom", ["intercom"]), ("IO Box", ["io box"] )],
+    "SoftwareSupport": [("Zoom Install", ["zoom"]), ("Adobe/PDF Reader", ["adobe", "pdf"]), ("AutoCAD Renewal", ["autocad"]), ("Photoshop", ["photoshop"]), ("Java Update", ["java"]), ("Browser/Website/App Issue", ["website", "web side", "browser", "application", "app"] )],
+    "FileShareAccess": [("OneDrive Sync/Backup", ["onedrive", "backup"]), ("Shared Folder Access", ["shared folder", "shared drive"]), ("File Search", ["file search", "windows explorer"]), ("File Open Issue", ["file not opening", "not opening"]), ("Data Copy/Migration", ["data copy", "migration", "cloud storage"] )],
+    "InstallationSetup": [("New System Install", ["new system"]), ("Software Install", ["install"]), ("New Joiner Setup", ["new joining", "new joiner"]), ("Device Configuration", ["configured", "configuration", "setup"]), ("LCD/Display Install", ["lcd install"] )],
+}
+
+def suggest_subcategory(category, complaint):
+    text = str(complaint).lower().strip()
+    for subcat, keywords in SUBCATEGORY_HINT_RULES.get(category, []):
+        if any(k in text for k in keywords):
+            return subcat
+    return CATEGORY_SUBCATEGORY_MAP.get(category, ["Other"])[0]
+
 if "local_tickets" not in st.session_state:
     st.session_state.local_tickets = pd.DataFrame([
-        {"id": 1, "date": "2026-07-01", "user_name": "Amit Sharma", "department": "Production", "complaint": "CCTV camera in main corridor is flickering", "location": "Sector - 136 Vega", "attended_by": "Satish", "status": "In Progress", "category": "CCTV/Camera", "start_time": "2026-07-01 10:15:00", "close_time": None, "resolution_time": 0, "remarks": "POE check in progress"},
-        {"id": 2, "date": "2026-07-03", "user_name": "Sunita Rao", "department": "Finance", "complaint": "Desktop showing blue screen after update", "location": "Knitpro 28-29", "attended_by": "Priyanshu", "status": "Open", "category": "Laptop/Hardware", "start_time": None, "close_time": None, "resolution_time": 0, "remarks": ""},
+        {"id": 1, "date": "2026-07-01", "user_name": "Amit Sharma", "department": "Production", "complaint": "CCTV camera in main corridor is flickering", "location": "Sector - 136 Vega", "attended_by": "Satish", "status": "In Progress", "category": "CCTVCamera", "start_time": "2026-07-01 10:15:00", "close_time": None, "resolution_time": 0, "remarks": "POE check in progress"},
+        {"id": 2, "date": "2026-07-03", "user_name": "Sunita Rao", "department": "Finance", "complaint": "Desktop showing blue screen after update", "location": "Knitpro 28-29", "attended_by": "Priyanshu", "status": "Open", "category": "LaptopHardware", "start_time": None, "close_time": None, "resolution_time": 0, "remarks": ""},
         {"id": 3, "date": "2026-07-05", "user_name": "Rajesh Kumar", "department": "HR", "complaint": "Office printer offline and queue is stuck", "location": "Sector - 155 Vega", "attended_by": "Amit", "status": "Resolved", "category": "Printer", "start_time": "2026-07-05 10:00:00", "close_time": "2026-07-05 10:35:00", "resolution_time": 35, "remarks": "Spooler restarted and queue flushed"},
     ])
 if "local_nas" not in st.session_state:
@@ -348,14 +422,10 @@ def format_ticket_number(ticket_id, location_str):
         return f"IT-2026-{ticket_id}"
 
 def auto_categorize(complaint):
-    text = str(complaint).lower()
-    if any(k in text for k in ["cctv", "camera", "nvr"]): return "CCTV/Camera"
-    if any(k in text for k in ["laptop", "desktop", "keyboard", "touchpad", "battery", "screen", "hardware", "monitor"]): return "Laptop/Hardware"
-    if any(k in text for k in ["outlook", "email", "mail", "pst", "ost"]): return "Email/Outlook"
-    if any(k in text for k in ["printer", "scanner", "cartridge", "print"]): return "Printer"
-    if any(k in text for k in ["sap", "erp"]): return "SAP"
-    if any(k in text for k in ["network", "wifi", "internet", "vpn", "ping", "ip", "router", "switch", "lan"]): return "Network"
-    if any(k in text for k in ["server", "ups", "rack", "dns", "domain", "backup"]): return "Server/UPS"
+    text = str(complaint).lower().strip()
+    for category, keywords in AUTO_CATEGORY_RULES:
+        if any(k in text for k in keywords):
+            return category
     return "Other"
 
 def normalize_nas_status(value):
@@ -375,6 +445,7 @@ def normalize_ticket_df(df):
     out["remarks"] = out["remarks"].fillna("").astype(str)
     out["status"] = out["status"].fillna("").astype(str)
     out["category"] = out["category"].fillna("").astype(str)
+    out["category"] = out.apply(lambda r: r["category"] if str(r["category"]).strip() else auto_categorize(r.get("complaint", "")), axis=1)
     out["date"] = pd.to_datetime(out["date"], errors="coerce").dt.strftime("%Y-%m-%d")
     return out[expected]
 
