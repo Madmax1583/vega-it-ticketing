@@ -671,7 +671,10 @@ def render_dashboard(conn):
     st.sidebar.markdown("---")
     page = st.sidebar.radio("Navigation", allowed_pages)
     st.sidebar.markdown("---")
-    st.sidebar.success("Supabase cloud connected") if db_connected else st.sidebar.warning("Session sandbox mode active")
+    if db_connected:
+        st.sidebar.success("Supabase cloud connected")
+    else:
+        st.sidebar.warning("Session sandbox mode active")
     df_ticket_filtered = filtered_tickets(df_tickets, site_filter, status_filter, tech_filter)
     df_nas_filtered = filtered_nas(df_nas, server_filter)
     st.markdown("<div class='app-banner'><div class='app-title'>🛠️ Vega & Knitpro IT Command Suite</div><div class='app-subtitle'>Single-window support operations, NAS monitoring, reporting, tasking, and infrastructure analytics</div></div>", unsafe_allow_html=True)
@@ -881,7 +884,10 @@ def render_dashboard(conn):
                     server_df["Change GB"] = server_df["storage_used"].diff().round(4)
                     server_df["Change %"] = (server_df["storage_used"].pct_change() * 100).round(2)
                     latest = server_df.iloc[-1]
-                    st.error(f"Critical alert: latest backup on {latest['date'].strftime('%Y-%m-%d')} for {selected_server} failed.") if latest["status"] == "Failed" else st.success(f"Latest backup on {latest['date'].strftime('%Y-%m-%d')} for {selected_server} completed successfully.")
+                    if latest["status"] == "Failed":
+                        st.error(f"Critical alert: latest backup on {latest['date'].strftime('%Y-%m-%d')} for {selected_server} failed.")
+                    else:
+                        st.success(f"Latest backup on {latest['date'].strftime('%Y-%m-%d')} for {selected_server} completed successfully.")
                     m1, m2, m3 = st.columns(3)
                     delta_text = f"{server_df.iloc[-1]['Change GB']:.4f} GB" if len(server_df) >= 2 and pd.notna(server_df.iloc[-1]['Change GB']) else "Baseline"
                     m1.metric("Latest Footprint", f"{latest['storage_used']:.4f} GB", delta=delta_text)
@@ -926,10 +932,14 @@ def render_dashboard(conn):
                 export_df["Month"] = export_df["date_parsed"].dt.strftime("%Y-%m"); export_df["WeekLabel"] = export_df["date_parsed"].dt.strftime("%Y-W") + export_df["date_parsed"].dt.isocalendar().week.astype(str)
                 st.download_button("Download Master Ticket Log (.csv)", export_df.drop(columns=["date_parsed"], errors="ignore").to_csv(index=False).encode("utf-8"), file_name="it_master_production_log.csv", mime="text/csv")
                 r1, r2, r3, r4 = st.tabs(["Monthly", "Weekly", "Technician", "Location"])
-                with r1: st.dataframe(export_df.groupby("Month", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum())), use_container_width=True)
-                with r2: st.dataframe(export_df.groupby("WeekLabel", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum())), use_container_width=True)
-                with r3: st.dataframe(export_df.groupby("attended_by", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum())), use_container_width=True)
-                with r4: st.dataframe(export_df.groupby("location", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum())), use_container_width=True)
+                with r1:
+                st.dataframe(export_df.groupby("Month", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum())), use_container_width=True)
+                with r2:
+                st.dataframe(export_df.groupby("WeekLabel", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum())), use_container_width=True)
+                with r3:
+                st.dataframe(export_df.groupby("attended_by", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum())), use_container_width=True)
+                with r4:
+                st.dataframe(export_df.groupby("location", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum())), use_container_width=True)
         with tab2:
             st.markdown("### Interactive Storage Growth Delta Heatmap")
             nas_changes = compute_nas_changes(df_nas_filtered)
