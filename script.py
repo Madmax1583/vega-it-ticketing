@@ -408,9 +408,6 @@ def suggest_subcategory(category, complaint):
         return "New Device Setup"
     return "Unclassified"
 
-
-def get_subcategory_options(category):
-    return CATEGORY_MASTER.get(str(category), ["Unclassified"])
 AI_SUGGESTIONS = {
     "CCTV/Camera": {"title_en": "📷 AI Video Infrastructure Diagnostics", "title_hi": "📷 एआई वीडियो इन्फ्रास्ट्रक्चर डायग्नोस्टिक्स", "English": ["Check whether the camera POE switch port light is blinking.", "Ping the camera IP address through CMD to confirm network continuity.", "If NVR shows no video, restart the camera channel or re-login the device."], "Hindi": ["जांचें कि कैमरा POE स्विच पोर्ट की लाइट ब्लिंक कर रही है या नहीं।", "नेटवर्क कनेक्टिविटी जांचने के लिए कैमरा IP एड्रेस को पिंग करें।", "यदि NVR 'No Video' दिखाए, तो कैमरा चैनल रीस्टार्ट या री-लॉगिन करें।"]},
     "Laptop/Hardware": {"title_en": "💻 AI Endpoint Hardware Diagnostics", "title_hi": "💻 एआई एंडपॉइंट हार्डवेयर डायग्नोस्टिक्स", "English": ["Perform a hard reset by disconnecting power and holding the power button for 30 seconds.", "Connect to an external display to isolate panel versus motherboard issues.", "Check Device Manager and reinstall chipset or hardware drivers if needed."], "Hindi": ["पावर डिस्कनेक्ट करके 30 सेकंड तक पावर बटन दबाकर हार्ड रीसेट करें।", "LCD और मदरबोर्ड समस्या अलग करने के लिए बाहरी मॉनिटर लगाएं।", "Device Manager जांचें और आवश्यक होने पर ड्राइवर पुनः इंस्टॉल करें।"]},
@@ -488,7 +485,7 @@ def normalize_nas_status(value):
     return "Failed"
 
 def normalize_ticket_df(df):
-    expected = ["id", "date", "user_name", "department", "complaint", "location", "attended_by", "status", "category", "subcategory", "start_time", "close_time", "resolution_time", "remarks"]
+    expected = ["id", "date", "user_name", "department", "complaint", "location", "attended_by", "status", "category", "start_time", "close_time", "resolution_time", "remarks"]
     if df is None or df.empty: return pd.DataFrame(columns=expected)
     out = df.copy()
     for col in expected:
@@ -498,8 +495,6 @@ def normalize_ticket_df(df):
     out["remarks"] = out["remarks"].fillna("").astype(str)
     out["status"] = out["status"].fillna("").astype(str)
     out["category"] = out["category"].fillna("").astype(str).map(normalize_category)
-    out["subcategory"] = out["subcategory"].fillna("").astype(str)
-    out.loc[out["subcategory"].eq(""), "subcategory"] = out.apply(lambda r: suggest_subcategory(r["category"], r["complaint"]), axis=1)
     out["date"] = pd.to_datetime(out["date"], errors="coerce").dt.strftime("%Y-%m-%d")
     return out[expected]
 
@@ -743,8 +738,6 @@ def save_ticket(new_row):
     row = dict(new_row)
     if "category" in row:
         row["category"] = normalize_category(row["category"])
-    if "subcategory" not in row or not str(row.get("subcategory", "")).strip():
-        row["subcategory"] = suggest_subcategory(row.get("category", "Other"), row.get("complaint", ""))
     row["id"] = get_next_ticket_id(current)
     st.session_state.local_tickets = pd.concat([current, pd.DataFrame([row])], ignore_index=True)
     return int(row["id"])
@@ -756,10 +749,7 @@ def update_ticket(ticket_id, payload):
     idx = st.session_state.local_tickets[st.session_state.local_tickets["id"] == int(ticket_id)].index
     for key, value in payload.items():
         st.session_state.local_tickets.loc[idx, key] = normalize_category(value) if key == "category" else value
-    if "category" in payload or "complaint" in payload:
-        comp = payload.get("complaint", st.session_state.local_tickets.loc[idx, "complaint"].iloc[0] if len(idx) else "")
-        catv = payload.get("category", st.session_state.local_tickets.loc[idx, "category"].iloc[0] if len(idx) else "Other")
-        st.session_state.local_tickets.loc[idx, "subcategory"] = suggest_subcategory(catv, comp)
+
 
 def delete_ticket(ticket_id):
     if db_connected:
@@ -776,8 +766,6 @@ def save_nas_log(new_row):
     row = dict(new_row)
     if "category" in row:
         row["category"] = normalize_category(row["category"])
-    if "subcategory" not in row or not str(row.get("subcategory", "")).strip():
-        row["subcategory"] = suggest_subcategory(row.get("category", "Other"), row.get("complaint", ""))
     row["id"] = get_next_nas_id(current)
     st.session_state.local_nas = pd.concat([current, pd.DataFrame([row])], ignore_index=True)
     return int(row["id"])
@@ -1020,15 +1008,13 @@ def render_dashboard(conn):
                 location = st.selectbox("Location / Sector", OFFICIAL_LOCATIONS, index=loc_index)
                 ticket_date = st.date_input("Ticket Date", value=datetime.now().date())
                 st.markdown("#### Ticket Classification")
+                complaint_desc = st.text_area("Complaint Description", height=110, help="Write the issue clearly. Category is suggested from the complaint, and the technician can change it manually.")
+                suggested_category = auto_categorize(complaint_desc) if complaint_desc.strip() else "Other"
                 category_options = list(CATEGORY_MASTER.keys())
-                category = st.selectbox("Category", category_options, index=category_options.index("Other"), help="Technician should choose the closest category.")
-                subcategory_options = get_subcategory_options(category)
-                subcategory = st.selectbox("Subcategory", subcategory_options, index=0, help="Technician should choose the matching subcategory.")
-                complaint_desc = st.text_area("Complaint Description", height=110, help="After writing the complaint, you can manually adjust category and subcategory if needed.")
+                cat_index = category_options.index(suggested_category) if suggested_category in category_options else category_options.index("Other")
+                category = st.selectbox("Category", category_options, index=cat_index, help="Technician should choose the closest category.")
                 if complaint_desc.strip():
-                    suggested_category = auto_categorize(complaint_desc)
-                    suggested_subcategory = suggest_subcategory(category, complaint_desc)
-                    st.caption(f"Suggested from complaint: {suggested_category} / {suggested_subcategory}")
+                    st.caption(f"Suggested from complaint: {suggested_category}")
                 tech_remarks = st.text_area("Technician Remarks", height=90)
                 c1, c2 = st.columns(2)
                 start_input = c1.time_input("Start Time", value=time(datetime.now().hour, datetime.now().minute))
@@ -1048,7 +1034,7 @@ def render_dashboard(conn):
                         else:
                             start_val = f"{date_str} {start_input.strftime('%H:%M:%S')}"; close_val = f"{date_str} {close_input.strftime('%H:%M:%S')}"
                             duration = max(1, int((datetime.combine(ticket_date, close_input) - datetime.combine(ticket_date, start_input)).total_seconds() // 60))
-                        new_row = {"date": date_str, "user_name": user_name.strip(), "department": department.strip(), "complaint": complaint_desc.strip(), "location": location, "attended_by": attended_by, "status": status, "category": category, "subcategory": subcategory, "remarks": tech_remarks.strip(), "start_time": start_val, "close_time": close_val, "resolution_time": duration}
+                        new_row = {"date": date_str, "user_name": user_name.strip(), "department": department.strip(), "complaint": complaint_desc.strip(), "location": location, "attended_by": attended_by, "status": status, "category": category, "remarks": tech_remarks.strip(), "start_time": start_val, "close_time": close_val, "resolution_time": duration}
                         try:
                             new_id = save_ticket(new_row)
                             add_notification(conn, attended_by.lower(), f"New ticket assigned: {user_name.strip()} - {category}")
