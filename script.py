@@ -1166,6 +1166,10 @@ def render_dashboard(conn):
                 ticket_weekly = export_df.groupby("WeekLabel", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum()), Open=("status", lambda s: (s == "Open").sum()), In_Progress=("status", lambda s: (s == "In Progress").sum()), On_Hold=("status", lambda s: (s == "On Hold - User Busy").sum()))
                 ticket_technician = export_df.groupby("attended_by", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum()), Avg_Resolution_Min=("resolution_time", lambda s: int(pd.to_numeric(s, errors='coerce').fillna(0)[pd.to_numeric(s, errors='coerce').fillna(0) > 0].mean()) if (pd.to_numeric(s, errors='coerce').fillna(0) > 0).any() else 0))
                 ticket_location = export_df.groupby("location", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum()))
+                monthly_options = sorted(export_df["Month"].dropna().unique().tolist())
+                weekly_options = sorted(export_df["WeekLabel"].dropna().unique().tolist())
+                tech_options = sorted(export_df["attended_by"].dropna().astype(str).unique().tolist())
+                location_options = sorted(export_df["location"].dropna().astype(str).unique().tolist())
                 cta1, cta2 = st.columns(2)
                 with cta1:
                     st.download_button("Download Master Ticket Log (.csv)", export_df.drop(columns=["date_parsed"], errors="ignore").to_csv(index=False).encode("utf-8"), file_name="it_master_production_log.csv", mime="text/csv")
@@ -1173,17 +1177,37 @@ def render_dashboard(conn):
                     st.download_button("Download Ticket + NAS Report Pack (.xlsx)", build_excel_report(df_ticket_filtered, df_nas_filtered), file_name="vega_it_multi_report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="ticket_pack_xlsx")
                 r1, r2, r3, r4 = st.tabs(["Monthly", "Weekly", "Technician", "Location"])
                 with r1:
+                    month_pick = st.selectbox("Select month for detailed download", monthly_options, key="month_pick") if monthly_options else None
+                    month_detail_df = export_df[export_df["Month"] == month_pick].drop(columns=["date_parsed"], errors="ignore") if month_pick else pd.DataFrame()
                     st.download_button("Download Monthly Ticket Report (.csv)", ticket_monthly.to_csv(index=False).encode("utf-8"), file_name="ticket_monthly_report.csv", mime="text/csv", key="ticket_monthly_csv")
+                    st.download_button("Download Monthly Ticket Detailed Report (.csv)", month_detail_df.to_csv(index=False).encode("utf-8"), file_name=f"ticket_monthly_detail_{month_pick}.csv" if month_pick else "ticket_monthly_detail.csv", mime="text/csv", key="ticket_monthly_csv2")
                     st.dataframe(ticket_monthly, use_container_width=True)
+                    if month_pick:
+                        st.dataframe(month_detail_df, use_container_width=True)
                 with r2:
+                    week_pick = st.selectbox("Select week for detailed download", weekly_options, key="week_pick") if weekly_options else None
+                    week_detail_df = export_df[export_df["WeekLabel"] == week_pick].drop(columns=["date_parsed"], errors="ignore") if week_pick else pd.DataFrame()
                     st.download_button("Download Weekly Ticket Report (.csv)", ticket_weekly.to_csv(index=False).encode("utf-8"), file_name="ticket_weekly_report.csv", mime="text/csv", key="ticket_weekly_csv")
+                    st.download_button("Download Weekly Ticket Detailed Report (.csv)", week_detail_df.to_csv(index=False).encode("utf-8"), file_name=f"ticket_weekly_detail_{week_pick}.csv" if week_pick else "ticket_weekly_detail.csv", mime="text/csv", key="ticket_weekly_csv2")
                     st.dataframe(ticket_weekly, use_container_width=True)
+                    if week_pick:
+                        st.dataframe(week_detail_df, use_container_width=True)
                 with r3:
+                    tech_pick = st.selectbox("Select technician for detailed download", tech_options, key="tech_pick") if tech_options else None
+                    tech_detail_df = export_df[export_df["attended_by"].astype(str) == str(tech_pick)].drop(columns=["date_parsed"], errors="ignore") if tech_pick else pd.DataFrame()
                     st.download_button("Download Technician Ticket Report (.csv)", ticket_technician.to_csv(index=False).encode("utf-8"), file_name="ticket_technician_report.csv", mime="text/csv", key="ticket_technician_csv")
+                    st.download_button("Download Technician Detailed Report (.csv)", tech_detail_df.to_csv(index=False).encode("utf-8"), file_name=f"ticket_technician_detail_{tech_pick}.csv" if tech_pick else "ticket_technician_detail.csv", mime="text/csv", key="ticket_technician_csv2")
                     st.dataframe(ticket_technician, use_container_width=True)
+                    if tech_pick:
+                        st.dataframe(tech_detail_df, use_container_width=True)
                 with r4:
+                    location_pick = st.selectbox("Select location for detailed download", location_options, key="location_pick") if location_options else None
+                    location_detail_df = export_df[export_df["location"].astype(str) == str(location_pick)].drop(columns=["date_parsed"], errors="ignore") if location_pick else pd.DataFrame()
                     st.download_button("Download Location Ticket Report (.csv)", ticket_location.to_csv(index=False).encode("utf-8"), file_name="ticket_location_report.csv", mime="text/csv", key="ticket_location_csv")
+                    st.download_button("Download Location Detailed Report (.csv)", location_detail_df.to_csv(index=False).encode("utf-8"), file_name=f"ticket_location_detail_{location_pick}.csv" if location_pick else "ticket_location_detail.csv", mime="text/csv", key="ticket_location_csv2")
                     st.dataframe(ticket_location, use_container_width=True)
+                    if location_pick:
+                        st.dataframe(location_detail_df, use_container_width=True)
         with tab2:
             st.markdown("### Interactive Storage Growth Delta Heatmap")
             nas_changes = compute_nas_changes(df_nas_filtered)
@@ -1203,16 +1227,30 @@ def render_dashboard(conn):
                 ).properties(height=280)
                 st.altair_chart(heatmap, use_container_width=True)
                 nas_master, nas_monthly, nas_weekly, nas_serverwise = build_nas_reports_extended(df_nas_filtered)
+                nas_changes["Month"] = nas_changes["date"].dt.strftime("%Y-%m")
+                nas_changes["WeekLabel"] = nas_changes["date"].dt.strftime("%Y-W") + nas_changes["date"].dt.isocalendar().week.astype(str)
+                nas_month_options = sorted(nas_changes["Month"].dropna().unique().tolist())
+                nas_week_options = sorted(nas_changes["WeekLabel"].dropna().unique().tolist())
                 n1, n2, n3, n4 = st.tabs(["NAS Master", "NAS Monthly", "NAS Weekly", "NAS Server Summary"])
                 with n1:
                     st.download_button("Download NAS Master Log (.csv)", nas_master.to_csv(index=False).encode("utf-8"), file_name="nas_master_log.csv", mime="text/csv", key="nas_master_csv")
                     st.dataframe(nas_master, use_container_width=True)
                 with n2:
+                    nas_month_pick = st.selectbox("Select NAS month for detailed download", nas_month_options, key="nas_month_pick") if nas_month_options else None
+                    nas_month_detail = nas_changes[nas_changes["Month"] == nas_month_pick] if nas_month_pick else pd.DataFrame()
                     st.download_button("Download NAS Monthly Report (.csv)", nas_monthly.to_csv(index=False).encode("utf-8"), file_name="nas_monthly_report.csv", mime="text/csv", key="nas_monthly_csv")
+                    st.download_button("Download NAS Monthly Detailed Report (.csv)", nas_month_detail.to_csv(index=False).encode("utf-8"), file_name=f"nas_monthly_detail_{nas_month_pick}.csv" if nas_month_pick else "nas_monthly_detail.csv", mime="text/csv", key="nas_monthly_csv2")
                     st.dataframe(nas_monthly, use_container_width=True)
+                    if nas_month_pick:
+                        st.dataframe(nas_month_detail, use_container_width=True)
                 with n3:
+                    nas_week_pick = st.selectbox("Select NAS week for detailed download", nas_week_options, key="nas_week_pick") if nas_week_options else None
+                    nas_week_detail = nas_changes[nas_changes["WeekLabel"] == nas_week_pick] if nas_week_pick else pd.DataFrame()
                     st.download_button("Download NAS Weekly Report (.csv)", nas_weekly.to_csv(index=False).encode("utf-8"), file_name="nas_weekly_report.csv", mime="text/csv", key="nas_weekly_csv")
+                    st.download_button("Download NAS Weekly Detailed Report (.csv)", nas_week_detail.to_csv(index=False).encode("utf-8"), file_name=f"nas_weekly_detail_{nas_week_pick}.csv" if nas_week_pick else "nas_weekly_detail.csv", mime="text/csv", key="nas_weekly_csv2")
                     st.dataframe(nas_weekly, use_container_width=True)
+                    if nas_week_pick:
+                        st.dataframe(nas_week_detail, use_container_width=True)
                 with n4:
                     st.download_button("Download NAS Server Summary (.csv)", nas_serverwise.to_csv(index=False).encode("utf-8"), file_name="nas_server_summary.csv", mime="text/csv", key="nas_server_csv")
                     st.dataframe(nas_serverwise, use_container_width=True)
