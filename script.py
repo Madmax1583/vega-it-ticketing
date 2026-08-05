@@ -1012,7 +1012,7 @@ def render_dashboard(conn):
                 suggested_category = auto_categorize(complaint_desc) if complaint_desc.strip() else "Other"
                 category_options = list(CATEGORY_MASTER.keys())
                 cat_index = category_options.index(suggested_category) if suggested_category in category_options else category_options.index("Other")
-                category = st.selectbox("Category", category_options, index=cat_index, help="Technician should choose the closest category.")
+                category = st.selectbox("Category *", ["Select Category"] + category_options, index=(cat_index + 1 if complaint_desc.strip() and suggested_category in category_options else 0), help="Technician must choose the closest category before saving.")
                 if complaint_desc.strip():
                     st.caption(f"Suggested from complaint: {suggested_category}")
                 tech_remarks = st.text_area("Technician Remarks", height=90)
@@ -1021,12 +1021,10 @@ def render_dashboard(conn):
                 close_input = c2.time_input("Close Time", value=time(datetime.now().hour, datetime.now().minute))
                 submitted = st.form_submit_button("Submit Ticket", use_container_width=True)
                 if submitted:
-                    if not user_name.strip() or not department.strip() or not complaint_desc.strip():
-                        st.error("Please fill all required fields.")
+                    if not user_name.strip() or not department.strip() or not complaint_desc.strip() or category == "Select Category":
+                        st.error("Please fill all required fields, including Category.")
                     else:
                         category = normalize_category(category)
-                        if not subcategory or not str(subcategory).strip():
-                            subcategory = suggest_subcategory(category, complaint_desc)
                         date_str = ticket_date.strftime("%Y-%m-%d")
                         if status == "Open": start_val, close_val, duration = None, None, 0
                         elif status == "In Progress": start_val, close_val, duration = f"{date_str} {start_input.strftime('%H:%M:%S')}", None, 0
