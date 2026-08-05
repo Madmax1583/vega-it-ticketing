@@ -544,12 +544,15 @@ def render_status_table(df, columns, compact=False, nas_mode=False):
     if df.empty:
         st.info("No records found.")
         return
+
     show_df = df.copy()
     if "status" in show_df.columns:
         show_df["status"] = show_df["status"].apply(render_nas_status if nas_mode else status_badge_html)
-    styled = show_df[columns].to_html(escape=False, index=False)
+
+    safe_columns = [c for c in columns if c in show_df.columns]
+    styled = show_df[safe_columns].to_html(escape=False, index=False)
     css_class = "table-scroll compact-table" if compact else "table-scroll"
-    st.markdown(f"<div class='{css_class}'>{styled}</div>", unsafe_allow_html=True)
+    st.markdown(f'<div class="{css_class}">{styled}</div>', unsafe_allow_html=True)
 
 def render_glass_card(title, value, subtext, color_var="--accent"):
     st.markdown(f"<div class='metric-card'><div class='metric-label'>{title}</div><div class='metric-value'>{value}</div><div class='metric-sub' style='color: var({color_var});'>{subtext}</div></div>", unsafe_allow_html=True)
