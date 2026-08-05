@@ -945,7 +945,18 @@ def render_dashboard(conn):
             nas_changes = compute_nas_changes(df_nas_filtered)
             if not nas_changes.empty:
                 nas_changes["date_str"] = nas_changes["date"].dt.strftime("%Y-%m-%d")
-                heatmap = alt.Chart(nas_changes).mark_rect().encode(x=alt.X("date_str:O", title="Date"), y=alt.Y("server_name:O", title="Server Name"), color=alt.Color("delta_gb:Q", title="Storage Delta (GB)", scale=alt.Scale(scheme="redoranges")), tooltip=["date_str", "server_name", "storage_used", "delta_gb", "status"]).properties(height=280)
+                heatmap = alt.Chart(nas_changes).mark_rect().encode(
+                    x=alt.X("date_str:O", title="Date"),
+                    y=alt.Y("server_name:O", title="Server Name"),
+                    color=alt.Color("delta_gb:Q", title="Storage Delta (GB)", scale=alt.Scale(scheme="redoranges")),
+                    tooltip=[
+                        alt.Tooltip("date_str:O", title="Date"),
+                        alt.Tooltip("server_name:N", title="Server"),
+                        alt.Tooltip("storage_used:Q", title="Storage Used (GB)", format=".4f"),
+                        alt.Tooltip("delta_gb:Q", title="Delta (GB)", format=".4f"),
+                        alt.Tooltip("status:N", title="Status"),
+                    ],
+                ).properties(height=280)
                 st.altair_chart(heatmap, use_container_width=True)
                 nas_master, nas_monthly, nas_serverwise = build_nas_reports(df_nas_filtered)
                 st.markdown("### NAS Master Delta Table"); st.dataframe(nas_master, use_container_width=True)
