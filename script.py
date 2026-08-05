@@ -838,20 +838,66 @@ def authenticate_user(conn, username, password):
     return None
 
 def login_page(conn):
-    st.title("Vega IT System Login")
-    c1, c2 = st.columns(2)
-    username = c1.text_input("Username").strip().lower()
-    password = c2.text_input("Password", type="password")
-    st.caption("Default setup password for new unconfigured accounts is: **vega123**")
-    if st.button("Login"):
+    vega_logo = find_logo_filename("vega_logo.png")
+    knitpro_logo = find_logo_filename("knitpro_logo.png")
+    logo_html = '<div class="login-logo-stack">'
+    if vega_logo:
+        logo_html += f'<div class="login-logo-main"><img src="data:image/png;base64,{image_to_base64(vega_logo)}" alt="Vega logo"></div>'
+    else:
+        logo_html += '<div class="login-fallback-title">Vega</div>'
+    if knitpro_logo:
+        logo_html += f'<div class="login-logo-sub"><img src="data:image/png;base64,{image_to_base64(knitpro_logo)}" alt="KnitPro logo"></div>'
+    logo_html += '</div>'
+
+    st.markdown(f"""
+    <div class="login-shell">
+      <div class="login-grid">
+        <div class="login-brand-card">
+          <div class="login-brand-inner">
+            <div class="login-topmark">
+              <div class="smallmark">VEGA Industries Pvt. Ltd.</div>
+              <div class="smallmark">IT Operations</div>
+            </div>
+          </div>
+          <div class="login-brand-inner">
+            {logo_html}
+            <div class="login-hero-sub">Unified IT ticketing, technician operations, analytics, and infrastructure visibility.</div>
+          </div>
+          <div class="login-bottom-note">Built for structured incident logging, role-based access, and cleaner operational reporting across Vega and KnitPro support environments.</div>
+        </div>
+        <div class="login-form-card">
+          <div>
+            <div class="login-mini-brand">Vega IT Access</div>
+            <div class="login-form-wrap">
+              <div class="login-form-title">Sign in</div>
+              <div class="login-form-sub">Use your assigned account to access the dashboard.</div>
+    """, unsafe_allow_html=True)
+
+    username = st.text_input("Username", placeholder="Enter your username").strip().lower()
+    password = st.text_input("Password", type="password", placeholder="Enter your password")
+    login_clicked = st.button("Login", use_container_width=True)
+
+    st.markdown("""
+              <div class="login-links" style="margin-top:14px; color:#d1d5db; font-size:0.92rem;">Need account support? <a href="#">Contact administrator</a></div>
+            </div>
+          </div>
+          <div class="login-footrow"><span class="linkish">Terms</span><span class="linkish">Policy</span><span>© 2026 Vega Industries Pvt. Ltd.</span></div>
+        </div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if login_clicked:
         user = authenticate_user(conn, username, password)
         if not user:
             st.error("Invalid credentials or inactive account.")
-            return
+            return None
         st.session_state["current_user"] = user
-        if user["must_change_password"]:
+        if user["must_change_password"] or not user["password_hash"]:
             st.session_state["must_set_password"] = True
+        st.success(f"Welcome {user['display_name']}")
         st.rerun()
+    return None
 
 def first_password_setup(conn):
     user = st.session_state.get("current_user")
