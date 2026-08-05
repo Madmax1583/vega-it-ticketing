@@ -690,7 +690,10 @@ def render_dashboard(conn):
         with c3: render_glass_card("Resolved", resolved_tickets, "Closed tickets", "--success")
         with c4: render_glass_card("On Hold", hold_tickets, "User busy", "--warning")
         with c5: render_glass_card("Avg Resolution", f"{avg_res_time} min", "Resolved only", "--info")
-        st.error(f"Critical NAS alerts: {nas_failures} failed backup entries in current filter.") if nas_failures > 0 else st.success("No NAS failure alert in the current filtered view.")
+        if nas_failures > 0:
+            st.error(f"Critical NAS alerts: {nas_failures} failed backup entries in current filter.")
+        else:
+            st.success("No NAS failure alert in the current filtered view.")
         ch1, ch2 = st.columns(2)
         with ch1:
             st.markdown("### Ticket Volume by Category")
@@ -720,7 +723,10 @@ def render_dashboard(conn):
                     st.altair_chart(build_line_chart(trend_df, "date_label:N", "storage_used:Q", "#f59e0b"), use_container_width=True)
         st.markdown("### Recent Ticket Activity")
         recent = df_ticket_filtered.sort_values("id", ascending=False).head(8).copy() if not df_ticket_filtered.empty else pd.DataFrame()
-        render_status_table(recent, ["System Ticket ID", "date", "user_name", "department", "location", "category", "attended_by", "status", "resolution_time"], compact=True) if not recent.empty else st.info("No ticket data available for the selected filters.")
+        if not recent.empty:
+            render_status_table(recent, ["System Ticket ID", "date", "user_name", "department", "location", "category", "attended_by", "status", "resolution_time"], compact=True)
+        else:
+            st.info("No ticket data available for the selected filters.")
     elif page == "Ticket Operations":
         st.subheader("Ticket Operations")
         left, right = st.columns([1.05, 1.2], gap="large")
