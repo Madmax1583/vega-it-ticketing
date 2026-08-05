@@ -1154,20 +1154,36 @@ def render_dashboard(conn):
                 st.info("No repeat issue patterns found in current filter.")
         tab1, tab2, tab3 = st.tabs(["Ticket Activity Logs", "NAS Performance Deltas", "Excel Export"])
         with tab1:
-            if df_ticket_filtered.empty: st.info("No ticket records available.")
+            if df_ticket_filtered.empty:
+                st.info("No ticket records available.")
             else:
-                export_df = df_ticket_filtered.copy(); export_df["date_parsed"] = pd.to_datetime(export_df["date"], errors="coerce"); export_df = export_df.dropna(subset=["date_parsed"])
-                export_df["Month"] = export_df["date_parsed"].dt.strftime("%Y-%m"); export_df["WeekLabel"] = export_df["date_parsed"].dt.strftime("%Y-W") + export_df["date_parsed"].dt.isocalendar().week.astype(str)
-                st.download_button("Download Master Ticket Log (.csv)", export_df.drop(columns=["date_parsed"], errors="ignore").to_csv(index=False).encode("utf-8"), file_name="it_master_production_log.csv", mime="text/csv")
+                export_df = df_ticket_filtered.copy()
+                export_df["date_parsed"] = pd.to_datetime(export_df["date"], errors="coerce")
+                export_df = export_df.dropna(subset=["date_parsed"])
+                export_df["Month"] = export_df["date_parsed"].dt.strftime("%Y-%m")
+                export_df["WeekLabel"] = export_df["date_parsed"].dt.strftime("%Y-W") + export_df["date_parsed"].dt.isocalendar().week.astype(str)
+                ticket_monthly = export_df.groupby("Month", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum()), Open=("status", lambda s: (s == "Open").sum()), In_Progress=("status", lambda s: (s == "In Progress").sum()), On_Hold=("status", lambda s: (s == "On Hold - User Busy").sum()))
+                ticket_weekly = export_df.groupby("WeekLabel", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum()), Open=("status", lambda s: (s == "Open").sum()), In_Progress=("status", lambda s: (s == "In Progress").sum()), On_Hold=("status", lambda s: (s == "On Hold - User Busy").sum()))
+                ticket_technician = export_df.groupby("attended_by", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum()), Avg_Resolution_Min=("resolution_time", lambda s: int(pd.to_numeric(s, errors='coerce').fillna(0)[pd.to_numeric(s, errors='coerce').fillna(0) > 0].mean()) if (pd.to_numeric(s, errors='coerce').fillna(0) > 0).any() else 0))
+                ticket_location = export_df.groupby("location", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum()))
+                cta1, cta2 = st.columns(2)
+                with cta1:
+                    st.download_button("Download Master Ticket Log (.csv)", export_df.drop(columns=["date_parsed"], errors="ignore").to_csv(index=False).encode("utf-8"), file_name="it_master_production_log.csv", mime="text/csv")
+                with cta2:
+                    st.download_button("Download Ticket + NAS Report Pack (.xlsx)", build_excel_report(df_ticket_filtered, df_nas_filtered), file_name="vega_it_multi_report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="ticket_pack_xlsx")
                 r1, r2, r3, r4 = st.tabs(["Monthly", "Weekly", "Technician", "Location"])
                 with r1:
-                    st.dataframe(export_df.groupby("Month", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum())), use_container_width=True)
+                    st.download_button("Download Monthly Ticket Report (.csv)", ticket_monthly.to_csv(index=False).encode("utf-8"), file_name="ticket_monthly_report.csv", mime="text/csv", key="ticket_monthly_csv")
+                    st.dataframe(ticket_monthly, use_container_width=True)
                 with r2:
-                    st.dataframe(export_df.groupby("WeekLabel", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum())), use_container_width=True)
+                    st.download_button("Download Weekly Ticket Report (.csv)", ticket_weekly.to_csv(index=False).encode("utf-8"), file_name="ticket_weekly_report.csv", mime="text/csv", key="ticket_weekly_csv")
+                    st.dataframe(ticket_weekly, use_container_width=True)
                 with r3:
-                    st.dataframe(export_df.groupby("attended_by", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum())), use_container_width=True)
+                    st.download_button("Download Technician Ticket Report (.csv)", ticket_technician.to_csv(index=False).encode("utf-8"), file_name="ticket_technician_report.csv", mime="text/csv", key="ticket_technician_csv")
+                    st.dataframe(ticket_technician, use_container_width=True)
                 with r4:
-                    st.dataframe(export_df.groupby("location", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum())), use_container_width=True)
+                    st.download_button("Download Location Ticket Report (.csv)", ticket_location.to_csv(index=False).encode("utf-8"), file_name="ticket_location_report.csv", mime="text/csv", key="ticket_location_csv")
+                    st.dataframe(ticket_location, use_container_width=True)
         with tab2:
             st.markdown("### Interactive Storage Growth Delta Heatmap")
             nas_changes = compute_nas_changes(df_nas_filtered)
@@ -1186,11 +1202,22 @@ def render_dashboard(conn):
                     ],
                 ).properties(height=280)
                 st.altair_chart(heatmap, use_container_width=True)
-                nas_master, nas_monthly, nas_serverwise = build_nas_reports(df_nas_filtered)
-                st.markdown("### NAS Master Delta Table"); st.dataframe(nas_master, use_container_width=True)
-                st.markdown("### NAS Monthly Summary"); st.dataframe(nas_monthly, use_container_width=True)
-                st.markdown("### NAS Server Summary"); st.dataframe(nas_serverwise, use_container_width=True)
-            else: st.info("No sufficient historical NAS data to calculate deltas.")
+                nas_master, nas_monthly, nas_weekly, nas_serverwise = build_nas_reports_extended(df_nas_filtered)
+                n1, n2, n3, n4 = st.tabs(["NAS Master", "NAS Monthly", "NAS Weekly", "NAS Server Summary"])
+                with n1:
+                    st.download_button("Download NAS Master Log (.csv)", nas_master.to_csv(index=False).encode("utf-8"), file_name="nas_master_log.csv", mime="text/csv", key="nas_master_csv")
+                    st.dataframe(nas_master, use_container_width=True)
+                with n2:
+                    st.download_button("Download NAS Monthly Report (.csv)", nas_monthly.to_csv(index=False).encode("utf-8"), file_name="nas_monthly_report.csv", mime="text/csv", key="nas_monthly_csv")
+                    st.dataframe(nas_monthly, use_container_width=True)
+                with n3:
+                    st.download_button("Download NAS Weekly Report (.csv)", nas_weekly.to_csv(index=False).encode("utf-8"), file_name="nas_weekly_report.csv", mime="text/csv", key="nas_weekly_csv")
+                    st.dataframe(nas_weekly, use_container_width=True)
+                with n4:
+                    st.download_button("Download NAS Server Summary (.csv)", nas_serverwise.to_csv(index=False).encode("utf-8"), file_name="nas_server_summary.csv", mime="text/csv", key="nas_server_csv")
+                    st.dataframe(nas_serverwise, use_container_width=True)
+            else:
+                st.info("No sufficient historical NAS data to calculate deltas.")
         with tab3:
             try:
                 excel_bytes = build_excel_report(df_ticket_filtered.drop(columns=["date_parsed"], errors="ignore"), df_nas_filtered)
