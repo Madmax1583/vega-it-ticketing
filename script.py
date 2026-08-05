@@ -1,15 +1,10 @@
 import io
+import os
+import base64
 import hashlib
 import sqlite3
 from datetime import datetime, time
 from pathlib import Path
-
-import altair as alt
-import pandas as pd
-import streamlit as st
-
-import os
-import base64
 
 def find_logo_filename(filename: str):
     candidates = [
@@ -27,6 +22,10 @@ def find_logo_filename(filename: str):
 def image_to_base64(path: str) -> str:
     with open(path, 'rb') as f:
         return base64.b64encode(f.read()).decode('utf-8')
+
+import altair as alt
+import pandas as pd
+import streamlit as st
 from supabase import create_client
 
 # ==========================================
@@ -860,52 +859,28 @@ def authenticate_user(conn, username, password):
 def login_page(conn):
     vega_logo = find_logo_filename("vega_logo.png")
     knitpro_logo = find_logo_filename("knitpro_logo.png")
-    logo_html = '<div class="login-logo-stack">'
-    if vega_logo:
-        logo_html += f'<div class="login-logo-main"><img src="data:image/png;base64,{image_to_base64(vega_logo)}" alt="Vega logo"></div>'
-    else:
-        logo_html += '<div class="login-fallback-title">Vega</div>'
-    if knitpro_logo:
-        logo_html += f'<div class="login-logo-sub"><img src="data:image/png;base64,{image_to_base64(knitpro_logo)}" alt="KnitPro logo"></div>'
-    logo_html += '</div>'
+    vega_html = f'<img src="data:image/png;base64,{image_to_base64(vega_logo)}" alt="Vega logo" style="max-width:220px; height:auto;">' if vega_logo else '<div style="font-size:2.8rem;font-weight:800;color:#22d3ee;">VEGA</div>'
+    knitpro_html = f'<img src="data:image/png;base64,{image_to_base64(knitpro_logo)}" alt="KnitPro logo" style="max-width:170px; height:auto;">' if knitpro_logo else ''
 
-    st.markdown(f"""
-    <div class="login-shell">
-      <div class="login-grid">
-        <div class="login-brand-card">
-          <div class="login-brand-inner">
-            <div class="login-topmark">
-              <div class="smallmark">VEGA Industries Pvt. Ltd.</div>
-              <div class="smallmark">IT Operations</div>
+    left_col, right_col = st.columns([1.85, 1], gap="large")
+    with left_col:
+        st.markdown(f"""
+        <div class="login-panel-left">
+            <div>
+                <div class="login-eyebrow">IT Operations</div>
+                <div class="login-brand-lockup">{vega_html}{knitpro_html}</div>
+                <div class="login-title-sub">Unified IT ticketing, technician operations, analytics, and infrastructure visibility.</div>
             </div>
-          </div>
-          <div class="login-brand-inner">
-            {logo_html}
-            <div class="login-hero-sub">Unified IT ticketing, technician operations, analytics, and infrastructure visibility.</div>
-          </div>
-          <div class="login-bottom-note">Built for structured incident logging, role-based access, and cleaner operational reporting across Vega and KnitPro support environments.</div>
+            <div class="login-note">Built for structured incident logging, role-based access, and cleaner operational reporting across Vega and KnitPro support environments.</div>
         </div>
-        <div class="login-form-card">
-          <div>
-            <div class="login-mini-brand">Vega IT Access</div>
-            <div class="login-form-wrap">
-              <div class="login-form-title">Sign in</div>
-              <div class="login-form-sub">Use your assigned account to access the dashboard.</div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
 
-    username = st.text_input("Username", placeholder="Enter your username").strip().lower()
-    password = st.text_input("Password", type="password", placeholder="Enter your password")
-    login_clicked = st.button("Login", use_container_width=True)
-
-    st.markdown("""
-              <div class="login-links" style="margin-top:14px; color:#d1d5db; font-size:0.92rem;">Need account support? <a href="#">Contact administrator</a></div>
-            </div>
-          </div>
-          <div class="login-footrow"><span class="linkish">Terms</span><span class="linkish">Policy</span><span>© 2026 Vega Industries Pvt. Ltd.</span></div>
-        </div>
-      </div>
-    </div>
-    """, unsafe_allow_html=True)
+    with right_col:
+        st.markdown('<div class="login-panel-right"><div class="login-mini">Vega IT Access</div><div class="login-h1">Sign in</div><div class="login-subcopy">Use your assigned account to access the dashboard.</div>', unsafe_allow_html=True)
+        username = st.text_input("Username", placeholder="Enter your username", key="login_username").strip().lower()
+        password = st.text_input("Password", type="password", placeholder="Enter your password", key="login_password")
+        login_clicked = st.button("Login", use_container_width=True, key="login_button")
+        st.markdown('<div style="margin-top:14px; color:#d1d5db; font-size:0.92rem;">Need account support? <span style="color:#76a7ff; font-weight:600;">Contact administrator</span></div><div class="login-footer"><span class="linkish">Terms</span><span class="linkish">Policy</span><span>© 2026 Vega Industries Pvt. Ltd.</span></div></div>', unsafe_allow_html=True)
 
     if login_clicked:
         user = authenticate_user(conn, username, password)
