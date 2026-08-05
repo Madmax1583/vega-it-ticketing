@@ -948,7 +948,7 @@ def render_dashboard(conn):
                 heatmap = alt.Chart(nas_changes).mark_rect().encode(
                     x=alt.X("date_str:O", title="Date"),
                     y=alt.Y("server_name:O", title="Server Name"),
-                    color=alt.Color("delta_gb:Q", title="Storage Delta (GB)", scale=alt.Scale(scheme="redoranges")),
+                    color=alt.Color("delta_gb:Q", title="Storage Delta (GB)"),
                     tooltip=[
                         alt.Tooltip("date_str:O", title="Date"),
                         alt.Tooltip("server_name:N", title="Server"),
