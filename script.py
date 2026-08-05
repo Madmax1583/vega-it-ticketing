@@ -641,7 +641,8 @@ def save_ticket(new_row):
         return None
     current = st.session_state.local_tickets.copy()
     row = dict(new_row)
-        if "category" in row: row["category"] = normalize_category(row["category"])
+    if "category" in row:
+        row["category"] = normalize_category(row["category"])
     row["id"] = get_next_ticket_id(current)
     st.session_state.local_tickets = pd.concat([current, pd.DataFrame([row])], ignore_index=True)
     return int(row["id"])
@@ -667,7 +668,8 @@ def save_nas_log(new_row):
         return None
     current = st.session_state.local_nas.copy()
     row = dict(new_row)
-        if "category" in row: row["category"] = normalize_category(row["category"])
+    if "category" in row:
+        row["category"] = normalize_category(row["category"])
     row["id"] = get_next_nas_id(current)
     st.session_state.local_nas = pd.concat([current, pd.DataFrame([row])], ignore_index=True)
     return int(row["id"])
