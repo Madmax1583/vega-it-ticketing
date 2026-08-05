@@ -933,13 +933,13 @@ def render_dashboard(conn):
                 st.download_button("Download Master Ticket Log (.csv)", export_df.drop(columns=["date_parsed"], errors="ignore").to_csv(index=False).encode("utf-8"), file_name="it_master_production_log.csv", mime="text/csv")
                 r1, r2, r3, r4 = st.tabs(["Monthly", "Weekly", "Technician", "Location"])
                 with r1:
-                st.dataframe(export_df.groupby("Month", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum())), use_container_width=True)
+                    st.dataframe(export_df.groupby("Month", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum())), use_container_width=True)
                 with r2:
-                st.dataframe(export_df.groupby("WeekLabel", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum())), use_container_width=True)
+                    st.dataframe(export_df.groupby("WeekLabel", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum())), use_container_width=True)
                 with r3:
-                st.dataframe(export_df.groupby("attended_by", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum())), use_container_width=True)
+                    st.dataframe(export_df.groupby("attended_by", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum())), use_container_width=True)
                 with r4:
-                st.dataframe(export_df.groupby("location", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum())), use_container_width=True)
+                    st.dataframe(export_df.groupby("location", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum())), use_container_width=True)
         with tab2:
             st.markdown("### Interactive Storage Growth Delta Heatmap")
             nas_changes = compute_nas_changes(df_nas_filtered)
