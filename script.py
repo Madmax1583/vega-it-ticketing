@@ -1059,7 +1059,10 @@ def render_dashboard(conn):
         a2.metric("Critical/High Tasks", len(critical_tasks))
         a3.metric("Open Tickets", len(df_tickets[df_tickets["status"] != "Resolved"]))
         st.markdown("### High Priority Tasks")
-        st.success("All critical high-priority tasks are currently clear.") if critical_tasks.empty else st.dataframe(critical_tasks[["id", "title", "assigned_to", "priority", "status", "due_date"]], use_container_width=True)
+        if critical_tasks.empty:
+            st.success("All critical high-priority tasks are currently clear.")
+        else:
+            st.dataframe(critical_tasks[["id", "title", "assigned_to", "priority", "status", "due_date"]], use_container_width=True)
         st.markdown("### Ticket Status Summary")
         if not df_tickets.empty: st.dataframe(df_tickets.groupby("status", as_index=False).agg(Tickets=("id", "size")), use_container_width=True)
 
