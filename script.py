@@ -313,6 +313,100 @@ OFFICIAL_LOCATIONS = [
 STATUS_OPTIONS = ["Open", "In Progress", "On Hold - User Busy", "Resolved"]
 SERVER_NAMES = ["HRI", "Vega", "Sery", "Rise"]
 SERVER_SHEET_MAP = {"HRI": "Sheet 1", "Vega": "Sheet 2", "Sery": "Sheet 3", "Rise": "Sheet 4"}
+
+CATEGORY_MASTER = {
+    "LaptopHardware": ["Slow Performance", "Boot Issue", "Keyboard/Mouse", "Display", "Battery/Charging", "Blue Screen", "Upgrade", "Peripheral"],
+    "Printer": ["Print Issue", "Scanner Issue", "Driver/Install", "Cartridge/Toner", "Paper Jam", "Network Printer"],
+    "EmailOutlook": ["Login Issue", "Configuration", "PST/OST", "Mail Flow", "Migration", "Mailbox Access"],
+    "Network": ["Internet", "WiFi", "LAN", "VPN", "Switch/Firewall", "Shared Folder Access"],
+    "CCTVCamera": ["Camera Offline", "NVR Issue", "Recording Issue", "Installation", "View Access"],
+    "SAP": ["Login Issue", "Client Error", "Access/Role", "Transaction Error", "Print from SAP"],
+    "ServerUPS": ["Server Health", "Backup", "UPS Alarm", "Patch/Update", "Attendance Server", "RDP/DNS"],
+    "AVSupport": ["Projector", "TV/Display", "OPS", "Meeting Room Setup", "Audio Issue", "VC Support"],
+    "AccessControl": ["Biometric", "Door Access", "Attendance Device", "Access Request"],
+    "Telephony": ["Phone Dead", "Intercom", "Extension Config", "Voice Quality"],
+    "SoftwareSupport": ["Software Install", "License/Renewal", "Application Error", "Update/Patch"],
+    "InstallationSetup": ["New Device Setup", "OS Install", "Desktop/Laptop Delivery", "User Handover"],
+    "Other": ["Unclassified"]
+}
+
+
+def suggest_subcategory(category, complaint):
+    c = str(category)
+    text = str(complaint).lower()
+    if c == "LaptopHardware":
+        if any(k in text for k in ["slow", "hanging", "hang"]): return "Slow Performance"
+        if any(k in text for k in ["boot", "startup", "start"]): return "Boot Issue"
+        if any(k in text for k in ["keyboard", "mouse", "touchpad"]): return "Keyboard/Mouse"
+        if any(k in text for k in ["screen", "display", "monitor"]): return "Display"
+        if any(k in text for k in ["battery", "charger", "charging"]): return "Battery/Charging"
+        if any(k in text for k in ["blue screen", "bsod"]): return "Blue Screen"
+    if c == "Printer":
+        if "scan" in text: return "Scanner Issue"
+        if any(k in text for k in ["driver", "install"]): return "Driver/Install"
+        if any(k in text for k in ["cartridge", "toner"]): return "Cartridge/Toner"
+        if "jam" in text: return "Paper Jam"
+        return "Print Issue"
+    if c == "EmailOutlook":
+        if any(k in text for k in ["login", "password"]): return "Login Issue"
+        if any(k in text for k in ["pst", "ost"]): return "PST/OST"
+        if any(k in text for k in ["migration", "migrate"]): return "Migration"
+        if any(k in text for k in ["access", "mailbox"]): return "Mailbox Access"
+        return "Configuration"
+    if c == "Network":
+        if "wifi" in text: return "WiFi"
+        if any(k in text for k in ["vpn", "rdp"]): return "VPN"
+        if any(k in text for k in ["shared folder", "folder access", "drive access"]): return "Shared Folder Access"
+        if any(k in text for k in ["switch", "firewall"]): return "Switch/Firewall"
+        if any(k in text for k in ["lan", "cable"]): return "LAN"
+        return "Internet"
+    if c == "CCTVCamera":
+        if "nvr" in text: return "NVR Issue"
+        if any(k in text for k in ["record", "playback"]): return "Recording Issue"
+        if any(k in text for k in ["install", "new camera"]): return "Installation"
+        if "access" in text: return "View Access"
+        return "Camera Offline"
+    if c == "SAP":
+        if any(k in text for k in ["login", "password"]): return "Login Issue"
+        if "access" in text: return "Access/Role"
+        if "print" in text: return "Print from SAP"
+        if any(k in text for k in ["error", "dump"]): return "Transaction Error"
+        return "Client Error"
+    if c == "ServerUPS":
+        if "backup" in text: return "Backup"
+        if "ups" in text: return "UPS Alarm"
+        if any(k in text for k in ["patch", "update"]): return "Patch/Update"
+        if "attendance" in text: return "Attendance Server"
+        if any(k in text for k in ["rdp", "dns"]): return "RDP/DNS"
+        return "Server Health"
+    if c == "AVSupport":
+        if "projector" in text: return "Projector"
+        if any(k in text for k in ["tv", "display"]): return "TV/Display"
+        if "ops" in text: return "OPS"
+        if any(k in text for k in ["meeting", "boardroom"]): return "Meeting Room Setup"
+        if any(k in text for k in ["audio", "mic", "speaker"]): return "Audio Issue"
+        return "VC Support"
+    if c == "AccessControl":
+        if "biometric" in text: return "Biometric"
+        if any(k in text for k in ["door", "access"]): return "Door Access"
+        if "attendance" in text: return "Attendance Device"
+        return "Access Request"
+    if c == "Telephony":
+        if any(k in text for k in ["intercom", "extension"]): return "Intercom"
+        if any(k in text for k in ["voice", "noise"]): return "Voice Quality"
+        if any(k in text for k in ["config", "setting"]): return "Extension Config"
+        return "Phone Dead"
+    if c == "SoftwareSupport":
+        if any(k in text for k in ["install", "setup"]): return "Software Install"
+        if any(k in text for k in ["license", "renewal"]): return "License/Renewal"
+        if any(k in text for k in ["update", "patch"]): return "Update/Patch"
+        return "Application Error"
+    if c == "InstallationSetup":
+        if any(k in text for k in ["os", "windows"]): return "OS Install"
+        if any(k in text for k in ["delivery", "delivered"]): return "Desktop/Laptop Delivery"
+        if any(k in text for k in ["handover"]): return "User Handover"
+        return "New Device Setup"
+    return "Unclassified"
 AI_SUGGESTIONS = {
     "CCTV/Camera": {"title_en": "📷 AI Video Infrastructure Diagnostics", "title_hi": "📷 एआई वीडियो इन्फ्रास्ट्रक्चर डायग्नोस्टिक्स", "English": ["Check whether the camera POE switch port light is blinking.", "Ping the camera IP address through CMD to confirm network continuity.", "If NVR shows no video, restart the camera channel or re-login the device."], "Hindi": ["जांचें कि कैमरा POE स्विच पोर्ट की लाइट ब्लिंक कर रही है या नहीं।", "नेटवर्क कनेक्टिविटी जांचने के लिए कैमरा IP एड्रेस को पिंग करें।", "यदि NVR 'No Video' दिखाए, तो कैमरा चैनल रीस्टार्ट या री-लॉगिन करें।"]},
     "Laptop/Hardware": {"title_en": "💻 AI Endpoint Hardware Diagnostics", "title_hi": "💻 एआई एंडपॉइंट हार्डवेयर डायग्नोस्टिक्स", "English": ["Perform a hard reset by disconnecting power and holding the power button for 30 seconds.", "Connect to an external display to isolate panel versus motherboard issues.", "Check Device Manager and reinstall chipset or hardware drivers if needed."], "Hindi": ["पावर डिस्कनेक्ट करके 30 सेकंड तक पावर बटन दबाकर हार्ड रीसेट करें।", "LCD और मदरबोर्ड समस्या अलग करने के लिए बाहरी मॉनिटर लगाएं।", "Device Manager जांचें और आवश्यक होने पर ड्राइवर पुनः इंस्टॉल करें।"]},
@@ -390,7 +484,7 @@ def normalize_nas_status(value):
     return "Failed"
 
 def normalize_ticket_df(df):
-    expected = ["id", "date", "user_name", "department", "complaint", "location", "attended_by", "status", "category", "start_time", "close_time", "resolution_time", "remarks"]
+    expected = ["id", "date", "user_name", "department", "complaint", "location", "attended_by", "status", "category", "subcategory", "start_time", "close_time", "resolution_time", "remarks"]
     if df is None or df.empty: return pd.DataFrame(columns=expected)
     out = df.copy()
     for col in expected:
@@ -400,6 +494,8 @@ def normalize_ticket_df(df):
     out["remarks"] = out["remarks"].fillna("").astype(str)
     out["status"] = out["status"].fillna("").astype(str)
     out["category"] = out["category"].fillna("").astype(str).map(normalize_category)
+    out["subcategory"] = out["subcategory"].fillna("").astype(str)
+    out.loc[out["subcategory"].eq(""), "subcategory"] = out.apply(lambda r: suggest_subcategory(r["category"], r["complaint"]), axis=1)
     out["date"] = pd.to_datetime(out["date"], errors="coerce").dt.strftime("%Y-%m-%d")
     return out[expected]
 
@@ -643,6 +739,8 @@ def save_ticket(new_row):
     row = dict(new_row)
     if "category" in row:
         row["category"] = normalize_category(row["category"])
+    if "subcategory" not in row or not str(row.get("subcategory", "")).strip():
+        row["subcategory"] = suggest_subcategory(row.get("category", "Other"), row.get("complaint", ""))
     row["id"] = get_next_ticket_id(current)
     st.session_state.local_tickets = pd.concat([current, pd.DataFrame([row])], ignore_index=True)
     return int(row["id"])
@@ -654,6 +752,10 @@ def update_ticket(ticket_id, payload):
     idx = st.session_state.local_tickets[st.session_state.local_tickets["id"] == int(ticket_id)].index
     for key, value in payload.items():
         st.session_state.local_tickets.loc[idx, key] = normalize_category(value) if key == "category" else value
+    if "category" in payload or "complaint" in payload:
+        comp = payload.get("complaint", st.session_state.local_tickets.loc[idx, "complaint"].iloc[0] if len(idx) else "")
+        catv = payload.get("category", st.session_state.local_tickets.loc[idx, "category"].iloc[0] if len(idx) else "Other")
+        st.session_state.local_tickets.loc[idx, "subcategory"] = suggest_subcategory(catv, comp)
 
 def delete_ticket(ticket_id):
     if db_connected:
@@ -670,6 +772,8 @@ def save_nas_log(new_row):
     row = dict(new_row)
     if "category" in row:
         row["category"] = normalize_category(row["category"])
+    if "subcategory" not in row or not str(row.get("subcategory", "")).strip():
+        row["subcategory"] = suggest_subcategory(row.get("category", "Other"), row.get("complaint", ""))
     row["id"] = get_next_nas_id(current)
     st.session_state.local_nas = pd.concat([current, pd.DataFrame([row])], ignore_index=True)
     return int(row["id"])
