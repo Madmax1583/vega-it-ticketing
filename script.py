@@ -249,6 +249,9 @@ st.markdown(
     div[data-testid="column"] .stContainer:has(input) > div {background: transparent !important;}
     .login-panel-right {position: relative;}
     @media (max-width: 900px){div[data-testid="column"] .stContainer:has(input) {margin-top: 0 !important;}}
+
+    .login-panel-right + div, .login-support, .login-footer {position: relative; z-index: 4;}
+    @media (min-width: 901px){div[data-testid="stHorizontalBlock"]:has(.login-mini) {margin-top: 15vh;} }
 </style>
 """,
     unsafe_allow_html=True,
@@ -915,7 +918,7 @@ def login_page(conn):
     vega_html = f'<img src="data:image/png;base64,{image_to_base64(vega_logo)}" alt="Vega logo" style="max-width:220px; height:auto;">' if vega_logo else '<div style="font-size:2.8rem;font-weight:800;color:#22d3ee;">VEGA</div>'
     knitpro_html = f'<img src="data:image/png;base64,{image_to_base64(knitpro_logo)}" alt="KnitPro logo" style="max-width:168px; height:auto;">' if knitpro_logo else ''
 
-    left_col, spacer_col, right_col = st.columns([1.28, 0.08, 0.84], gap="medium")
+    left_col, right_col = st.columns([1.38, 1.0], gap="large")
     with left_col:
         st.markdown(f"""
         <div class="login-panel-left">
@@ -928,17 +931,15 @@ def login_page(conn):
         </div>
         """, unsafe_allow_html=True)
 
-    with spacer_col:
-        st.markdown('<div style="height:1px;"></div>', unsafe_allow_html=True)
-
     with right_col:
-        st.markdown('<div class="login-panel-right"><div class="login-form-shell"><div class="login-accent-line"></div><div class="login-mini">Vega IT Access</div><div class="login-h1">Sign in</div><div class="login-subcopy">Use your assigned account to access the dashboard.</div>', unsafe_allow_html=True)
-        form_shell = st.container()
-        with form_shell:
+        top_spacer, card_slot, form_slot, bottom_spacer = st.columns([0.06, 0.88, 0.88, 0.06])
+        with card_slot:
+            st.markdown('<div class="login-panel-right" style="min-height:auto; padding-bottom:0;"><div class="login-form-shell" style="transform:none; margin-bottom:20px;"><div class="login-accent-line"></div><div class="login-mini">Vega IT Access</div><div class="login-h1">Sign in</div><div class="login-subcopy">Use your assigned account to access the dashboard.</div></div></div>', unsafe_allow_html=True)
+        with form_slot:
             username = st.text_input("Username", placeholder="Enter your username", key="login_username").strip().lower()
             password = st.text_input("Password", type="password", placeholder="Enter your password", key="login_password")
             login_clicked = st.button("Login", use_container_width=True, key="login_button")
-        st.markdown('<div class="login-support">Need account support? <span class="linkish">Contact administrator</span></div><div class="login-footer"><span class="linkish">Terms</span><span class="linkish">Policy</span><span>© 2026 Vega Industries Pvt. Ltd.</span></div></div></div>', unsafe_allow_html=True)
+            st.markdown('<div class="login-support">Need account support? <span class="linkish">Contact administrator</span></div><div class="login-footer"><span class="linkish">Terms</span><span class="linkish">Policy</span><span>© 2026 Vega Industries Pvt. Ltd.</span></div>', unsafe_allow_html=True)
 
     if login_clicked:
         user = authenticate_user(conn, username, password)
