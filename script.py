@@ -252,6 +252,29 @@ st.markdown(
 
     .login-panel-right + div, .login-support, .login-footer {position: relative; z-index: 4;}
     @media (min-width: 901px){div[data-testid="stHorizontalBlock"]:has(.login-mini) {margin-top: 15vh;} }
+
+    .block-container {max-width: 1440px; padding-top: 1.2rem;}
+    .app-banner {background: linear-gradient(180deg, rgba(15,23,42,0.90) 0%, rgba(17,24,39,0.86) 100%); border:1px solid rgba(56,189,248,0.14); box-shadow:0 22px 52px rgba(0,0,0,0.22); border-radius:18px;}
+    .app-title {color:#f8fafc; letter-spacing:-0.02em;}
+    .app-subtitle {color:#93c5fd;}
+    .section-note {background: linear-gradient(180deg, rgba(15,23,42,0.90) 0%, rgba(19,29,52,0.84) 100%); border:1px solid rgba(59,130,246,0.24); color:#e5eefc; border-radius:14px;}
+    .panel-card, .summary-card, .metric-card, .table-card {background: linear-gradient(180deg, rgba(15,23,42,0.90) 0%, rgba(17,24,39,0.82) 100%) !important; border:1px solid rgba(56,189,248,0.12) !important; box-shadow:0 18px 44px rgba(0,0,0,0.18); border-radius:18px !important;}
+    .panel-card h3, .summary-card h3, .metric-title, .metric-value {color:#f8fafc !important;}
+    .metric-subtext, .panel-card p, .summary-card p {color:#cbd5e1 !important;}
+    .stTabs [data-baseweb="tab-list"] {gap: 10px; background: rgba(12,18,32,0.45); padding: 6px; border:1px solid rgba(56,189,248,0.10); border-radius: 14px;}
+    .stTabs [data-baseweb="tab"] {height: 44px; border-radius: 10px; color:#cbd5e1; padding: 0 18px;}
+    .stTabs [aria-selected="true"] {background: linear-gradient(90deg, rgba(14,165,233,0.18) 0%, rgba(37,99,235,0.18) 65%, rgba(239,68,68,0.16) 100%); color:#ffffff !important;}
+    div[data-testid="stMetric"] {background: linear-gradient(180deg, rgba(15,23,42,0.90) 0%, rgba(17,24,39,0.82) 100%); border:1px solid rgba(56,189,248,0.12); padding:16px 18px; border-radius:18px; box-shadow:0 18px 44px rgba(0,0,0,0.16);}
+    div[data-testid="stMetricLabel"] {color:#93c5fd !important;}
+    div[data-testid="stMetricValue"] {color:#f8fafc !important;}
+    .stDataFrame, div[data-testid="stTable"] {border-radius:18px; overflow:hidden; border:1px solid rgba(56,189,248,0.12);} 
+    div[data-testid="stTextInput"] input, div[data-testid="stSelectbox"] div[data-baseweb="select"], div[data-testid="stTextArea"] textarea, div[data-testid="stNumberInput"] input, div[data-testid="stDateInput"] input {background: linear-gradient(180deg, #121a28 0%, #182132 100%) !important; border:1px solid #263248 !important; color:#f8fafc !important; border-radius:14px !important;}
+    div[data-testid="stTextInput"] label p, div[data-testid="stSelectbox"] label p, div[data-testid="stTextArea"] label p, div[data-testid="stNumberInput"] label p, div[data-testid="stDateInput"] label p {color:#dbeafe !important; font-weight:600;}
+    div.stButton > button, button[kind="primary"] {background: linear-gradient(90deg, #0ea5e9 0%, #2563eb 58%, #ef4444 100%) !important; color:white !important; border:none !important; border-radius:14px !important; font-weight:700 !important; box-shadow:0 14px 28px rgba(37,99,235,0.20) !important;}
+    div.stButton > button:hover {filter: brightness(1.04);}
+    .stDownloadButton > button {background: rgba(14,165,233,0.12) !important; color:#e5eefc !important; border:1px solid rgba(56,189,248,0.18) !important; border-radius:14px !important;}
+    .stAlert {background: linear-gradient(180deg, rgba(15,23,42,0.94) 0%, rgba(19,29,52,0.90) 100%) !important; color:#e5eefc !important; border:1px solid rgba(56,189,248,0.14) !important; border-radius:16px !important;}
+    hr {border-color: rgba(56,189,248,0.10) !important;}
 </style>
 """,
     unsafe_allow_html=True,
