@@ -244,6 +244,11 @@ st.markdown(
     .login-brand-lockup {margin-bottom: 22px;}
     .login-note {padding-top: 1.5rem;}
     @media (max-width: 900px){.login-form-shell{transform:none;} .login-panel-left,.login-panel-right{min-height:auto;}}
+
+    div[data-testid="column"] .stContainer:has(input) {margin-top: -230px !important; position: relative; z-index: 5;}
+    div[data-testid="column"] .stContainer:has(input) > div {background: transparent !important;}
+    .login-panel-right {position: relative;}
+    @media (max-width: 900px){div[data-testid="column"] .stContainer:has(input) {margin-top: 0 !important;}}
 </style>
 """,
     unsafe_allow_html=True,
@@ -928,9 +933,11 @@ def login_page(conn):
 
     with right_col:
         st.markdown('<div class="login-panel-right"><div class="login-form-shell"><div class="login-accent-line"></div><div class="login-mini">Vega IT Access</div><div class="login-h1">Sign in</div><div class="login-subcopy">Use your assigned account to access the dashboard.</div>', unsafe_allow_html=True)
-        username = st.text_input("Username", placeholder="Enter your username", key="login_username").strip().lower()
-        password = st.text_input("Password", type="password", placeholder="Enter your password", key="login_password")
-        login_clicked = st.button("Login", use_container_width=True, key="login_button")
+        form_shell = st.container()
+        with form_shell:
+            username = st.text_input("Username", placeholder="Enter your username", key="login_username").strip().lower()
+            password = st.text_input("Password", type="password", placeholder="Enter your password", key="login_password")
+            login_clicked = st.button("Login", use_container_width=True, key="login_button")
         st.markdown('<div class="login-support">Need account support? <span class="linkish">Contact administrator</span></div><div class="login-footer"><span class="linkish">Terms</span><span class="linkish">Policy</span><span>© 2026 Vega Industries Pvt. Ltd.</span></div></div></div>', unsafe_allow_html=True)
 
     if login_clicked:
