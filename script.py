@@ -380,12 +380,41 @@ def verify_password(password: str, stored_hash: str, conn=None, username=None) -
         return False
     return False
 
+CHAT_THREADS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS chat_threads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    created_by TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+)
+"""
+CHAT_MESSAGES_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread_id INTEGER NOT NULL,
+    sender TEXT NOT NULL,
+    message TEXT NOT NULL,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+)
+"""
+USER_STATUS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS user_status (
+    username TEXT PRIMARY KEY,
+    display_name TEXT,
+    status TEXT DEFAULT 'Available',
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+)
+"""
+
 def ensure_support_tables(conn):
     conn.execute(USERS_TABLE_SQL)
     conn.execute(TASKS_TABLE_SQL)
     conn.execute(COMMENTS_TABLE_SQL)
     conn.execute(NOTIFICATIONS_TABLE_SQL)
     conn.execute(VENDOR_TABLE_SQL)
+    conn.execute(CHAT_THREADS_TABLE_SQL)
+    conn.execute(CHAT_MESSAGES_TABLE_SQL)
+    conn.execute(USER_STATUS_TABLE_SQL)
     conn.commit()
 
 def seed_default_users(conn):
@@ -396,6 +425,12 @@ def seed_default_users(conn):
             cur.execute(
                 "INSERT INTO users (username, display_name, role, password_hash, active, must_change_password) VALUES (?, ?, ?, ?, 1, 1)",
                 (username, display_name, role, None),
+            )
+        cur.execute("SELECT username FROM user_status WHERE lower(username)=lower(?)", (username,))
+        if cur.fetchone() is None:
+            cur.execute(
+                "INSERT INTO user_status (username, display_name, status) VALUES (?, ?, ?)",
+                (username, display_name, 'Available'),
             )
     conn.commit()
 
@@ -1212,6 +1247,78 @@ def load_vendor_followups_df(conn):
     except Exception:
         return pd.DataFrame(columns=["id", "ticket_id", "vendor_name", "followup_status", "vendor_remark", "due_date", "created_at"])
 
+
+def load_task_comments_df(conn):
+    try:
+        return pd.read_sql_query("SELECT id, task_id, comment, commented_by, created_at FROM task_comments ORDER BY id DESC", conn)
+    except Exception:
+        return pd.DataFrame(columns=["id", "task_id", "comment", "commented_by", "created_at"])
+
+
+def load_notifications_df(conn, username=None):
+    try:
+        if username:
+            return pd.read_sql_query("SELECT id, username, message, is_read, created_at FROM notifications WHERE lower(username)=lower(?) ORDER BY id DESC", conn, params=(username,))
+        return pd.read_sql_query("SELECT id, username, message, is_read, created_at FROM notifications ORDER BY id DESC", conn)
+    except Exception:
+        return pd.DataFrame(columns=["id", "username", "message", "is_read", "created_at"])
+
+def load_user_status_df(conn):
+    try:
+        return pd.read_sql_query("SELECT username, display_name, status, updated_at FROM user_status ORDER BY display_name", conn)
+    except Exception:
+        return pd.DataFrame(columns=["username", "display_name", "status", "updated_at"])
+
+def set_user_status(conn, username, display_name, status):
+    conn.execute("INSERT INTO user_status (username, display_name, status, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP) ON CONFLICT(username) DO UPDATE SET display_name=excluded.display_name, status=excluded.status, updated_at=CURRENT_TIMESTAMP", (username, display_name, status))
+    conn.commit()
+
+
+def load_chat_threads_df(conn):
+    try:
+        return pd.read_sql_query("SELECT id, title, created_by, created_at FROM chat_threads ORDER BY id DESC", conn)
+    except Exception:
+        return pd.DataFrame(columns=["id", "title", "created_by", "created_at"])
+
+def load_chat_messages_df(conn, thread_id=None):
+    try:
+        if thread_id is None:
+            return pd.read_sql_query("SELECT id, thread_id, sender, message, created_at FROM chat_messages ORDER BY id DESC", conn)
+        return pd.read_sql_query("SELECT id, thread_id, sender, message, created_at FROM chat_messages WHERE thread_id=? ORDER BY id ASC", conn, params=(int(thread_id),))
+    except Exception:
+        return pd.DataFrame(columns=["id", "thread_id", "sender", "message", "created_at"])
+
+def create_chat_thread(conn, title, created_by):
+    cur = conn.cursor()
+    cur.execute("INSERT INTO chat_threads (title, created_by) VALUES (?, ?)", (title, created_by))
+    conn.commit()
+    return cur.lastrowid
+
+def post_chat_message(conn, thread_id, sender, message):
+    conn.execute("INSERT INTO chat_messages (thread_id, sender, message) VALUES (?, ?, ?)", (int(thread_id), sender, message))
+    conn.commit()
+    users_df = get_all_users(conn)
+    if not users_df.empty and 'username' in users_df.columns:
+        for uname in users_df['username'].dropna().astype(str).tolist():
+            if uname.lower() != str(sender).lower():
+                add_notification(conn, uname, f"New team chat message from {sender}")
+
+def build_detailed_ticket_exports(df):
+    x = prepare_ticket_view(df)
+    x = x.drop(columns=[c for c in ["date_parsed"] if c in x.columns])
+    monthly, weekly, technician, location = build_ticket_reports(df)
+    dept = build_department_summary(df)
+    repeat = build_repeat_issue_summary(df)
+    return {
+        "Master Tickets": x,
+        "Ticket Monthly": monthly,
+        "Ticket Weekly": weekly,
+        "Ticket Technician": technician,
+        "Ticket Location": location,
+        "Ticket Department": dept,
+        "Repeat Issues": repeat,
+    }
+
 def render_dashboard(conn):
     user = st.session_state.get("current_user", {})
     role = user.get("role", "IT Executive")
@@ -1219,6 +1326,9 @@ def render_dashboard(conn):
     df_tickets = prepare_ticket_view(load_tickets())
     df_nas = load_nas_data()
     st.sidebar.markdown(f"👤 **{display_name}** ({role})")
+    notif_df = load_notifications_df(conn, user.get("username"))
+    unread_count = int((notif_df["is_read"] == 0).sum()) if not notif_df.empty and "is_read" in notif_df.columns else 0
+    st.sidebar.caption(f"Notifications: {unread_count}")
     if st.sidebar.button("Logout"):
         st.session_state["current_user"] = None
         st.session_state["must_set_password"] = False
@@ -1491,105 +1601,116 @@ def render_dashboard(conn):
                     except Exception as e:
                         st.error(f"Delete error: {e}")
     elif page == "Reports":
-        st.subheader("Advanced Reports & Analytics Portal")
-        ticket_monthly, ticket_weekly, ticket_technician, ticket_location = build_ticket_reports(df_ticket_filtered)
-        nas_master, nas_monthly, nas_weekly, nas_serverwise = build_nas_reports_extended(df_nas_filtered)
-        excel_bytes = build_excel_report(df_ticket_filtered, df_nas_filtered)
-        st.download_button("Download Multi-Sheet Excel Report (.xlsx)", data=excel_bytes, file_name="vega_it_multi_report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        exec_metrics = build_ticket_exec_metrics(df_ticket_filtered)
-        k1, k2, k3, k4, k5, k6 = st.columns(6)
-        with k1:
-            render_glass_card("Today Open", exec_metrics["today_open"], "Today pending", "--accent")
-        with k2:
-            render_glass_card("Today Closed", exec_metrics["today_closed"], "Closed today", "--success")
-        with k3:
-            render_glass_card("Pending", exec_metrics["pending"], "Open + In Progress + Hold", "--warning")
-        with k4:
-            render_glass_card("Overdue", exec_metrics["overdue"], "Older than 2 days", "--accent")
-        with k5:
-            render_glass_card("Avg Resolution", f"{exec_metrics['avg_resolution']} min", "Resolved only", "--info")
-        with k6:
-            render_glass_card("Resolution %", f"{exec_metrics['resolution_rate']}%", "Current filter", "--success")
-        st.markdown("### Executive Dashboard")
-        trend_choice = st.radio("Trend View", ["Daily", "Weekly", "Monthly"], horizontal=True, key="reports_trend_choice")
-        trend_df = build_ticket_trend(df_ticket_filtered, trend_choice)
-        category_df = df_ticket_filtered["category"].value_counts().reset_index() if not df_ticket_filtered.empty else pd.DataFrame(columns=["index", "category"])
-        if not category_df.empty:
-            category_df.columns = ["category", "count"]
-            category_df = category_df.head(10)
-        tech_perf_df = build_technician_performance(df_ticket_filtered)
-        dept_df = build_department_summary(df_ticket_filtered)
-        loc_df = build_location_summary(df_ticket_filtered)
-        repeat_df = build_repeat_issue_summary(df_ticket_filtered)
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown(f"**Ticket Trend ({trend_choice})**")
-            if not trend_df.empty:
-                st.altair_chart(build_line_chart(trend_df, "bucket:N", "Tickets:Q", "#3b82f6"), use_container_width=True)
-            else:
-                st.info("No ticket trend data available.")
-        with c2:
-            st.markdown("**Top 10 Issue Categories**")
-            if not category_df.empty:
-                st.altair_chart(build_bar_chart(category_df, "category:N", "count:Q", "#ef4444"), use_container_width=True)
-            else:
-                st.info("No category data available.")
-        c3, c4 = st.columns(2)
-        with c3:
-            st.markdown("**Department-wise Ticket Count**")
-            if not dept_df.empty:
-                dept_chart = dept_df.rename(columns={"department": "Department"})[["Department", "Tickets"]].head(10)
-                st.altair_chart(build_bar_chart(dept_chart, "Department:N", "Tickets:Q", "#22c55e"), use_container_width=True)
-            else:
-                st.info("No department data available.")
-        with c4:
-            st.markdown("**Location-wise Ticket Count**")
-            if not loc_df.empty:
-                loc_chart = loc_df.rename(columns={"location": "Location"})[["Location", "Tickets"]].head(10)
-                st.altair_chart(build_bar_chart(loc_chart, "Location:N", "Tickets:Q", "#f59e0b"), use_container_width=True)
-            else:
-                st.info("No location data available.")
-        st.markdown("### Detailed Analysis Tables")
-        t_exec1, t_exec2, t_exec3, t_exec4 = st.tabs(["Technician Performance", "Department Summary", "Location Summary", "Repeat Issues"])
-        with t_exec1:
-            st.dataframe(tech_perf_df, use_container_width=True)
-        with t_exec2:
-            st.dataframe(dept_df, use_container_width=True)
-        with t_exec3:
-            st.dataframe(loc_df, use_container_width=True)
-        with t_exec4:
-            if not repeat_df.empty:
-                st.dataframe(repeat_df, use_container_width=True)
-            else:
-                st.info("No repeat issue patterns found in current filter.")
-        tab1, tab2, tab3 = st.tabs(["Ticket Activity Logs", "NAS Performance Deltas", "Excel Export"])
-        with tab1:
-            if df_ticket_filtered.empty:
-                st.info("No ticket records available.")
-            else:
-                export_df = df_ticket_filtered.copy()
-                export_df["date_parsed"] = pd.to_datetime(export_df["date"], errors="coerce")
-                export_df = export_df.dropna(subset=["date_parsed"])
-                export_df["Month"] = export_df["date_parsed"].dt.strftime("%Y-%m")
-                export_df["WeekLabel"] = export_df["date_parsed"].dt.strftime("%Y-W") + export_df["date_parsed"].dt.isocalendar().week.astype(str)
-                
-                t_monthly = export_df.groupby("Month", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum()), Open=("status", lambda s: (s == "Open").sum()), In_Progress=("status", lambda s: (s == "In Progress").sum()), On_Hold=("status", lambda s: (s == "On Hold - User Busy").sum()))
-                t_weekly = export_df.groupby("WeekLabel", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum()), Open=("status", lambda s: (s == "Open").sum()), In_Progress=("status", lambda s: (s == "In Progress").sum()), On_Hold=("status", lambda s: (s == "On Hold - User Busy").sum()))
-                
-                st.markdown("#### Monthly Ticket Aggregates")
-                st.dataframe(t_monthly, use_container_width=True)
-                st.markdown("#### Weekly Ticket Aggregates")
-                st.dataframe(t_weekly, use_container_width=True)
-        with tab2:
-            if df_nas_filtered.empty:
-                st.info("No NAS logs available.")
-            else:
-                st.dataframe(compute_nas_changes(df_nas_filtered), use_container_width=True)
-        with tab3:
-            st.info("Click the button at the top of the portal to download the consolidated Excel workbook containing all ticket logs, NAS summaries, and performance breakdowns.")
+        st.subheader("Reports")
+        report_tabs = st.tabs(["Analysis Tables", "Detailed Exports", "NAS Reports", "Excel Export"])
+
+        with report_tabs[0]:
+            st.markdown("### Detailed Analysis Tables")
+            analysis_tabs = st.tabs(["Technician Performance", "Department Summary", "Location Summary", "Repeat Issues"])
+            with analysis_tabs[0]:
+                st.dataframe(build_technician_performance(df_ticket_filtered), use_container_width=True)
+            with analysis_tabs[1]:
+                st.dataframe(build_department_summary(df_ticket_filtered), use_container_width=True)
+            with analysis_tabs[2]:
+                st.dataframe(build_location_summary(df_ticket_filtered), use_container_width=True)
+            with analysis_tabs[3]:
+                st.dataframe(build_repeat_issue_summary(df_ticket_filtered), use_container_width=True)
+
+        with report_tabs[1]:
+            detail_tabs = st.tabs(["Ticket Activity Logs", "Monthly", "Weekly", "Technician", "Location", "Department", "Repeat Issues"])
+            exports = build_detailed_ticket_exports(df_ticket_filtered)
+            names = ["Master Tickets", "Ticket Monthly", "Ticket Weekly", "Ticket Technician", "Ticket Location", "Ticket Department", "Repeat Issues"]
+            for tab, name in zip(detail_tabs, names):
+                with tab:
+                    frame = exports.get(name, pd.DataFrame())
+                    if frame is None or frame.empty:
+                        st.info("No records available.")
+                    else:
+                        st.dataframe(frame, use_container_width=True)
+                        csv_data = frame.to_csv(index=False).encode("utf-8")
+                        st.download_button(f"Download {name} CSV", data=csv_data, file_name=name.lower().replace(' ', '_') + ".csv", mime="text/csv", key=f"dl_{name}")
+
+        with report_tabs[2]:
+            nas_tabs = st.tabs(["NAS Performance Deltas", "NAS Monthly", "NAS Weekly", "NAS Server Summary"])
+            nas_master, nas_monthly, nas_weekly, nas_serverwise = build_nas_reports_extended(df_nas_filtered)
+            for tab, frame, label in [
+                (nas_tabs[0], compute_nas_changes(df_nas_filtered), "nas_performance_deltas"),
+                (nas_tabs[1], nas_monthly, "nas_monthly"),
+                (nas_tabs[2], nas_weekly, "nas_weekly"),
+                (nas_tabs[3], nas_serverwise, "nas_server_summary"),
+            ]:
+                with tab:
+                    if frame is None or frame.empty:
+                        st.info("No NAS records available.")
+                    else:
+                        st.dataframe(frame, use_container_width=True)
+                        st.download_button(f"Download {label} CSV", data=frame.to_csv(index=False).encode("utf-8"), file_name=f"{label}.csv", mime="text/csv", key=f"dl_{label}")
+
+        with report_tabs[3]:
+            excel_blob = build_excel_report(df_ticket_filtered, df_nas_filtered)
+            st.download_button("Download Consolidated Excel Workbook", data=excel_blob, file_name="vega_knitpro_detailed_reports.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     elif page == "Task Center":
         st.subheader("Task Center")
-        st.info("Task management modules active for team tracking.")
+        tasks_df = load_tasks_df(conn)
+        comments_df = load_task_comments_df(conn)
+        t1, t2, t3, t4 = st.columns(4)
+        t1.metric("Total Tasks", len(tasks_df))
+        t2.metric("Open", int((tasks_df["status"] == "Open").sum()) if not tasks_df.empty and "status" in tasks_df.columns else 0)
+        t3.metric("In Progress", int((tasks_df["status"] == "In Progress").sum()) if not tasks_df.empty and "status" in tasks_df.columns else 0)
+        t4.metric("Completed", int((tasks_df["status"].isin(["Closed", "Completed"]).sum())) if not tasks_df.empty and "status" in tasks_df.columns else 0)
+
+        task_tabs = st.tabs(["Task Board", "Update Task", "Comments", "My Queue"])
+
+        with task_tabs[0]:
+            if tasks_df.empty:
+                st.info("No tasks available.")
+            else:
+                board = tasks_df.copy()
+                st.dataframe(board, use_container_width=True)
+
+        with task_tabs[1]:
+            if tasks_df.empty:
+                st.info("No tasks available for update.")
+            else:
+                task_ids = tasks_df["id"].astype(int).tolist()
+                selected_task = st.selectbox("Select task ID", task_ids, key="task_update_id")
+                row = tasks_df[tasks_df["id"] == selected_task].iloc[0]
+                new_status = st.selectbox("Status", ["Open", "In Progress", "On Hold", "Closed", "Completed"], index=["Open", "In Progress", "On Hold", "Closed", "Completed"].index(row["status"]) if row["status"] in ["Open", "In Progress", "On Hold", "Closed", "Completed"] else 0, key="task_update_status")
+                new_progress = st.slider("Progress", 0, 100, int(row["progress"]) if pd.notna(row["progress"]) else 0, key="task_update_progress")
+                new_assignee = st.selectbox("Assigned to", ["Satish", "Priyanshu", "Amit", "Ranjan", "Manish"], index=["Satish", "Priyanshu", "Amit", "Ranjan", "Manish"].index(row["assigned_to"]) if row["assigned_to"] in ["Satish", "Priyanshu", "Amit", "Ranjan", "Manish"] else 0, key="task_update_assignee")
+                if st.button("Save Task Update", key="task_update_save"):
+                    update_task(conn, selected_task, {"status": new_status, "progress": int(new_progress), "assigned_to": new_assignee})
+                    st.success("Task updated successfully.")
+                    st.rerun()
+
+        with task_tabs[2]:
+            if tasks_df.empty:
+                st.info("No tasks available for comments.")
+            else:
+                comment_task = st.selectbox("Task for comment", tasks_df["id"].astype(int).tolist(), key="task_comment_task")
+                comment_text = st.text_area("Add comment", key="task_comment_text")
+                if st.button("Post Comment", key="task_comment_post"):
+                    if not str(comment_text).strip():
+                        st.error("Comment cannot be empty.")
+                    else:
+                        add_task_comment(conn, int(comment_task), comment_text.strip(), display_name)
+                        st.success("Comment added.")
+                        st.rerun()
+                task_comments = comments_df[comments_df["task_id"] == int(comment_task)] if not comments_df.empty else pd.DataFrame()
+                if task_comments.empty:
+                    st.info("No comments for this task yet.")
+                else:
+                    st.dataframe(task_comments, use_container_width=True)
+
+        with task_tabs[3]:
+            if tasks_df.empty:
+                st.info("No assigned tasks available.")
+            else:
+                my_queue = tasks_df[tasks_df["assigned_to"].astype(str).str.lower() == display_name.lower()]
+                if my_queue.empty:
+                    st.info("No tasks currently assigned to you.")
+                else:
+                    st.dataframe(my_queue, use_container_width=True)
     elif page == "Admin Tools":
         st.subheader("Admin Tools")
         admin_tabs = st.tabs(["Users", "Reset Password", "Assign Task", "Vendor Follow-up", "Admin Snapshot"])
@@ -1684,7 +1805,72 @@ def render_dashboard(conn):
             c3.metric("Vendor Follow-ups", len(vendor_df))
     elif page == "AVP Dashboard":
         st.subheader("AVP Strategic Overview")
-        st.info("High-level executive SLA tracking and site health summary.")
+        metrics = build_ticket_exec_metrics(df_ticket_filtered)
+        c1, c2, c3, c4, c5, c6 = st.columns(6)
+        c1.metric("Today Open", metrics.get("today_open", 0))
+        c2.metric("Today Closed", metrics.get("today_closed", 0))
+        c3.metric("Pending", metrics.get("pending", 0))
+        c4.metric("Overdue", metrics.get("overdue", 0))
+        c5.metric("Avg Resolution", metrics.get("avg_resolution", 0))
+        c6.metric("Resolution %", metrics.get("resolution_rate", 0.0))
+
+        avp_tabs = st.tabs(["Trend", "Technicians", "Locations", "Executive Notes", "Team Chat"])
+        with avp_tabs[0]:
+            st.dataframe(build_ticket_trend(df_ticket_filtered, freq="Weekly"), use_container_width=True)
+            st.dataframe(build_ticket_trend(df_ticket_filtered, freq="Monthly"), use_container_width=True)
+        with avp_tabs[1]:
+            st.dataframe(build_technician_performance(df_ticket_filtered), use_container_width=True)
+        with avp_tabs[2]:
+            st.dataframe(build_location_summary(df_ticket_filtered), use_container_width=True)
+        with avp_tabs[3]:
+            notes = [
+                f"Pending tickets: {metrics.get('pending', 0)}",
+                f"Overdue tickets: {metrics.get('overdue', 0)}",
+                f"Resolution rate: {metrics.get('resolution_rate', 0.0)}%",
+            ]
+            for note in notes:
+                st.markdown(f"- {note}")
+        with avp_tabs[4]:
+            status_df = load_user_status_df(conn)
+            threads_df = load_chat_threads_df(conn)
+            st.markdown("#### Team status")
+            status_user = user.get("username") or display_name.lower()
+            current_status = st.selectbox("Set your status", ["Available", "Busy", "In Meeting", "Offline"], key="chat_status")
+            if st.button("Update Status", key="chat_status_save"):
+                set_user_status(conn, status_user, display_name, current_status)
+                st.success("Status updated.")
+                st.rerun()
+            st.dataframe(status_df, use_container_width=True)
+            st.markdown("#### Team chat")
+            if threads_df.empty:
+                if st.button("Create General Thread", key="create_general_thread"):
+                    create_chat_thread(conn, "General Team Chat", display_name)
+                    st.rerun()
+                st.info("No chat threads available.")
+            else:
+                thread_map = {f"{row['title']} (#{int(row['id'])})": int(row['id']) for _, row in threads_df.iterrows()}
+                selected_thread_label = st.selectbox("Choose thread", list(thread_map.keys()), key="chat_thread_select")
+                selected_thread_id = thread_map[selected_thread_label]
+                messages_df = load_chat_messages_df(conn, selected_thread_id)
+                if messages_df.empty:
+                    st.info("No messages yet.")
+                else:
+                    st.dataframe(messages_df, use_container_width=True)
+                new_message = st.text_area("Message", key="chat_new_message")
+                col_a, col_b = st.columns([1,1])
+                with col_a:
+                    if st.button("Send Message", key="chat_send"):
+                        if str(new_message).strip():
+                            post_chat_message(conn, selected_thread_id, display_name, new_message.strip())
+                            st.success("Message sent.")
+                            st.rerun()
+                with col_b:
+                    new_thread_title = st.text_input("New thread title", key="new_thread_title")
+                    if st.button("Create Thread", key="chat_create_thread"):
+                        if str(new_thread_title).strip():
+                            create_chat_thread(conn, new_thread_title.strip(), display_name)
+                            st.success("Thread created.")
+                            st.rerun()
 
 # Main Application Entrypoint
 if __name__ == "__main__":
