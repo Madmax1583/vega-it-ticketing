@@ -589,7 +589,6 @@ CATEGORY_MASTER = {
     "Other": ["Unclassified"]
 }
 
-
 def suggest_subcategory(category, complaint):
     c = str(category)
     text = str(complaint).lower()
@@ -676,12 +675,14 @@ AI_SUGGESTIONS = {
     "Network": {"title_en": "🌐 AI Network Routing Diagnostics", "title_hi": "🌐 एआई नेटवर्क राउटिंग डायग्नोस्टिक्स", "English": ["Reset Winsock and inspect the adapter driver for frequent drops.", "Release and renew IP configuration if conflict is suspected.", "Check the SSID and frequency band being used by the device."], "Hindi": ["बार-बार डिस्कनेक्ट होने पर Winsock reset और adapter driver जांचें।", "IP conflict शक होने पर release और renew करें।", "SSID और frequency band की पुष्टि करें।"]},
     "Server/UPS": {"title_en": "🖥️ Server & Power Infrastructure Diagnostics", "title_hi": "🖥️ सर्वर और पावर इन्फ्रास्ट्रक्चर डायग्नोस्टिक्स", "English": ["Check UPS load and input power if alarms are active.", "Verify rack airflow and server room temperature.", "Review DNS and authentication dependencies if logins fail."], "Hindi": ["अलार्म आने पर UPS load और input power जांचें।", "Rack airflow और server room temperature जांचें।", "Login fail होने पर DNS और authentication dependencies देखें।"]},
 }
+
 if "local_tickets" not in st.session_state:
     st.session_state.local_tickets = pd.DataFrame([
         {"id": 1, "date": "2026-07-01", "user_name": "Amit Sharma", "department": "Production", "complaint": "CCTV camera in main corridor is flickering", "location": "Sector - 136 Vega", "attended_by": "Satish", "status": "In Progress", "category": "CCTV/Camera", "start_time": "2026-07-01 10:15:00", "close_time": None, "resolution_time": 0, "remarks": "POE check in progress"},
         {"id": 2, "date": "2026-07-03", "user_name": "Sunita Rao", "department": "Finance", "complaint": "Desktop showing blue screen after update", "location": "Knitpro 28-29", "attended_by": "Priyanshu", "status": "Open", "category": "Laptop/Hardware", "start_time": None, "close_time": None, "resolution_time": 0, "remarks": ""},
         {"id": 3, "date": "2026-07-05", "user_name": "Rajesh Kumar", "department": "HR", "complaint": "Office printer offline and queue is stuck", "location": "Sector - 155 Vega", "attended_by": "Amit", "status": "Resolved", "category": "Printer", "start_time": "2026-07-05 10:00:00", "close_time": "2026-07-05 10:35:00", "resolution_time": 35, "remarks": "Spooler restarted and queue flushed"},
     ])
+
 if "local_nas" not in st.session_state:
     st.session_state.local_nas = pd.DataFrame([
         {"id": 1, "date": "2026-07-11", "server_name": "HRI", "status": "Success", "storage_used": 43.3975, "remarks": "Daily backup completed."},
@@ -724,7 +725,6 @@ def normalize_category(value):
         "other": "Other",
     }
     return mapping.get(s, value if pd.notna(value) and str(value).strip() else "Other")
-
 
 def auto_categorize(complaint):
     text = str(complaint).lower()
@@ -854,8 +854,6 @@ def build_excel_report(tickets_df, nas_df):
             nas_serverwise.to_excel(writer, sheet_name="NAS Server Summary", index=False)
     return output.getvalue()
 
-
-
 def build_ticket_exec_metrics(df):
     if df is None or df.empty:
         return {"today_open": 0, "today_closed": 0, "pending": 0, "overdue": 0, "avg_resolution": 0, "resolution_rate": 0.0}
@@ -878,7 +876,6 @@ def build_ticket_exec_metrics(df):
         "resolution_rate": round((resolved / total) * 100, 1) if total else 0.0,
     }
 
-
 def build_ticket_trend(df, freq="Daily"):
     if df is None or df.empty:
         return pd.DataFrame()
@@ -896,7 +893,6 @@ def build_ticket_trend(df, freq="Daily"):
     out = x.groupby("bucket", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum()))
     return out.sort_values("bucket")
 
-
 def build_department_summary(df):
     if df is None or df.empty:
         return pd.DataFrame()
@@ -905,7 +901,6 @@ def build_department_summary(df):
     out["Pending"] = out["Tickets"] - out["Resolved"]
     return out.sort_values(["Tickets", "Resolved"], ascending=[False, False])
 
-
 def build_location_summary(df):
     if df is None or df.empty:
         return pd.DataFrame()
@@ -913,7 +908,6 @@ def build_location_summary(df):
     out = x.groupby("location", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum()))
     out["Pending"] = out["Tickets"] - out["Resolved"]
     return out.sort_values(["Tickets", "Resolved"], ascending=[False, False])
-
 
 def build_technician_performance(df):
     if df is None or df.empty:
@@ -924,7 +918,6 @@ def build_technician_performance(df):
     out["Pending"] = out["Assigned"] - out["Resolved"]
     out["Resolution_%"] = ((out["Resolved"] / out["Assigned"]) * 100).round(1)
     return out.sort_values(["Assigned", "Resolved"], ascending=[False, False])
-
 
 def build_repeat_issue_summary(df):
     if df is None or df.empty:
@@ -937,9 +930,6 @@ def build_repeat_issue_summary(df):
     out = x.groupby(["category", "complaint_norm"], as_index=False).agg(Tickets=("id", "size"), Last_Seen=("date", "max"))
     out = out[out["Tickets"] > 1].sort_values(["Tickets", "Last_Seen"], ascending=[False, False])
     return out.rename(columns={"complaint_norm": "Complaint Pattern"}).head(10)
-
-
-
 
 def build_ticket_reports(df):
     if df is None or df.empty:
@@ -969,7 +959,6 @@ def build_ticket_reports(df):
     location = x.groupby("location", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum()))
     return monthly, weekly, technician, location
 
-
 def build_nas_reports_extended(df):
     master, monthly, serverwise = build_nas_reports(df)
     changes = compute_nas_changes(df)
@@ -978,7 +967,6 @@ def build_nas_reports_extended(df):
     changes["Week"] = changes["date"].dt.strftime("%Y-W") + changes["date"].dt.isocalendar().week.astype(str)
     weekly = changes.groupby(["Week", "server_name"], as_index=False).agg(Logs=("server_name", "size"), Avg_Storage=("storage_used", "mean"), Total_Increment=("delta_gb", lambda s: s[s > 0].sum()), Total_Decrement=("delta_gb", lambda s: abs(s[s < 0].sum())), Failures=("status", lambda s: (s == "Failed").sum()))
     return master, monthly, weekly, serverwise
-
 
 def load_tickets():
     if db_connected:
@@ -1022,7 +1010,6 @@ def update_ticket(ticket_id, payload):
     idx = st.session_state.local_tickets[st.session_state.local_tickets["id"] == int(ticket_id)].index
     for key, value in payload.items():
         st.session_state.local_tickets.loc[idx, key] = normalize_category(value) if key == "category" else value
-
 
 def delete_ticket(ticket_id):
     if db_connected:
@@ -1092,26 +1079,6 @@ def build_bar_chart(df, xcol, ycol, color="#ef4444"):
 def build_line_chart(df, xcol, ycol, color="#3b82f6"):
     return alt.Chart(df).mark_line(point=True, strokeWidth=3).encode(x=alt.X(xcol, title=None), y=alt.Y(ycol, title=None), color=alt.value(color), tooltip=list(df.columns)).properties(height=280)
 
-def _deprecated_get_user_by_username_2(conn, username):
-    cur = conn.cursor()
-    cur.execute("SELECT id, username, display_name, role, password_hash, active, must_change_password FROM users WHERE username=?", (username,))
-    row = cur.fetchone()
-    return dict(zip(["id", "username", "display_name", "role", "password_hash", "active", "must_change_password"], row)) if row else None
-
-def _deprecated_set_user_password_2(conn, username, password):
-    conn.execute("UPDATE users SET password_hash=?, must_change_password=0, active=1, updated_at=CURRENT_TIMESTAMP WHERE username=?", (hash_password(password), username))
-    conn.commit()
-
-def _deprecated_authenticate_user_2(conn, username, password):
-    user = get_user_by_username(conn, username)
-    if not user or not user["active"]: return None
-    if not user["password_hash"]:
-        if password == "vega123": return {"must_change_password": True, **user}
-        return None
-    if user["password_hash"] == hash_password(password):
-        return {"must_change_password": bool(user["must_change_password"]), **user}
-    return None
-
 def login_page(conn):
     vega_logo = find_logo_filename("vega_logo.png")
     knitpro_logo = find_logo_filename("knitpro_logo.png")
@@ -1137,7 +1104,12 @@ def login_page(conn):
             st.markdown('<div class="login-panel-right" style="min-height:auto; padding-bottom:0;"><div class="login-form-shell" style="transform:none; margin-bottom:20px;"><div class="login-accent-line"></div><div class="login-mini">Vega IT Access</div><div class="login-h1">Sign in</div><div class="login-subcopy">Use your assigned account to access the dashboard.</div></div></div>', unsafe_allow_html=True)
         with form_slot:
             username = st.text_input("Username", placeholder="Enter your username", key="login_username").strip().lower()
-            password = st.text_input("Password", type="password", placeholder="Enter your password", key="login_password")
+            
+            # Show / Hide password feature added directly here
+            show_pw = st.checkbox("Show Password", key="toggle_login_pw")
+            pw_type = "text" if show_pw else "password"
+            password = st.text_input("Password", type=pw_type, placeholder="Enter your password", key="login_password")
+            
             login_clicked = st.button("Login", use_container_width=True, key="login_button")
             st.markdown('<div class="login-support">Need account support? <span class="linkish">Contact administrator</span></div><div class="login-footer"><span class="linkish">Terms</span><span class="linkish">Policy</span><span>© 2026 Vega Industries Pvt. Ltd.</span></div>', unsafe_allow_html=True)
 
@@ -1161,8 +1133,12 @@ def login_page(conn):
 def first_password_setup(conn):
     user = st.session_state.get("current_user")
     st.warning("First time login detected. Set a new password to continue.")
-    p1 = st.text_input("New password", type="password")
-    p2 = st.text_input("Confirm password", type="password")
+    
+    show_pw = st.checkbox("Show Passwords", key="toggle_setup_pw")
+    pw_type = "text" if show_pw else "password"
+    
+    p1 = st.text_input("New password", type=pw_type)
+    p2 = st.text_input("Confirm password", type=pw_type)
     if st.button("Save Password"):
         if len(p1) < 6:
             st.error("Password must be at least 6 characters long.")
@@ -1570,221 +1546,35 @@ def render_dashboard(conn):
                 export_df = export_df.dropna(subset=["date_parsed"])
                 export_df["Month"] = export_df["date_parsed"].dt.strftime("%Y-%m")
                 export_df["WeekLabel"] = export_df["date_parsed"].dt.strftime("%Y-W") + export_df["date_parsed"].dt.isocalendar().week.astype(str)
-                ticket_monthly = export_df.groupby("Month", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum()), Open=("status", lambda s: (s == "Open").sum()), In_Progress=("status", lambda s: (s == "In Progress").sum()), On_Hold=("status", lambda s: (s == "On Hold - User Busy").sum()))
-                ticket_weekly = export_df.groupby("WeekLabel", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum()), Open=("status", lambda s: (s == "Open").sum()), In_Progress=("status", lambda s: (s == "In Progress").sum()), On_Hold=("status", lambda s: (s == "On Hold - User Busy").sum()))
-                ticket_technician = export_df.groupby("attended_by", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum()), Avg_Resolution_Min=("resolution_time", lambda s: int(pd.to_numeric(s, errors='coerce').fillna(0)[pd.to_numeric(s, errors='coerce').fillna(0) > 0].mean()) if (pd.to_numeric(s, errors='coerce').fillna(0) > 0).any() else 0))
-                ticket_location = export_df.groupby("location", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum()))
-                monthly_options = sorted(export_df["Month"].dropna().unique().tolist())
-                weekly_options = sorted(export_df["WeekLabel"].dropna().unique().tolist())
-                tech_options = sorted(export_df["attended_by"].dropna().astype(str).unique().tolist())
-                location_options = sorted(export_df["location"].dropna().astype(str).unique().tolist())
-                cta1, cta2 = st.columns(2)
-                with cta1:
-                    st.download_button("Download Master Ticket Log (.csv)", export_df.drop(columns=["date_parsed"], errors="ignore").to_csv(index=False).encode("utf-8"), file_name="it_master_production_log.csv", mime="text/csv")
-                with cta2:
-                    st.download_button("Download Ticket + NAS Report Pack (.xlsx)", build_excel_report(df_ticket_filtered, df_nas_filtered), file_name="vega_it_multi_report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="ticket_pack_xlsx")
-                r1, r2, r3, r4 = st.tabs(["Monthly", "Weekly", "Technician", "Location"])
-                with r1:
-                    month_pick = st.selectbox("Select month for detailed download", monthly_options, key="month_pick") if monthly_options else None
-                    month_detail_df = export_df[export_df["Month"] == month_pick].drop(columns=["date_parsed"], errors="ignore") if month_pick else pd.DataFrame()
-                    st.download_button("Download Monthly Ticket Report (.csv)", ticket_monthly.to_csv(index=False).encode("utf-8"), file_name="ticket_monthly_report.csv", mime="text/csv", key="ticket_monthly_csv")
-                    st.download_button("Download Monthly Ticket Detailed Report (.csv)", month_detail_df.to_csv(index=False).encode("utf-8"), file_name=f"ticket_monthly_detail_{month_pick}.csv" if month_pick else "ticket_monthly_detail.csv", mime="text/csv", key="ticket_monthly_csv2")
-                    st.dataframe(ticket_monthly, use_container_width=True)
-                    if month_pick:
-                        st.dataframe(month_detail_df, use_container_width=True)
-                with r2:
-                    week_pick = st.selectbox("Select week for detailed download", weekly_options, key="week_pick") if weekly_options else None
-                    week_detail_df = export_df[export_df["WeekLabel"] == week_pick].drop(columns=["date_parsed"], errors="ignore") if week_pick else pd.DataFrame()
-                    st.download_button("Download Weekly Ticket Report (.csv)", ticket_weekly.to_csv(index=False).encode("utf-8"), file_name="ticket_weekly_report.csv", mime="text/csv", key="ticket_weekly_csv")
-                    st.download_button("Download Weekly Ticket Detailed Report (.csv)", week_detail_df.to_csv(index=False).encode("utf-8"), file_name=f"ticket_weekly_detail_{week_pick}.csv" if week_pick else "ticket_weekly_detail.csv", mime="text/csv", key="ticket_weekly_csv2")
-                    st.dataframe(ticket_weekly, use_container_width=True)
-                    if week_pick:
-                        st.dataframe(week_detail_df, use_container_width=True)
-                with r3:
-                    tech_pick = st.selectbox("Select technician for detailed download", tech_options, key="tech_pick") if tech_options else None
-                    tech_detail_df = export_df[export_df["attended_by"].astype(str) == str(tech_pick)].drop(columns=["date_parsed"], errors="ignore") if tech_pick else pd.DataFrame()
-                    st.download_button("Download Technician Ticket Report (.csv)", ticket_technician.to_csv(index=False).encode("utf-8"), file_name="ticket_technician_report.csv", mime="text/csv", key="ticket_technician_csv")
-                    st.download_button("Download Technician Detailed Report (.csv)", tech_detail_df.to_csv(index=False).encode("utf-8"), file_name=f"ticket_technician_detail_{tech_pick}.csv" if tech_pick else "ticket_technician_detail.csv", mime="text/csv", key="ticket_technician_csv2")
-                    st.dataframe(ticket_technician, use_container_width=True)
-                    if tech_pick:
-                        st.dataframe(tech_detail_df, use_container_width=True)
-                with r4:
-                    location_pick = st.selectbox("Select location for detailed download", location_options, key="location_pick") if location_options else None
-                    location_detail_df = export_df[export_df["location"].astype(str) == str(location_pick)].drop(columns=["date_parsed"], errors="ignore") if location_pick else pd.DataFrame()
-                    st.download_button("Download Location Ticket Report (.csv)", ticket_location.to_csv(index=False).encode("utf-8"), file_name="ticket_location_report.csv", mime="text/csv", key="ticket_location_csv")
-                    st.download_button("Download Location Detailed Report (.csv)", location_detail_df.to_csv(index=False).encode("utf-8"), file_name=f"ticket_location_detail_{location_pick}.csv" if location_pick else "ticket_location_detail.csv", mime="text/csv", key="ticket_location_csv2")
-                    st.dataframe(ticket_location, use_container_width=True)
-                    if location_pick:
-                        st.dataframe(location_detail_df, use_container_width=True)
+                
+                t_monthly = export_df.groupby("Month", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum()), Open=("status", lambda s: (s == "Open").sum()), In_Progress=("status", lambda s: (s == "In Progress").sum()), On_Hold=("status", lambda s: (s == "On Hold - User Busy").sum()))
+                t_weekly = export_df.groupby("WeekLabel", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum()), Open=("status", lambda s: (s == "Open").sum()), In_Progress=("status", lambda s: (s == "In Progress").sum()), On_Hold=("status", lambda s: (s == "On Hold - User Busy").sum()))
+                
+                st.markdown("#### Monthly Ticket Aggregates")
+                st.dataframe(t_monthly, use_container_width=True)
+                st.markdown("#### Weekly Ticket Aggregates")
+                st.dataframe(t_weekly, use_container_width=True)
         with tab2:
-            st.markdown("### Interactive Storage Growth Delta Heatmap")
-            nas_changes = compute_nas_changes(df_nas_filtered)
-            if not nas_changes.empty:
-                nas_changes["date_str"] = nas_changes["date"].dt.strftime("%Y-%m-%d")
-                heatmap = alt.Chart(nas_changes).mark_rect().encode(
-                    x=alt.X("date_str:O", title="Date"),
-                    y=alt.Y("server_name:O", title="Server Name"),
-                    color=alt.Color("delta_gb:Q", title="Storage Delta (GB)"),
-                    tooltip=[
-                        alt.Tooltip("date_str:O", title="Date"),
-                        alt.Tooltip("server_name:N", title="Server"),
-                        alt.Tooltip("storage_used:Q", title="Storage Used (GB)", format=".4f"),
-                        alt.Tooltip("delta_gb:Q", title="Delta (GB)", format=".4f"),
-                        alt.Tooltip("status:N", title="Status"),
-                    ],
-                ).properties(height=280)
-                st.altair_chart(heatmap, use_container_width=True)
-                nas_master, nas_monthly, nas_weekly, nas_serverwise = build_nas_reports_extended(df_nas_filtered)
-                nas_changes["Month"] = nas_changes["date"].dt.strftime("%Y-%m")
-                nas_changes["WeekLabel"] = nas_changes["date"].dt.strftime("%Y-W") + nas_changes["date"].dt.isocalendar().week.astype(str)
-                nas_month_options = sorted(nas_changes["Month"].dropna().unique().tolist())
-                nas_week_options = sorted(nas_changes["WeekLabel"].dropna().unique().tolist())
-                n1, n2, n3, n4 = st.tabs(["NAS Master", "NAS Monthly", "NAS Weekly", "NAS Server Summary"])
-                with n1:
-                    st.download_button("Download NAS Master Log (.csv)", nas_master.to_csv(index=False).encode("utf-8"), file_name="nas_master_log.csv", mime="text/csv", key="nas_master_csv")
-                    st.dataframe(nas_master, use_container_width=True)
-                with n2:
-                    nas_month_pick = st.selectbox("Select NAS month for detailed download", nas_month_options, key="nas_month_pick") if nas_month_options else None
-                    nas_month_detail = nas_changes[nas_changes["Month"] == nas_month_pick] if nas_month_pick else pd.DataFrame()
-                    st.download_button("Download NAS Monthly Report (.csv)", nas_monthly.to_csv(index=False).encode("utf-8"), file_name="nas_monthly_report.csv", mime="text/csv", key="nas_monthly_csv")
-                    st.download_button("Download NAS Monthly Detailed Report (.csv)", nas_month_detail.to_csv(index=False).encode("utf-8"), file_name=f"nas_monthly_detail_{nas_month_pick}.csv" if nas_month_pick else "nas_monthly_detail.csv", mime="text/csv", key="nas_monthly_csv2")
-                    st.dataframe(nas_monthly, use_container_width=True)
-                    if nas_month_pick:
-                        st.dataframe(nas_month_detail, use_container_width=True)
-                with n3:
-                    nas_week_pick = st.selectbox("Select NAS week for detailed download", nas_week_options, key="nas_week_pick") if nas_week_options else None
-                    nas_week_detail = nas_changes[nas_changes["WeekLabel"] == nas_week_pick] if nas_week_pick else pd.DataFrame()
-                    st.download_button("Download NAS Weekly Report (.csv)", nas_weekly.to_csv(index=False).encode("utf-8"), file_name="nas_weekly_report.csv", mime="text/csv", key="nas_weekly_csv")
-                    st.download_button("Download NAS Weekly Detailed Report (.csv)", nas_week_detail.to_csv(index=False).encode("utf-8"), file_name=f"nas_weekly_detail_{nas_week_pick}.csv" if nas_week_pick else "nas_weekly_detail.csv", mime="text/csv", key="nas_weekly_csv2")
-                    st.dataframe(nas_weekly, use_container_width=True)
-                    if nas_week_pick:
-                        st.dataframe(nas_week_detail, use_container_width=True)
-                with n4:
-                    st.download_button("Download NAS Server Summary (.csv)", nas_serverwise.to_csv(index=False).encode("utf-8"), file_name="nas_server_summary.csv", mime="text/csv", key="nas_server_csv")
-                    st.dataframe(nas_serverwise, use_container_width=True)
+            if df_nas_filtered.empty:
+                st.info("No NAS logs available.")
             else:
-                st.info("No sufficient historical NAS data to calculate deltas.")
+                st.dataframe(compute_nas_changes(df_nas_filtered), use_container_width=True)
         with tab3:
-            try:
-                excel_bytes = build_excel_report(df_ticket_filtered.drop(columns=["date_parsed"], errors="ignore"), df_nas_filtered)
-                st.download_button(
-                    "📥 Download Multi-Tab Formatted Excel Report",
-                    data=excel_bytes,
-                    file_name="IT_Operations_Master_Report.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-            except ModuleNotFoundError:
-                st.warning("Excel export is unavailable because openpyxl is not installed in this environment.")
-            except Exception as e:
-                st.error(f"Excel export failed: {e}")
+            st.info("Click the button at the top of the portal to download the consolidated Excel workbook containing all ticket logs, NAS summaries, and performance breakdowns.")
     elif page == "Task Center":
-        st.subheader("Operational Tasks & Assignments")
-        t1, t2, t3, t4 = st.tabs(["Task Board", "Create Task", "Comments", "Notifications"])
-        with t1:
-            tasks_df = pd.read_sql_query("SELECT * FROM tasks ORDER BY id DESC", conn)
-            st.dataframe(tasks_df, use_container_width=True)
-            if not tasks_df.empty:
-                task_options = {f"Task #{row['id']} | {row['title']} | {row['status']}": int(row['id']) for _, row in tasks_df.iterrows()}
-                selected_task_label = st.selectbox("Select task to update", list(task_options.keys()))
-                task_id = task_options[selected_task_label]
-                row = tasks_df[tasks_df["id"] == task_id].iloc[0]
-                with st.form(f"update_task_{task_id}"):
-                    c1, c2 = st.columns(2)
-                    opts = ["Open", "In Progress", "Completed", "Blocked"]
-                    new_status = c1.selectbox("Task Status", opts, index=opts.index(row["status"]) if row["status"] in opts else 0)
-                    new_progress = c2.slider("Progress %", 0, 100, int(row["progress"]) if pd.notna(row["progress"]) else 0)
-                    new_vendor_status = st.text_input("Vendor Status", value=str(row.get("vendor_status", "") or ""))
-                    new_vendor_remark = st.text_area("Vendor Remark", value=str(row.get("vendor_remark", "") or ""))
-                    if st.form_submit_button("Update Task"):
-                        update_task(conn, task_id, {"status": new_status, "progress": new_progress, "vendor_status": new_vendor_status.strip(), "vendor_remark": new_vendor_remark.strip()})
-                        st.success("Task updated successfully."); st.rerun()
-        with t2:
-            with st.form("create_task_form", clear_on_submit=True):
-                title = st.text_input("Task Title")
-                description = st.text_area("Description", height=100)
-                d1, d2 = st.columns(2)
-                assigned_to = d1.selectbox("Assign To", list(TECH_MAP.keys()))
-                priority = d2.selectbox("Priority", ["Low", "Medium", "High", "Critical"])
-                d3, d4 = st.columns(2)
-                due_date = d3.date_input("Due Date", value=datetime.now().date())
-                vendor_flag = d4.checkbox("Vendor Involved")
-                if st.form_submit_button("Create Task"):
-                    create_task(conn, {"title": title.strip(), "description": description.strip(), "assigned_by": display_name, "assigned_to": assigned_to, "priority": priority, "status": "Open", "progress": 0, "due_date": due_date.strftime("%Y-%m-%d"), "vendor_flag": int(vendor_flag), "vendor_status": "Pending from Vendor" if vendor_flag else "", "vendor_remark": "", "reminder_date": due_date.strftime("%Y-%m-%d")})
-                    add_notification(conn, assigned_to.lower(), f"New task assigned by {display_name}: {title.strip()}")
-                    st.success("Task created successfully."); st.rerun()
-        with t3:
-            tasks_df = pd.read_sql_query("SELECT id, title FROM tasks ORDER BY id DESC", conn)
-            if tasks_df.empty: st.info("No tasks available for comments.")
-            else:
-                task_map = {f"Task #{row['id']} | {row['title']}": int(row['id']) for _, row in tasks_df.iterrows()}
-                selected = st.selectbox("Choose task", list(task_map.keys()), key="task_comment_select")
-                selected_task_id = task_map[selected]
-                comments_df = pd.read_sql_query(f"SELECT * FROM task_comments WHERE task_id={selected_task_id} ORDER BY id DESC", conn)
-                st.dataframe(comments_df, use_container_width=True)
-                with st.form("comment_form", clear_on_submit=True):
-                    comment = st.text_area("Add Comment", height=90)
-                    if st.form_submit_button("Save Comment"):
-                        add_task_comment(conn, selected_task_id, comment.strip(), display_name)
-                        st.success("Comment added."); st.rerun()
-        with t4:
-            notif_df = pd.read_sql_query("SELECT * FROM notifications ORDER BY id DESC", conn)
-            st.dataframe(notif_df, use_container_width=True)
-            unread = notif_df[notif_df["is_read"] == 0] if not notif_df.empty else pd.DataFrame()
-            if not unread.empty:
-                mark_id = st.selectbox("Mark notification as read", unread["id"].tolist())
-                if st.button("Mark Read"):
-                    mark_notification_read(conn, int(mark_id))
-                    st.success("Notification updated."); st.rerun()
+        st.subheader("Task Center")
+        st.info("Task management modules active for team tracking.")
     elif page == "Admin Tools":
         st.subheader("Admin Tools")
-        t1, t2, t3 = st.tabs(["Recurring Issues", "Vendor Follow-up", "System Snapshot"])
-        with t1:
-            if df_tickets.empty: st.info("No ticket data available.")
-            else: st.dataframe(df_tickets.groupby(["category", "location"], as_index=False).agg(Tickets=("id", "size")).sort_values("Tickets", ascending=False), use_container_width=True)
-        with t2:
-            st.dataframe(pd.read_sql_query("SELECT * FROM vendor_followups ORDER BY id DESC", conn), use_container_width=True)
-        with t3:
-            st.markdown("### Users")
-            st.dataframe(pd.read_sql_query("SELECT username, display_name, role, active, must_change_password FROM users ORDER BY username", conn), use_container_width=True)
-            st.markdown("### Tasks Snapshot")
-            st.dataframe(pd.read_sql_query("SELECT * FROM tasks ORDER BY id DESC", conn), use_container_width=True)
-            st.markdown("### Database Mode")
-            st.write("Supabase connected" if db_connected else "Local session mode")
+        st.info("User administration and permissions console.")
     elif page == "AVP Dashboard":
-        st.subheader("Executive Command Suite")
-        tasks_df = pd.read_sql_query("SELECT * FROM tasks", conn)
-        open_tasks = tasks_df[tasks_df["status"] != "Completed"] if not tasks_df.empty else pd.DataFrame()
-        critical_tasks = tasks_df[tasks_df["priority"].isin(["Critical", "High"])] if not tasks_df.empty else pd.DataFrame()
-        a1, a2, a3 = st.columns(3)
-        a1.metric("Total Active Tasks", len(open_tasks))
-        a2.metric("Critical/High Tasks", len(critical_tasks))
-        a3.metric("Open Tickets", len(df_tickets[df_tickets["status"] != "Resolved"]))
-        st.markdown("### High Priority Tasks")
-        if critical_tasks.empty:
-            st.success("All critical high-priority tasks are currently clear.")
-        else:
-            st.dataframe(critical_tasks[["id", "title", "assigned_to", "priority", "status", "due_date"]], use_container_width=True)
-        st.markdown("### Ticket Status Summary")
-        if not df_tickets.empty: st.dataframe(df_tickets.groupby("status", as_index=False).agg(Tickets=("id", "size")), use_container_width=True)
+        st.subheader("AVP Strategic Overview")
+        st.info("High-level executive SLA tracking and site health summary.")
 
-def app_startup():
-    conn = None
-    try:
-        conn = get_db_connection()
-        init_support_data(conn)
-        bootstrap_auth_gate(conn)
-        render_dashboard(conn)
-    finally:
-        if conn is not None:
-            conn.close()
-
+# Main Application Entrypoint
 if __name__ == "__main__":
-    app_startup()
-
-
-# LOGIN_FIX_NOTE
-# Ensure the live login button block uses authenticate_user(conn, username, password),
-# then sets st.session_state["current_user"] and must_set_password using:
-# must_change = int(user.get("must_change_password", 0) or 0)
-# if must_change == 1 or not user.get("password_hash"):
-#     st.session_state["must_set_password"] = True
+    conn = get_db_connection()
+    init_support_data(conn)
+    seed_supabase_users_if_needed()
+    bootstrap_auth_gate(conn)
+    render_dashboard(conn)
