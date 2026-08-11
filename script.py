@@ -3,6 +3,7 @@ import os
 import base64
 import hashlib
 import sqlite3
+import bcrypt
 from datetime import datetime, time
 from pathlib import Path
 
@@ -356,7 +357,28 @@ DEFAULT_USERS = [
 ]
 
 def hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+def verify_password(password: str, stored_hash: str, conn=None, username=None) -> bool:
+    if not stored_hash:
+        return False
+    try:
+        stored_hash = str(stored_hash)
+        if stored_hash.startswith(("$2a$", "$2b$", "$2y$")):
+            return bcrypt.checkpw(password.encode("utf-8"), stored_hash.encode("utf-8"))
+        legacy_hash = hashlib.sha256(password.encode("utf-8")).hexdigest()
+        if legacy_hash == stored_hash:
+            if conn is not None and username:
+                upgraded_hash = hash_password(password)
+                conn.execute(
+                    "UPDATE users SET password_hash=?, updated_at=CURRENT_TIMESTAMP WHERE lower(username)=lower(?)",
+                    (upgraded_hash, username),
+                )
+                conn.commit()
+            return True
+    except Exception:
+        return False
+    return False
 
 def ensure_support_tables(conn):
     conn.execute(USERS_TABLE_SQL)
@@ -369,7 +391,7 @@ def ensure_support_tables(conn):
 def seed_default_users(conn):
     cur = conn.cursor()
     for username, display_name, role in DEFAULT_USERS:
-        cur.execute("SELECT id FROM users WHERE username=?", (username,))
+        cur.execute("SELECT id FROM users WHERE lower(username)=lower(?)", (username,))
         if cur.fetchone() is None:
             cur.execute(
                 "INSERT INTO users (username, display_name, role, password_hash, active, must_change_password) VALUES (?, ?, ?, ?, 1, 1)",
@@ -380,6 +402,55 @@ def seed_default_users(conn):
 def init_support_data(conn):
     ensure_support_tables(conn)
     seed_default_users(conn)
+
+def get_user_by_username(conn, username: str):
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, username, display_name, role, password_hash, active, must_change_password FROM users WHERE lower(username)=lower(?)",
+        (username,),
+    )
+    row = cur.fetchone()
+    if not row:
+        return None
+    return {k: row[k] for k in row.keys()}
+
+def set_user_password(conn, username: str, new_password: str, require_change: int = 0):
+    conn.execute(
+        "UPDATE users SET password_hash=?, must_change_password=?, updated_at=CURRENT_TIMESTAMP WHERE lower(username)=lower(?)",
+        (hash_password(new_password), int(require_change), username),
+    )
+    conn.commit()
+
+def authenticate_user(conn, username: str, password: str):
+    user = get_user_by_username(conn, username)
+    if not user or int(user.get("active", 0) or 0) != 1:
+        return None
+    stored_hash = user.get("password_hash")
+    if not stored_hash:
+        return None
+    if verify_password(password, stored_hash, conn=conn, username=username):
+        refreshed = get_user_by_username(conn, username)
+        return refreshed or user
+    return None
+
+def current_period_ticket_df(df, freq="Daily"):
+    if df is None or df.empty:
+        return pd.DataFrame()
+    x = df.copy()
+    x["date_parsed"] = pd.to_datetime(x.get("date"), errors="coerce")
+    x = x.dropna(subset=["date_parsed"])
+    if x.empty:
+        return pd.DataFrame()
+    today = pd.Timestamp.now().normalize()
+    if freq == "Monthly":
+        x = x[x["date_parsed"].dt.to_period("M") == today.to_period("M")]
+    elif freq == "Weekly":
+        iso = today.isocalendar()
+        x = x[(x["date_parsed"].dt.isocalendar().year == iso.year) & (x["date_parsed"].dt.isocalendar().week == iso.week)]
+    else:
+        start = today - pd.Timedelta(days=29)
+        x = x[x["date_parsed"] >= start]
+    return x
 
 @st.cache_resource
 def init_supabase():
@@ -721,13 +792,13 @@ def build_ticket_exec_metrics(df):
 def build_ticket_trend(df, freq="Daily"):
     if df is None or df.empty:
         return pd.DataFrame()
-    x = df.copy()
-    x["date_parsed"] = pd.to_datetime(x.get("date"), errors="coerce")
-    x = x.dropna(subset=["date_parsed"])
+    x = current_period_ticket_df(df, freq=freq)
     if x.empty:
         return pd.DataFrame()
     if freq == "Weekly":
-        x["bucket"] = x["date_parsed"].dt.strftime("%Y-W") + x["date_parsed"].dt.isocalendar().week.astype(str)
+        week_num = x["date_parsed"].dt.isocalendar().week.astype(int).astype(str).str.zfill(2)
+        year_num = x["date_parsed"].dt.isocalendar().year.astype(str)
+        x["bucket"] = year_num + "-W" + week_num
     elif freq == "Monthly":
         x["bucket"] = x["date_parsed"].dt.strftime("%Y-%m")
     else:
@@ -790,10 +861,20 @@ def build_ticket_reports(df):
     if x.empty:
         empty = pd.DataFrame()
         return empty, empty, empty, empty
-    x["Month"] = x["date_parsed"].dt.strftime("%Y-%m")
-    x["Week"] = x["date_parsed"].dt.strftime("%Y-W") + x["date_parsed"].dt.isocalendar().week.astype(str)
-    monthly = x.groupby("Month", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum()), Open=("status", lambda s: (s == "Open").sum()), In_Progress=("status", lambda s: (s == "In Progress").sum()), On_Hold=("status", lambda s: (s == "On Hold - User Busy").sum()))
-    weekly = x.groupby("Week", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum()), Open=("status", lambda s: (s == "Open").sum()), In_Progress=("status", lambda s: (s == "In Progress").sum()), On_Hold=("status", lambda s: (s == "On Hold - User Busy").sum()))
+    today = pd.Timestamp.now().normalize()
+    current_month_df = x[x["date_parsed"].dt.to_period("M") == today.to_period("M")].copy()
+    current_week_iso = today.isocalendar()
+    current_week_df = x[(x["date_parsed"].dt.isocalendar().year == current_week_iso.year) & (x["date_parsed"].dt.isocalendar().week == current_week_iso.week)].copy()
+    if current_month_df.empty:
+        current_month_df = x.copy()
+    if current_week_df.empty:
+        current_week_df = x.copy()
+    current_month_df["Month"] = current_month_df["date_parsed"].dt.strftime("%Y-%m")
+    week_num = current_week_df["date_parsed"].dt.isocalendar().week.astype(int).astype(str).str.zfill(2)
+    year_num = current_week_df["date_parsed"].dt.isocalendar().year.astype(str)
+    current_week_df["Week"] = year_num + "-W" + week_num
+    monthly = current_month_df.groupby("Month", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum()), Open=("status", lambda s: (s == "Open").sum()), In_Progress=("status", lambda s: (s == "In Progress").sum()), On_Hold=("status", lambda s: (s == "On Hold - User Busy").sum()))
+    weekly = current_week_df.groupby("Week", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum()), Open=("status", lambda s: (s == "Open").sum()), In_Progress=("status", lambda s: (s == "In Progress").sum()), On_Hold=("status", lambda s: (s == "On Hold - User Busy").sum()))
     technician = x.groupby("attended_by", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum()), Avg_Resolution_Min=("resolution_time", lambda s: int(pd.to_numeric(s, errors='coerce').fillna(0)[pd.to_numeric(s, errors='coerce').fillna(0) > 0].mean()) if (pd.to_numeric(s, errors='coerce').fillna(0) > 0).any() else 0))
     location = x.groupby("location", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum()))
     return monthly, weekly, technician, location
@@ -915,17 +996,17 @@ def build_bar_chart(df, xcol, ycol, color="#ef4444"):
 def build_line_chart(df, xcol, ycol, color="#3b82f6"):
     return alt.Chart(df).mark_line(point=True, strokeWidth=3).encode(x=alt.X(xcol, title=None), y=alt.Y(ycol, title=None), color=alt.value(color), tooltip=list(df.columns)).properties(height=280)
 
-def get_user_by_username(conn, username):
+def _deprecated_get_user_by_username_2(conn, username):
     cur = conn.cursor()
     cur.execute("SELECT id, username, display_name, role, password_hash, active, must_change_password FROM users WHERE username=?", (username,))
     row = cur.fetchone()
     return dict(zip(["id", "username", "display_name", "role", "password_hash", "active", "must_change_password"], row)) if row else None
 
-def set_user_password(conn, username, password):
+def _deprecated_set_user_password_2(conn, username, password):
     conn.execute("UPDATE users SET password_hash=?, must_change_password=0, active=1, updated_at=CURRENT_TIMESTAMP WHERE username=?", (hash_password(password), username))
     conn.commit()
 
-def authenticate_user(conn, username, password):
+def _deprecated_authenticate_user_2(conn, username, password):
     user = get_user_by_username(conn, username)
     if not user or not user["active"]: return None
     if not user["password_hash"]:
@@ -1598,3 +1679,11 @@ def app_startup():
 
 if __name__ == "__main__":
     app_startup()
+
+
+# LOGIN_FIX_NOTE
+# Ensure the live login button block uses authenticate_user(conn, username, password),
+# then sets st.session_state["current_user"] and must_set_password using:
+# must_change = int(user.get("must_change_password", 0) or 0)
+# if must_change == 1 or not user.get("password_hash"):
+#     st.session_state["must_set_password"] = True
