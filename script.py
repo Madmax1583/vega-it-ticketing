@@ -417,14 +417,27 @@ def get_user_by_username_sqlite(conn, username: str):
 def normalize_user_record(user):
     if not user:
         return None
+    active_val = user.get("active", user.get("is_active", True))
+    must_change_val = user.get("mustchangepassword", user.get("must_change_password", user.get("must_change", False)))
+    def as_flag(value, default=False):
+        if value is None:
+            return 1 if default else 0
+        if isinstance(value, bool):
+            return 1 if value else 0
+        s = str(value).strip().lower()
+        if s in {"1", "true", "yes", "y", "active"}:
+            return 1
+        if s in {"0", "false", "no", "n", "inactive"}:
+            return 0
+        return 1 if default else 0
     return {
         "id": user.get("id"),
-        "username": str(user.get("username", "")).strip(),
-        "display_name": user.get("displayname") or user.get("display_name") or str(user.get("username", "")).strip().title(),
+        "username": str(user.get("username", user.get("user_name", ""))).strip(),
+        "display_name": user.get("displayname") or user.get("display_name") or user.get("name") or str(user.get("username", user.get("user_name", ""))).strip().title(),
         "role": user.get("role", "User"),
-        "password_hash": user.get("passwordhash") or user.get("password_hash"),
-        "active": 1 if bool(user.get("active", False)) else 0,
-        "must_change_password": 1 if bool(user.get("mustchangepassword", user.get("must_change_password", False))) else 0,
+        "password_hash": user.get("passwordhash") or user.get("password_hash") or user.get("password"),
+        "active": as_flag(active_val, default=True),
+        "must_change_password": as_flag(must_change_val, default=False),
     }
 
 def table_exists(name: str) -> bool:
@@ -461,17 +474,16 @@ def get_user_by_username(conn, username: str):
     clean = str(username).strip()
     if db_connected and table_exists("users"):
         try:
-            response = (
-                supabase_client.table("users")
-                .select("id, username, displayname, role, passwordhash, active, mustchangepassword")
-                .ilike("username", clean)
-                .limit(1)
-                .execute()
-            )
+            response = supabase_client.table("users").select("*").ilike("username", clean).limit(1).execute()
             if response.data:
                 return normalize_user_record(response.data[0])
         except Exception:
-            pass
+            try:
+                response = supabase_client.table("users").select("*").ilike("user_name", clean).limit(1).execute()
+                if response.data:
+                    return normalize_user_record(response.data[0])
+            except Exception:
+                pass
     return get_user_by_username_sqlite(conn, clean)
 
 def set_user_password_sqlite(conn, username: str, new_password: str, require_change: int = 0):
@@ -483,17 +495,20 @@ def set_user_password_sqlite(conn, username: str, new_password: str, require_cha
 
 def set_user_password(conn, username: str, new_password: str, require_change: int = 0):
     clean = str(username).strip()
+    payload = {
+        "passwordhash": hash_password(new_password),
+        "mustchangepassword": bool(require_change),
+    }
     if db_connected and table_exists("users"):
         try:
-            supabase_client.table("users").update(
-                {
-                    "passwordhash": hash_password(new_password),
-                    "mustchangepassword": bool(require_change),
-                }
-            ).ilike("username", clean).execute()
+            supabase_client.table("users").update(payload).ilike("username", clean).execute()
             return
         except Exception:
-            pass
+            try:
+                supabase_client.table("users").update(payload).ilike("user_name", clean).execute()
+                return
+            except Exception:
+                pass
     set_user_password_sqlite(conn, clean, new_password, require_change=require_change)
 
 def authenticate_user(conn, username: str, password: str):
@@ -1127,6 +1142,11 @@ def login_page(conn):
             st.markdown('<div class="login-support">Need account support? <span class="linkish">Contact administrator</span></div><div class="login-footer"><span class="linkish">Terms</span><span class="linkish">Policy</span><span>© 2026 Vega Industries Pvt. Ltd.</span></div>', unsafe_allow_html=True)
 
     if login_clicked:
+        pending_user = get_user_by_username(conn, username)
+        if pending_user and int(pending_user.get("active", 0) or 0) == 1 and (pending_user.get("must_change_password") or not pending_user.get("password_hash")):
+            st.session_state["current_user"] = pending_user
+            st.session_state["must_set_password"] = True
+            st.rerun()
         user = authenticate_user(conn, username, password)
         if not user:
             st.error("Invalid credentials or inactive account.")
