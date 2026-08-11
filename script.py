@@ -1198,10 +1198,10 @@ def bootstrap_auth_gate(conn):
         st.stop()
 
 def get_role_pages(role):
-    if role == "IT Manager": return ["Overview", "Ticket Operations", "NAS Monitoring", "Reports", "Task Center", "Admin Tools", "AVP Dashboard"]
-    if role == "IT AM": return ["Overview", "Ticket Operations", "NAS Monitoring", "Reports", "Task Center"]
-    if role == "AVP": return ["Overview", "AVP Dashboard", "Reports", "Task Center"]
-    return ["Overview", "Ticket Operations", "NAS Monitoring", "Task Center"]
+    if role == "IT Manager": return ["Overview", "Ticket Operations", "NAS Monitoring", "Reports", "Task Center", "Admin Tools", "AVP Dashboard", "Team Chat"]
+    if role == "IT AM": return ["Overview", "Ticket Operations", "NAS Monitoring", "Reports", "Task Center", "Team Chat"]
+    if role == "AVP": return ["Overview", "AVP Dashboard", "Reports", "Task Center", "Team Chat"]
+    return ["Overview", "Ticket Operations", "NAS Monitoring", "Task Center", "Team Chat"]
 
 def create_task(conn, payload):
     conn.execute("INSERT INTO tasks (title, description, assigned_by, assigned_to, priority, status, progress, due_date, vendor_flag, vendor_status, vendor_remark, reminder_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (payload.get("title"), payload.get("description"), payload.get("assigned_by"), payload.get("assigned_to"), payload.get("priority", "Medium"), payload.get("status", "Open"), payload.get("progress", 0), payload.get("due_date"), payload.get("vendor_flag", 0), payload.get("vendor_status"), payload.get("vendor_remark"), payload.get("reminder_date")))
@@ -1309,6 +1309,8 @@ def build_detailed_ticket_exports(df):
     monthly, weekly, technician, location = build_ticket_reports(df)
     dept = build_department_summary(df)
     repeat = build_repeat_issue_summary(df)
+    resolved = x[x["status"].astype(str) == "Resolved"].copy() if not x.empty and "status" in x.columns else pd.DataFrame()
+    pending = x[x["status"].astype(str).isin(["Open", "In Progress", "On Hold - User Busy", "On Hold"])].copy() if not x.empty and "status" in x.columns else pd.DataFrame()
     return {
         "Master Tickets": x,
         "Ticket Monthly": monthly,
@@ -1317,6 +1319,8 @@ def build_detailed_ticket_exports(df):
         "Ticket Location": location,
         "Ticket Department": dept,
         "Repeat Issues": repeat,
+        "Resolved Tickets": resolved,
+        "Pending Tickets": pending,
     }
 
 def render_dashboard(conn):
@@ -1602,7 +1606,7 @@ def render_dashboard(conn):
                         st.error(f"Delete error: {e}")
     elif page == "Reports":
         st.subheader("Reports")
-        report_tabs = st.tabs(["Analysis Tables", "Detailed Exports", "NAS Reports", "Excel Export"])
+        report_tabs = st.tabs(["Analysis Tables", "Ticket Details", "NAS Details", "Excel Export"])
 
         with report_tabs[0]:
             st.markdown("### Detailed Analysis Tables")
@@ -1617,9 +1621,9 @@ def render_dashboard(conn):
                 st.dataframe(build_repeat_issue_summary(df_ticket_filtered), use_container_width=True)
 
         with report_tabs[1]:
-            detail_tabs = st.tabs(["Ticket Activity Logs", "Monthly", "Weekly", "Technician", "Location", "Department", "Repeat Issues"])
             exports = build_detailed_ticket_exports(df_ticket_filtered)
-            names = ["Master Tickets", "Ticket Monthly", "Ticket Weekly", "Ticket Technician", "Ticket Location", "Ticket Department", "Repeat Issues"]
+            detail_tabs = st.tabs(["All Ticket Logs", "Resolved Logs", "Pending Logs", "Monthly", "Weekly", "Technician", "Location", "Department", "Repeat Issues"])
+            names = ["Master Tickets", "Resolved Tickets", "Pending Tickets", "Ticket Monthly", "Ticket Weekly", "Ticket Technician", "Ticket Location", "Ticket Department", "Repeat Issues"]
             for tab, name in zip(detail_tabs, names):
                 with tab:
                     frame = exports.get(name, pd.DataFrame())
@@ -1627,18 +1631,16 @@ def render_dashboard(conn):
                         st.info("No records available.")
                     else:
                         st.dataframe(frame, use_container_width=True)
-                        csv_data = frame.to_csv(index=False).encode("utf-8")
-                        st.download_button(f"Download {name} CSV", data=csv_data, file_name=name.lower().replace(' ', '_') + ".csv", mime="text/csv", key=f"dl_{name}")
+                        st.download_button(f"Download {name} CSV", data=frame.to_csv(index=False).encode("utf-8"), file_name=name.lower().replace(' ', '_') + ".csv", mime="text/csv", key=f"dl_{name}")
 
         with report_tabs[2]:
-            nas_tabs = st.tabs(["NAS Performance Deltas", "NAS Monthly", "NAS Weekly", "NAS Server Summary"])
             nas_master, nas_monthly, nas_weekly, nas_serverwise = build_nas_reports_extended(df_nas_filtered)
-            for tab, frame, label in [
-                (nas_tabs[0], compute_nas_changes(df_nas_filtered), "nas_performance_deltas"),
-                (nas_tabs[1], nas_monthly, "nas_monthly"),
-                (nas_tabs[2], nas_weekly, "nas_weekly"),
-                (nas_tabs[3], nas_serverwise, "nas_server_summary"),
-            ]:
+            raw_nas = normalize_nas_df(df_nas_filtered).copy() if df_nas_filtered is not None else pd.DataFrame()
+            nas_delta = compute_nas_changes(df_nas_filtered)
+            nas_tabs = st.tabs(["Raw NAS Logs", "NAS Performance Deltas", "NAS Monthly", "NAS Weekly", "NAS Server Summary"])
+            frames = [raw_nas, nas_delta, nas_monthly, nas_weekly, nas_serverwise]
+            labels = ["raw_nas_logs", "nas_performance_deltas", "nas_monthly", "nas_weekly", "nas_server_summary"]
+            for tab, frame, label in zip(nas_tabs, frames, labels):
                 with tab:
                     if frame is None or frame.empty:
                         st.info("No NAS records available.")
@@ -1871,6 +1873,57 @@ def render_dashboard(conn):
                             create_chat_thread(conn, new_thread_title.strip(), display_name)
                             st.success("Thread created.")
                             st.rerun()
+
+    elif page == "Team Chat":
+        st.subheader("Team Chat")
+        status_df = load_user_status_df(conn)
+        threads_df = load_chat_threads_df(conn)
+        user_key = user.get("username") or display_name.lower()
+        c1, c2 = st.columns([1, 2])
+        with c1:
+            chosen_status = st.selectbox("Your status", ["Available", "Busy", "In Meeting", "Offline"], key="team_chat_status")
+            if st.button("Save Status", key="team_chat_save_status"):
+                set_user_status(conn, user_key, display_name, chosen_status)
+                st.success("Status updated.")
+                st.rerun()
+            st.markdown("#### Team presence")
+            st.dataframe(status_df, use_container_width=True)
+            st.markdown("#### Notifications")
+            my_notifs = load_notifications_df(conn, user.get("username"))
+            if my_notifs.empty:
+                st.info("No notifications.")
+            else:
+                st.dataframe(my_notifs, use_container_width=True)
+        with c2:
+            st.markdown("#### Chat threads")
+            if threads_df.empty:
+                default_thread = create_chat_thread(conn, "General Team Chat", display_name)
+                post_chat_message(conn, default_thread, display_name, "General thread created.")
+                st.rerun()
+            thread_map = {f"{row['title']} (#{int(row['id'])})": int(row['id']) for _, row in threads_df.iterrows()}
+            selected_thread_label = st.selectbox("Select thread", list(thread_map.keys()), key="team_chat_thread")
+            selected_thread_id = thread_map[selected_thread_label]
+            messages_df = load_chat_messages_df(conn, selected_thread_id)
+            if messages_df.empty:
+                st.info("No messages in this thread yet.")
+            else:
+                st.dataframe(messages_df, use_container_width=True)
+            new_message = st.text_area("Write message", key="team_chat_message")
+            if st.button("Send", key="team_chat_send"):
+                if not str(new_message).strip():
+                    st.error("Message cannot be empty.")
+                else:
+                    post_chat_message(conn, selected_thread_id, display_name, new_message.strip())
+                    st.success("Message sent.")
+                    st.rerun()
+            new_thread_title = st.text_input("Create new thread", key="team_chat_new_thread")
+            if st.button("Create Thread", key="team_chat_create_thread"):
+                if not str(new_thread_title).strip():
+                    st.error("Thread title is required.")
+                else:
+                    create_chat_thread(conn, new_thread_title.strip(), display_name)
+                    st.success("Thread created.")
+                    st.rerun()
 
 # Main Application Entrypoint
 if __name__ == "__main__":
