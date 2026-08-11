@@ -1186,6 +1186,32 @@ def add_vendor_followup(conn, ticket_id, vendor_name, followup_status, vendor_re
     conn.execute("INSERT INTO vendor_followups (ticket_id, vendor_name, followup_status, vendor_remark, due_date) VALUES (?, ?, ?, ?, ?)", (ticket_id, vendor_name, followup_status, vendor_remark, due_date))
     conn.commit()
 
+
+def get_all_users(conn):
+    if db_connected and table_exists("users"):
+        try:
+            rows = supabase_client.table("users").select("*").execute()
+            data = rows.data or []
+            return pd.DataFrame([normalize_user_record(r) for r in data if normalize_user_record(r)])
+        except Exception:
+            pass
+    cur = conn.cursor()
+    cur.execute("SELECT id, username, display_name, role, password_hash, active, must_change_password FROM users ORDER BY username")
+    rows = cur.fetchall()
+    return pd.DataFrame([{k: row[k] for k in row.keys()} for row in rows])
+
+def load_tasks_df(conn):
+    try:
+        return pd.read_sql_query("SELECT id, title, description, assigned_by, assigned_to, priority, status, progress, due_date, vendor_flag, vendor_status, vendor_remark, reminder_date, created_at, updated_at FROM tasks ORDER BY id DESC", conn)
+    except Exception:
+        return pd.DataFrame(columns=["id", "title", "description", "assigned_by", "assigned_to", "priority", "status", "progress", "due_date", "vendor_flag", "vendor_status", "vendor_remark", "reminder_date", "created_at", "updated_at"])
+
+def load_vendor_followups_df(conn):
+    try:
+        return pd.read_sql_query("SELECT id, ticket_id, vendor_name, followup_status, vendor_remark, due_date, created_at FROM vendor_followups ORDER BY id DESC", conn)
+    except Exception:
+        return pd.DataFrame(columns=["id", "ticket_id", "vendor_name", "followup_status", "vendor_remark", "due_date", "created_at"])
+
 def render_dashboard(conn):
     user = st.session_state.get("current_user", {})
     role = user.get("role", "IT Executive")
@@ -1566,7 +1592,96 @@ def render_dashboard(conn):
         st.info("Task management modules active for team tracking.")
     elif page == "Admin Tools":
         st.subheader("Admin Tools")
-        st.info("User administration and permissions console.")
+        admin_tabs = st.tabs(["Users", "Reset Password", "Assign Task", "Vendor Follow-up", "Admin Snapshot"])
+
+        with admin_tabs[0]:
+            users_df = get_all_users(conn)
+            if users_df.empty:
+                st.info("No user records available.")
+            else:
+                view = users_df.copy()
+                rename_map = {"display_name": "Display Name", "password_hash": "Password Hash", "must_change_password": "Must Change Password"}
+                view = view.rename(columns=rename_map)
+                safe_cols = [c for c in ["id", "username", "Display Name", "role", "active", "Must Change Password"] if c in view.columns]
+                st.dataframe(view[safe_cols], use_container_width=True)
+
+        with admin_tabs[1]:
+            users_df = get_all_users(conn)
+            user_options = users_df["username"].dropna().astype(str).tolist() if not users_df.empty and "username" in users_df.columns else []
+            reset_user = st.selectbox("Select user", user_options, key="admin_reset_user") if user_options else None
+            reset_password = st.text_input("New password", type="password", key="admin_reset_password")
+            force_change = st.checkbox("Require password change on next login", value=False, key="admin_force_change")
+            if st.button("Update Password", key="admin_update_password"):
+                if not reset_user:
+                    st.error("No user available for reset.")
+                elif len(reset_password) < 6:
+                    st.error("Password must be at least 6 characters long.")
+                else:
+                    set_user_password(conn, reset_user, reset_password, require_change=1 if force_change else 0)
+                    st.success(f"Password updated for {reset_user}.")
+
+        with admin_tabs[2]:
+            with st.form("admin_create_task_form"):
+                task_title = st.text_input("Task title")
+                task_desc = st.text_area("Task description")
+                task_assignee = st.selectbox("Assign to", ["Satish", "Priyanshu", "Amit", "Ranjan", "Manish"], key="admin_task_assign_to")
+                task_priority = st.selectbox("Priority", ["Low", "Medium", "High", "Critical"], index=1, key="admin_task_priority")
+                task_due = st.date_input("Due date", key="admin_task_due")
+                submitted_task = st.form_submit_button("Create Task")
+                if submitted_task:
+                    if not str(task_title).strip():
+                        st.error("Task title is required.")
+                    else:
+                        create_task(conn, {
+                            "title": task_title.strip(),
+                            "description": task_desc.strip(),
+                            "assigned_by": display_name,
+                            "assigned_to": task_assignee,
+                            "priority": task_priority,
+                            "status": "Open",
+                            "progress": 0,
+                            "due_date": str(task_due),
+                            "vendor_flag": 0,
+                            "vendor_status": None,
+                            "vendor_remark": None,
+                            "reminder_date": str(task_due),
+                        })
+                        st.success("Task created successfully.")
+            tasks_df = load_tasks_df(conn)
+            if not tasks_df.empty:
+                st.dataframe(tasks_df, use_container_width=True)
+
+        with admin_tabs[3]:
+            ticket_options = df_tickets[["id", "System Ticket ID", "complaint"]].copy() if not df_tickets.empty else pd.DataFrame(columns=["id", "System Ticket ID", "complaint"])
+            if ticket_options.empty:
+                st.info("No tickets available for vendor follow-up.")
+            else:
+                ticket_labels = {f"{row['System Ticket ID']} - {str(row['complaint'])[:60]}": int(row['id']) for _, row in ticket_options.iterrows()}
+                with st.form("vendor_followup_form"):
+                    chosen_label = st.selectbox("Ticket", list(ticket_labels.keys()), key="vendor_ticket")
+                    vendor_name = st.text_input("Vendor name")
+                    vendor_status = st.selectbox("Follow-up status", ["Pending from Vendor", "Follow-up Done", "Resolved by Vendor", "Escalated"], key="vendor_status")
+                    vendor_remark = st.text_area("Vendor remark")
+                    vendor_due = st.date_input("Follow-up due date", key="vendor_due")
+                    submitted_vendor = st.form_submit_button("Add Follow-up")
+                    if submitted_vendor:
+                        if not str(vendor_name).strip():
+                            st.error("Vendor name is required.")
+                        else:
+                            add_vendor_followup(conn, ticket_labels[chosen_label], vendor_name.strip(), vendor_status, vendor_remark.strip(), str(vendor_due))
+                            st.success("Vendor follow-up saved.")
+                vendor_df = load_vendor_followups_df(conn)
+                if not vendor_df.empty:
+                    st.dataframe(vendor_df, use_container_width=True)
+
+        with admin_tabs[4]:
+            users_df = get_all_users(conn)
+            tasks_df = load_tasks_df(conn)
+            vendor_df = load_vendor_followups_df(conn)
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Users", len(users_df))
+            c2.metric("Open Tasks", int((tasks_df["status"] != "Closed").sum()) if not tasks_df.empty and "status" in tasks_df.columns else 0)
+            c3.metric("Vendor Follow-ups", len(vendor_df))
     elif page == "AVP Dashboard":
         st.subheader("AVP Strategic Overview")
         st.info("High-level executive SLA tracking and site health summary.")
