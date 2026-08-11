@@ -403,7 +403,7 @@ def init_support_data(conn):
     ensure_support_tables(conn)
     seed_default_users(conn)
 
-def get_user_by_username(conn, username: str):
+def get_user_by_username_sqlite(conn, username: str):
     cur = conn.cursor()
     cur.execute(
         "SELECT id, username, display_name, role, password_hash, active, must_change_password FROM users WHERE lower(username)=lower(?)",
@@ -414,12 +414,87 @@ def get_user_by_username(conn, username: str):
         return None
     return {k: row[k] for k in row.keys()}
 
-def set_user_password(conn, username: str, new_password: str, require_change: int = 0):
+def normalize_user_record(user):
+    if not user:
+        return None
+    return {
+        "id": user.get("id"),
+        "username": str(user.get("username", "")).strip(),
+        "display_name": user.get("displayname") or user.get("display_name") or str(user.get("username", "")).strip().title(),
+        "role": user.get("role", "User"),
+        "password_hash": user.get("passwordhash") or user.get("password_hash"),
+        "active": 1 if bool(user.get("active", False)) else 0,
+        "must_change_password": 1 if bool(user.get("mustchangepassword", user.get("must_change_password", False))) else 0,
+    }
+
+def table_exists(name: str) -> bool:
+    if not db_connected:
+        return False
+    try:
+        supabase_client.table(name).select("id", count="exact").limit(1).execute()
+        return True
+    except Exception:
+        return False
+
+def seed_supabase_users_if_needed():
+    if not db_connected or not table_exists("users"):
+        return
+    for username, display_name, role in DEFAULT_USERS:
+        try:
+            existing = supabase_client.table("users").select("id").ilike("username", username).limit(1).execute()
+            if existing.data:
+                continue
+            supabase_client.table("users").insert(
+                {
+                    "username": username,
+                    "displayname": display_name,
+                    "role": role,
+                    "passwordhash": None,
+                    "active": True,
+                    "mustchangepassword": True,
+                }
+            ).execute()
+        except Exception:
+            pass
+
+def get_user_by_username(conn, username: str):
+    clean = str(username).strip()
+    if db_connected and table_exists("users"):
+        try:
+            response = (
+                supabase_client.table("users")
+                .select("id, username, displayname, role, passwordhash, active, mustchangepassword")
+                .ilike("username", clean)
+                .limit(1)
+                .execute()
+            )
+            if response.data:
+                return normalize_user_record(response.data[0])
+        except Exception:
+            pass
+    return get_user_by_username_sqlite(conn, clean)
+
+def set_user_password_sqlite(conn, username: str, new_password: str, require_change: int = 0):
     conn.execute(
         "UPDATE users SET password_hash=?, must_change_password=?, updated_at=CURRENT_TIMESTAMP WHERE lower(username)=lower(?)",
         (hash_password(new_password), int(require_change), username),
     )
     conn.commit()
+
+def set_user_password(conn, username: str, new_password: str, require_change: int = 0):
+    clean = str(username).strip()
+    if db_connected and table_exists("users"):
+        try:
+            supabase_client.table("users").update(
+                {
+                    "passwordhash": hash_password(new_password),
+                    "mustchangepassword": bool(require_change),
+                }
+            ).ilike("username", clean).execute()
+            return
+        except Exception:
+            pass
+    set_user_password_sqlite(conn, clean, new_password, require_change=require_change)
 
 def authenticate_user(conn, username: str, password: str):
     user = get_user_by_username(conn, username)
@@ -902,8 +977,12 @@ def load_tickets():
 def load_nas_data():
     if db_connected:
         try:
-            response = supabase_client.table("nas_backups").select("*").execute()
-            return normalize_nas_df(pd.DataFrame(response.data) if response.data else pd.DataFrame())
+            if table_exists("nasbackups"):
+                response = supabase_client.table("nasbackups").select("*").execute()
+                return normalize_nas_df(pd.DataFrame(response.data) if response.data else pd.DataFrame())
+            if table_exists("nas_backups"):
+                response = supabase_client.table("nas_backups").select("*").execute()
+                return normalize_nas_df(pd.DataFrame(response.data) if response.data else pd.DataFrame())
         except Exception:
             pass
     return normalize_nas_df(st.session_state.local_nas)
@@ -951,8 +1030,10 @@ def save_nas_log(new_row):
 
 def delete_nas_log(log_id):
     if db_connected:
-        supabase_client.table("nas_backups").delete().eq("id", int(log_id)).execute()
-        return
+        target = "nasbackups" if table_exists("nasbackups") else "nas_backups" if table_exists("nas_backups") else None
+        if target:
+            supabase_client.table(target).delete().eq("id", int(log_id)).execute()
+            return
     st.session_state.local_nas = st.session_state.local_nas[st.session_state.local_nas["id"] != int(log_id)].reset_index(drop=True)
 
 def add_notification(conn, username, message):
