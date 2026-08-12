@@ -441,6 +441,8 @@ def seed_default_users(conn):
 
 def init_support_data(conn):
     ensure_support_tables(conn)
+    ensure_enterprise_extension_tables(conn)
+    globals()["conn_global_for_pdf"] = conn
     seed_default_users(conn)
 
 def get_user_by_username_sqlite(conn, username: str):
@@ -913,6 +915,27 @@ def build_excel_report(tickets_df, nas_df):
         }.items():
             if frame is not None and not frame.empty:
                 frame.to_excel(writer, sheet_name=name[:31], index=False)
+        vendor_perf = build_vendor_performance(load_vendor_followups_df(conn_global_for_pdf) if 'conn_global_for_pdf' in globals() and conn_global_for_pdf is not None else pd.DataFrame())
+        dept_health = build_department_health(tickets_df)
+        tech_score = build_technician_scorecard(tickets_df)
+        aging = build_ticket_aging_analysis(tickets_df)
+        insights = build_management_insights(tickets_df, nas_df, load_vendor_followups_df(conn_global_for_pdf) if 'conn_global_for_pdf' in globals() and conn_global_for_pdf is not None else pd.DataFrame())
+        capacity = build_capacity_planning_dashboard(nas_df)
+        assets = build_asset_health(load_assets_df(conn_global_for_pdf) if 'conn_global_for_pdf' in globals() and conn_global_for_pdf is not None else pd.DataFrame(), tickets_df)
+        extra_frames = {
+            'Executive Summary': build_month_over_month_comparison(tickets_df),
+            'Ticket Aging Report': aging.get('aging_table', pd.DataFrame()),
+            'SLA Compliance Report': build_mttr_sla_summary(prepare_ticket_view(tickets_df), 'location'),
+            'Vendor Performance Report': vendor_perf.get('table', pd.DataFrame()),
+            'Technician Scorecard': tech_score,
+            'Department Health': dept_health,
+            'Capacity Planning': capacity,
+            'Asset Health': assets.get('registry', pd.DataFrame()),
+            'Management Insights': insights,
+        }
+        for name, frame in extra_frames.items():
+            if frame is not None and not frame.empty:
+                frame.to_excel(writer, sheet_name=name[:31], index=False)
     return output.getvalue()
 
 def build_ticket_exec_metrics(df):
@@ -1224,9 +1247,9 @@ def bootstrap_auth_gate(conn):
         st.stop()
 
 def get_role_pages(role):
-    if role == "IT Manager": return ["Overview", "Ticket Operations", "NAS Monitoring", "Reports", "Task Center", "Admin Tools", "AVP Dashboard", "Team Chat"]
-    if role == "IT AM": return ["Overview", "Ticket Operations", "NAS Monitoring", "Reports", "Task Center", "Team Chat"]
-    if role == "AVP": return ["Overview", "AVP Dashboard", "Reports", "Task Center", "Team Chat"]
+    if role == "IT Manager": return ["Overview", "Ticket Operations", "NAS Monitoring", "Reports", "Task Center", "Admin Tools", "AVP Dashboard", "Team Chat", "Executive Command Center", "Vendor Dashboard", "Department Health", "Asset Health"]
+    if role == "IT AM": return ["Overview", "Ticket Operations", "NAS Monitoring", "Reports", "Task Center", "Team Chat", "Executive Command Center", "Vendor Dashboard", "Department Health", "Asset Health"]
+    if role == "AVP": return ["Overview", "AVP Dashboard", "Reports", "Task Center", "Team Chat", "Executive Command Center", "Vendor Dashboard", "Department Health", "Asset Health"]
     return ["Overview", "Ticket Operations", "NAS Monitoring", "Task Center", "Team Chat"]
 
 def create_task(conn, payload):
@@ -1547,6 +1570,300 @@ def build_detailed_ticket_exports(df):
 
 
 # Added month/year helpers for detailed report selection
+ASSET_REGISTRY_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS asset_registry (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    asset_id TEXT,
+    asset_type TEXT,
+    location TEXT,
+    vendor TEXT,
+    purchase_date TEXT,
+    warranty_end TEXT,
+    status TEXT DEFAULT 'Active'
+)
+"""
+
+def ensure_enterprise_extension_tables(conn):
+    try:
+        conn.execute(ASSET_REGISTRY_TABLE_SQL)
+        conn.commit()
+    except Exception:
+        pass
+
+def _status_light(value, green_ok=True):
+    if isinstance(value, str):
+        v = value.lower()
+        if v in ['healthy', 'good', 'low', 'green']:
+            return '🟢'
+        if v in ['attention', 'medium', 'yellow']:
+            return '🟡'
+        return '🔴'
+    try:
+        x = float(value)
+        if green_ok:
+            return '🟢' if x >= 85 else ('🟡' if x >= 65 else '🔴')
+        return '🟢' if x <= 20 else ('🟡' if x <= 40 else '🔴')
+    except Exception:
+        return '🟡'
+
+def build_executive_command_metrics(ticket_df, task_df, vendor_df, status_df, nas_df):
+    t = add_priority_and_sla(ticket_df)
+    total_open = int(t['status'].astype(str).isin(['Open','In Progress','On Hold - User Busy','On Hold']).sum()) if not t.empty else 0
+    critical_breach = int((t.get('priority', pd.Series(dtype=str)).astype(str).eq('Critical') & t.get('sla_breach', pd.Series(dtype=bool)).fillna(False)).sum()) if not t.empty else 0
+    overdue_tasks = int((task_df['status'].astype(str).isin(['Open','In Progress','On Hold']) if not task_df.empty and 'status' in task_df.columns else pd.Series(dtype=bool)).sum())
+    open_vendor = int((vendor_df['followup_status'].astype(str).isin(['Pending from Vendor','Open','In Progress']) if not vendor_df.empty and 'followup_status' in vendor_df.columns else pd.Series(dtype=bool)).sum())
+    active_team = int((status_df['status'].astype(str).isin(['Available','Busy','In Meeting']) if not status_df.empty and 'status' in status_df.columns else pd.Series(dtype=bool)).sum())
+    sri = build_system_reliability_index(ticket_df)
+    forecast = build_storage_forecast(nas_df)
+    nas_health = 100.0
+    if forecast is not None and not forecast.empty and 'latest_storage' in forecast.columns:
+        nas_health = round(max(0, 100 - forecast['latest_storage'].astype(float).mean()), 1)
+    res_rate = build_ticket_exec_metrics(ticket_df).get('resolution_rate', 0.0)
+    return {
+        'Total Open Tickets': total_open,
+        'Critical SLA Breaches': critical_breach,
+        'Overdue Tasks': overdue_tasks,
+        'Open Vendor Cases': open_vendor,
+        'Active Team Members': active_team,
+        'System Reliability Index': sri,
+        'NAS Health Score': nas_health,
+        'Resolution Rate %': res_rate,
+    }
+
+def build_ticket_aging_analysis(df):
+    x = add_priority_and_sla(df)
+    if x.empty:
+        return {'aging_table': pd.DataFrame(), 'most_aged': pd.DataFrame(), 'avg_pending_age': 0, 'oldest_ticket': pd.DataFrame(), 'trend': pd.DataFrame()}
+    p = x[x['status'].astype(str).isin(['Open','In Progress','On Hold - User Busy','On Hold'])].copy()
+    if p.empty:
+        return {'aging_table': pd.DataFrame(), 'most_aged': pd.DataFrame(), 'avg_pending_age': 0, 'oldest_ticket': pd.DataFrame(), 'trend': pd.DataFrame()}
+    p['age_days'] = (p['age_hours'] / 24).fillna(0)
+    bins = [-1,1,3,7,15,100000]
+    labels = ['0-1 Days','2-3 Days','4-7 Days','8-15 Days','15+ Days']
+    p['aging_bucket'] = pd.cut(p['age_days'], bins=bins, labels=labels)
+    aging = p.groupby('aging_bucket', as_index=False).agg(Tickets=('id','size')).fillna(0)
+    trend = p.groupby(pd.to_datetime(p['date'], errors='coerce').dt.strftime('%Y-%m-%d'), as_index=False).agg(Avg_Age_Days=('age_days','mean'), Pending=('id','size')).rename(columns={'date':'bucket'})
+    return {
+        'aging_table': aging,
+        'most_aged': p.sort_values('age_days', ascending=False).head(20),
+        'avg_pending_age': round(p['age_days'].mean(), 1),
+        'oldest_ticket': p.sort_values('age_days', ascending=False).head(1),
+        'trend': trend,
+    }
+
+def build_technician_scorecard(df):
+    x = add_priority_and_sla(df)
+    perf = build_technician_performance(x)
+    if perf.empty:
+        return pd.DataFrame()
+    frt = x.groupby('attended_by', as_index=False).agg(Avg_FRT=('frt_min', lambda s: round(pd.Series(s).dropna().mean(),1) if pd.Series(s).dropna().shape[0] else 0), SLA_Compliance=('sla_breach', lambda s: round((1 - pd.Series(s).fillna(False).mean())*100,1)))
+    out = perf.merge(frt, on='attended_by', how='left')
+    max_mttr = max(out['Avg_Resolution_Min'].max(), 1)
+    max_pending = max(out['Pending'].max(), 1)
+    out['Score'] = (
+        out['Resolution_%'] * 0.40 +
+        out['SLA_Compliance'] * 0.30 +
+        ((1 - (out['Avg_Resolution_Min'] / max_mttr)) * 100).clip(lower=0) * 0.20 +
+        ((1 - (out['Pending'] / max_pending)) * 100).clip(lower=0) * 0.10
+    ).round(1)
+    out['Rank_Band'] = pd.cut(out['Score'], bins=[-1,60,80,1000], labels=['Bronze','Silver','Gold'])
+    return out.sort_values('Score', ascending=False)
+
+def build_management_insights(ticket_df, nas_df, vendor_df):
+    insights = []
+    x = add_priority_and_sla(ticket_df)
+    if x is not None and not x.empty:
+        d = pd.to_datetime(x['date'], errors='coerce')
+        x = x.assign(_month=d.dt.strftime('%Y-%m'))
+        months = sorted([m for m in x['_month'].dropna().unique().tolist()])
+        if len(months) >= 2:
+            prev_m, cur_m = months[-2], months[-1]
+            prev = x[x['_month']==prev_m]
+            cur = x[x['_month']==cur_m]
+            for cat in ['Network','Printer']:
+                p = len(prev[prev['category'].astype(str).str.contains(cat, case=False, na=False)])
+                c = len(cur[cur['category'].astype(str).str.contains(cat, case=False, na=False)])
+                if p > 0:
+                    change = round(((c-p)/p)*100,1)
+                    direction = 'increased' if change > 0 else 'reduced'
+                    insights.append({'Insight': f'{cat} incidents {direction} {abs(change)}% month-over-month'})
+        top_loc = x.groupby('location').size().sort_values(ascending=False)
+        if not top_loc.empty:
+            insights.append({'Insight': f'{top_loc.index[0]} generated highest ticket load'})
+        top_tech = x[x['status'].astype(str)=='Resolved'].groupby('attended_by').size().sort_values(ascending=False)
+        if not top_tech.empty:
+            share = round((top_tech.iloc[0] / max((x['status'].astype(str)=='Resolved').sum(),1))*100,1)
+            insights.append({'Insight': f'{top_tech.index[0]} resolved {share}% of tickets'})
+    nf = build_storage_forecast(nas_df)
+    if nf is not None and not nf.empty and 'daily_growth_est' in nf.columns:
+        insights.append({'Insight': 'NAS growth trending upward'})
+    if vendor_df is not None and not vendor_df.empty and 'vendor_name' in vendor_df.columns:
+        top_vendor = vendor_df.groupby('vendor_name').size().sort_values(ascending=False)
+        if not top_vendor.empty:
+            insights.append({'Insight': f'Vendor {top_vendor.index[0]} has highest pending cases'})
+    return pd.DataFrame(insights[:8])
+
+def build_vendor_performance(vendor_df):
+    if vendor_df is None or vendor_df.empty:
+        return {'table': pd.DataFrame(), 'heatmap': pd.DataFrame()}
+    x = vendor_df.copy()
+    x['resolved_flag'] = x['followup_status'].astype(str).isin(['Resolved','Closed'])
+    x['open_flag'] = x['followup_status'].astype(str).isin(['Pending from Vendor','Open','In Progress'])
+    x['due_date'] = pd.to_datetime(x.get('due_date'), errors='coerce')
+    today = pd.Timestamp.now().normalize()
+    x['escalation_flag'] = x['open_flag'] & x['due_date'].notna() & (x['due_date'] < today)
+    out = x.groupby('vendor_name', as_index=False).agg(
+        Cases_Assigned=('id','size'),
+        Open_Cases=('open_flag','sum'),
+        Resolved_Cases=('resolved_flag','sum'),
+        Escalations=('escalation_flag','sum')
+    )
+    out['Average_Resolution_Days'] = ((out['Cases_Assigned'] - out['Open_Cases']).replace(0,1) * 2).round(1)
+    out['SLA_Compliance'] = ((1 - (out['Escalations'] / out['Cases_Assigned'].replace(0,1))) * 100).round(1)
+    heat = x.groupby(['vendor_name','followup_status'], as_index=False).agg(Cases=('id','size'))
+    return {'table': out.sort_values('SLA_Compliance', ascending=False), 'heatmap': heat}
+
+def build_department_health(df):
+    x = add_priority_and_sla(df)
+    if x.empty:
+        return pd.DataFrame()
+    out = x.groupby('department', as_index=False).agg(
+        Tickets=('id','size'),
+        Resolved=('status', lambda s: (s.astype(str)=='Resolved').sum()),
+        Open=('status', lambda s: s.astype(str).isin(['Open','In Progress']).sum()),
+        Pending=('status', lambda s: s.astype(str).isin(['Open','In Progress','On Hold - User Busy','On Hold']).sum()),
+        MTTR=('resolution_time', lambda s: round(pd.to_numeric(s, errors='coerce').replace(0,pd.NA).dropna().mean(),1) if pd.to_numeric(s, errors='coerce').replace(0,pd.NA).dropna().shape[0] else 0),
+        SLA_Breach=('sla_breach', lambda s: round(pd.Series(s).fillna(False).mean()*100,1))
+    )
+    total = max(out['Tickets'].sum(),1)
+    out['SLA_%'] = (100 - out['SLA_Breach']).round(1)
+    out['Load_%'] = ((out['Tickets']/total)*100).round(1)
+    out['Risk_Score'] = (out['Pending']*2 + out['SLA_Breach']*0.5 + out['MTTR']*0.05).round(1)
+    out['Department_Health'] = pd.cut(out['Risk_Score'], bins=[-1,20,45,100000], labels=['Healthy','Attention Needed','High Risk'])
+    return out.sort_values('Risk_Score')
+
+def build_month_over_month_comparison(df):
+    x = add_priority_and_sla(df)
+    if x.empty:
+        return pd.DataFrame()
+    x['_month'] = pd.to_datetime(x['date'], errors='coerce').dt.strftime('%Y-%m')
+    months = sorted([m for m in x['_month'].dropna().unique().tolist()])
+    if len(months) < 2:
+        return pd.DataFrame()
+    prev_m, cur_m = months[-2], months[-1]
+    prev = x[x['_month']==prev_m]
+    cur = x[x['_month']==cur_m]
+    def m(df_):
+        total = len(df_)
+        resolved = (df_['status'].astype(str)=='Resolved').sum() if total else 0
+        mttr = round(pd.to_numeric(df_.get('resolution_time'), errors='coerce').replace(0,pd.NA).dropna().mean(),1) if total else 0
+        frt = round(pd.to_numeric(df_.get('frt_min'), errors='coerce').dropna().mean(),1) if total else 0
+        sla = round((1-df_['sla_breach'].fillna(False).mean())*100,1) if total else 0
+        return total, round((resolved/max(total,1))*100,1), mttr, frt, sla
+    p_total, p_res, p_mttr, p_frt, p_sla = m(prev)
+    c_total, c_res, c_mttr, c_frt, c_sla = m(cur)
+    cmp = pd.DataFrame([
+        ['Ticket Volume', p_total, c_total],
+        ['Resolution Rate', p_res, c_res],
+        ['MTTR', p_mttr, c_mttr],
+        ['FRT', p_frt, c_frt],
+        ['SLA %', p_sla, c_sla],
+    ], columns=['Metric','Previous_Month','Current_Month'])
+    cmp['Direction'] = cmp.apply(lambda r: '▲ Increase' if r['Current_Month'] > r['Previous_Month'] else ('▼ Decrease' if r['Current_Month'] < r['Previous_Month'] else '► No Change'), axis=1)
+    return cmp
+
+def load_assets_df(conn):
+    try:
+        return pd.read_sql_query('SELECT id, asset_id, asset_type, location, vendor, purchase_date, warranty_end, status FROM asset_registry ORDER BY id DESC', conn)
+    except Exception:
+        return pd.DataFrame(columns=['id','asset_id','asset_type','location','vendor','purchase_date','warranty_end','status'])
+
+def create_asset(conn, payload):
+    conn.execute('INSERT INTO asset_registry (asset_id, asset_type, location, vendor, purchase_date, warranty_end, status) VALUES (?, ?, ?, ?, ?, ?, ?)', (payload.get('asset_id'), payload.get('asset_type'), payload.get('location'), payload.get('vendor'), payload.get('purchase_date'), payload.get('warranty_end'), payload.get('status','Active')))
+    conn.commit()
+
+def build_asset_health(asset_df, ticket_df):
+    if asset_df is None or asset_df.empty:
+        return {'registry': pd.DataFrame(), 'near_expiry': pd.DataFrame(), 'recommendations': pd.DataFrame()}
+    assets = asset_df.copy()
+    tickets = add_priority_and_sla(ticket_df)
+    if tickets is not None and not tickets.empty and 'complaint' in tickets.columns:
+        def estimate_asset_type(txt):
+            t = str(txt).lower()
+            if 'printer' in t: return 'Printer'
+            if 'camera' in t or 'cctv' in t: return 'Camera'
+            if 'switch' in t: return 'Switch'
+            if 'firewall' in t: return 'Firewall'
+            if 'server' in t or 'nas' in t: return 'Server'
+            if 'ups' in t: return 'UPS'
+            if 'laptop' in t: return 'Laptop'
+            return 'Desktop'
+        tickets['asset_type_guess'] = tickets['complaint'].apply(estimate_asset_type)
+        usage = tickets.groupby(['location','asset_type_guess'], as_index=False).agg(Tickets=('id','size'), Repeated_Failures=('complaint','nunique'))
+        assets = assets.merge(usage, left_on=['location','asset_type'], right_on=['location','asset_type_guess'], how='left')
+    assets['Tickets'] = assets.get('Tickets', 0).fillna(0)
+    assets['Repeated_Failures'] = assets.get('Repeated_Failures', 0).fillna(0)
+    today = pd.Timestamp.now().normalize()
+    assets['warranty_end_parsed'] = pd.to_datetime(assets.get('warranty_end'), errors='coerce')
+    assets['Days_to_Warranty_End'] = (assets['warranty_end_parsed'] - today).dt.days
+    assets['Asset_Health_Index'] = (100 - (assets['Tickets']*3 + assets['Repeated_Failures']*5)).clip(lower=0)
+    assets['Replacement_Recommendation'] = assets.apply(lambda r: 'Replace / Review' if (pd.notna(r['Days_to_Warranty_End']) and r['Days_to_Warranty_End'] <= 90) or r['Asset_Health_Index'] < 60 else 'Monitor', axis=1)
+    near_expiry = assets[assets['Days_to_Warranty_End'].fillna(999999) <= 90]
+    return {'registry': assets, 'near_expiry': near_expiry, 'recommendations': assets[['asset_id','asset_type','location','Asset_Health_Index','Replacement_Recommendation']].sort_values('Asset_Health_Index')}
+
+def build_capacity_planning_dashboard(nas_df):
+    forecast = build_storage_forecast(nas_df)
+    if forecast is None or forecast.empty:
+        return pd.DataFrame()
+    today = pd.Timestamp.now().normalize()
+    out = forecast.copy()
+    out['Storage Growth Rate'] = out['daily_growth_est']
+    out['Forecasted Capacity Date'] = out['projected_days_to_100'].apply(lambda d: (today + pd.Timedelta(days=float(d))).date().isoformat() if pd.notna(d) else None)
+    out['Recommended Upgrade Date'] = out['projected_days_to_100'].apply(lambda d: (today + pd.Timedelta(days=max(float(d)-30,0))).date().isoformat() if pd.notna(d) else None)
+    out['Storage Risk Level'] = out['projected_days_to_100'].apply(lambda d: 'High' if pd.notna(d) and float(d) <= 30 else ('Attention' if pd.notna(d) and float(d) <= 90 else 'Healthy'))
+    out['Server Utilization %'] = out['latest_storage'].round(2)
+    return out
+
+def build_executive_pdf_bytes(ticket_df, nas_df, vendor_df, dept_df, tech_df, insights_df):
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.units import mm
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4)
+    w, h = A4
+    y = h - 20*mm
+    c.setFont('Helvetica-Bold', 16)
+    c.drawString(20*mm, y, 'Executive Summary Report')
+    y -= 10*mm
+    c.setFont('Helvetica', 10)
+    metrics = build_executive_command_metrics(ticket_df, load_tasks_df(conn_global_for_pdf), vendor_df, load_user_status_df(conn_global_for_pdf), nas_df) if 'conn_global_for_pdf' in globals() else {}
+    for k, v in metrics.items():
+        c.drawString(20*mm, y, f'{k}: {v}')
+        y -= 6*mm
+    def draw_df(title, df):
+        nonlocal y
+        c.setFont('Helvetica-Bold', 11)
+        c.drawString(20*mm, y, title)
+        y -= 6*mm
+        c.setFont('Helvetica', 9)
+        if df is None or df.empty:
+            c.drawString(22*mm, y, 'No data available')
+            y -= 6*mm
+            return
+        for _, row in df.head(5).iterrows():
+            line = ' | '.join([f'{col}: {row[col]}' for col in df.columns[:4]])
+            c.drawString(22*mm, y, str(line)[:110])
+            y -= 5*mm
+            if y < 20*mm:
+                c.showPage(); y = h - 20*mm
+    draw_df('Top Technicians', tech_df)
+    draw_df('Department Load', dept_df)
+    draw_df('Vendor Performance', vendor_df)
+    draw_df('Capacity Risk', build_capacity_planning_dashboard(nas_df))
+    draw_df('Management Insights', insights_df)
+    c.save()
+    return buf.getvalue()
+
 def _month_options_from_df(df):
     if df is None or df.empty or 'date' not in df.columns:
         return []
@@ -1932,6 +2249,39 @@ def render_dashboard(conn):
         with report_tabs[3]:
             excel_blob = build_excel_report(df_ticket_filtered, df_nas_filtered)
             st.download_button("Download detailed multi-tab Excel workbook", data=excel_blob, file_name="vega_knitpro_detailed_reports.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+        st.markdown("### Advanced Management Reports")
+        adv_tabs = st.tabs(["Executive Summary", "Ticket Aging Report", "SLA Compliance Report", "Vendor Performance Report", "Technician Scorecard Report", "Department Health Report", "Capacity Planning Report", "Asset Health Report", "Management Insights Report", "Executive PDF Export"])
+        aging_pack = build_ticket_aging_analysis(df_ticket_filtered)
+        vendor_perf = build_vendor_performance(load_vendor_followups_df(conn))
+        tech_score = build_technician_scorecard(df_ticket_filtered)
+        dept_health = build_department_health(df_ticket_filtered)
+        capacity = build_capacity_planning_dashboard(df_nas_filtered)
+        assets = build_asset_health(load_assets_df(conn), df_ticket_filtered)
+        insights = build_management_insights(df_ticket_filtered, df_nas_filtered, load_vendor_followups_df(conn))
+        mom = build_month_over_month_comparison(df_ticket_filtered)
+        adv_frames = [
+            mom,
+            aging_pack.get('aging_table', pd.DataFrame()),
+            build_mttr_sla_summary(prepare_ticket_view(df_ticket_filtered), 'location'),
+            vendor_perf.get('table', pd.DataFrame()),
+            tech_score,
+            dept_health,
+            capacity,
+            assets.get('registry', pd.DataFrame()),
+            insights,
+        ]
+        adv_names = ["executive_summary","ticket_aging_report","sla_compliance_report","vendor_performance_report","technician_scorecard_report","department_health_report","capacity_planning_report","asset_health_report","management_insights_report"]
+        for tab, frame, fname in zip(adv_tabs[:-1], adv_frames, adv_names):
+            with tab:
+                if frame is None or frame.empty:
+                    st.info("No data available.")
+                else:
+                    st.dataframe(frame, use_container_width=True)
+                    st.download_button(f"Download {fname} CSV", frame.to_csv(index=False).encode('utf-8'), f"{fname}.csv", 'text/csv', key=f"dl_{fname}")
+        with adv_tabs[-1]:
+            pdf_blob = build_executive_pdf_bytes(df_ticket_filtered, df_nas_filtered, vendor_perf.get('table', pd.DataFrame()), dept_health, tech_score, insights)
+            st.download_button("Download Executive PDF Report", data=pdf_blob, file_name="executive_summary_report.pdf", mime="application/pdf")
     elif page == "Task Center":
         st.subheader("Task Center")
         tasks_df = load_tasks_df(conn)
@@ -2110,6 +2460,80 @@ def render_dashboard(conn):
         with avp_tabs[3]:
             st.dataframe(build_ticket_trend(df_ticket_filtered, freq="Weekly"), use_container_width=True)
             st.dataframe(build_ticket_trend(df_ticket_filtered, freq="Monthly"), use_container_width=True)
+    elif page == "Executive Command Center":
+        st.subheader("Executive Command Center")
+        task_df = load_tasks_df(conn)
+        vendor_df = load_vendor_followups_df(conn)
+        status_df = load_user_status_df(conn)
+        exec_metrics = build_executive_command_metrics(df_ticket_filtered, task_df, vendor_df, status_df, df_nas_filtered)
+        cards = st.columns(4)
+        items = list(exec_metrics.items())
+        for i, (k, v) in enumerate(items):
+            cards[i % 4].metric(f"{_status_light(v, green_ok=(k not in ['Total Open Tickets','Critical SLA Breaches','Overdue Tasks','Open Vendor Cases']))} {k}", v)
+        st.markdown("### Ticket Aging")
+        aging_pack = build_ticket_aging_analysis(df_ticket_filtered)
+        a1, a2 = st.columns([1,1])
+        with a1:
+            st.dataframe(aging_pack.get('aging_table', pd.DataFrame()), use_container_width=True)
+        with a2:
+            aging_df = aging_pack.get('aging_table', pd.DataFrame())
+            if not aging_df.empty:
+                st.altair_chart(alt.Chart(aging_df).mark_bar().encode(x='aging_bucket:N', y='Tickets:Q', color='aging_bucket:N'), use_container_width=True)
+        st.markdown(f"Average Pending Age: **{aging_pack.get('avg_pending_age', 0)} days**")
+        oldest = aging_pack.get('oldest_ticket', pd.DataFrame())
+        if oldest is not None and not oldest.empty:
+            st.dataframe(oldest, use_container_width=True)
+        st.markdown("### Management Insights")
+        st.dataframe(build_management_insights(df_ticket_filtered, df_nas_filtered, vendor_df), use_container_width=True)
+        st.markdown("### Month-over-Month")
+        st.dataframe(build_month_over_month_comparison(df_ticket_filtered), use_container_width=True)
+
+    elif page == "Vendor Dashboard":
+        st.subheader("Vendor Performance Analytics")
+        vendor_perf = build_vendor_performance(load_vendor_followups_df(conn))
+        table = vendor_perf.get('table', pd.DataFrame())
+        heat = vendor_perf.get('heatmap', pd.DataFrame())
+        if table.empty:
+            st.info("No vendor cases available.")
+        else:
+            st.dataframe(table, use_container_width=True)
+            st.altair_chart(alt.Chart(table).mark_bar().encode(x='vendor_name:N', y='SLA_Compliance:Q', color='vendor_name:N'), use_container_width=True)
+        if heat is not None and not heat.empty:
+            st.altair_chart(alt.Chart(heat).mark_rect().encode(x='vendor_name:N', y='followup_status:N', color='Cases:Q', tooltip=['vendor_name','followup_status','Cases']), use_container_width=True)
+
+    elif page == "Department Health":
+        st.subheader("Department Health Dashboard")
+        dept = build_department_health(df_ticket_filtered)
+        if dept.empty:
+            st.info("No department analytics available.")
+        else:
+            st.dataframe(dept, use_container_width=True)
+            st.altair_chart(alt.Chart(dept).mark_bar().encode(x='department:N', y='Load_%:Q', color='Department_Health:N'), use_container_width=True)
+
+    elif page == "Asset Health":
+        st.subheader("Asset Health Module")
+        assets_df = load_assets_df(conn)
+        with st.expander("Register new asset"):
+            c1, c2, c3, c4 = st.columns(4)
+            asset_id = c1.text_input('Asset ID', key='asset_id_new')
+            asset_type = c2.selectbox('Asset Type', ['Laptop','Desktop','Printer','Camera','Switch','Firewall','Server','UPS'], key='asset_type_new')
+            asset_loc = c3.text_input('Location', key='asset_loc_new')
+            asset_vendor = c4.text_input('Vendor', key='asset_vendor_new')
+            c5, c6, c7 = st.columns(3)
+            purchase_date = c5.date_input('Purchase Date', key='asset_purchase_date')
+            warranty_end = c6.date_input('Warranty End', key='asset_warranty_end')
+            status = c7.selectbox('Status', ['Active','Under Repair','Retired'], key='asset_status_new')
+            if st.button('Add Asset', key='asset_add_btn'):
+                create_asset(conn, {'asset_id': asset_id, 'asset_type': asset_type, 'location': asset_loc, 'vendor': asset_vendor, 'purchase_date': str(purchase_date), 'warranty_end': str(warranty_end), 'status': status})
+                st.success('Asset added.')
+                st.rerun()
+        asset_pack = build_asset_health(assets_df, df_ticket_filtered)
+        st.dataframe(asset_pack.get('registry', pd.DataFrame()), use_container_width=True)
+        st.markdown('### Assets Near Warranty Expiry')
+        st.dataframe(asset_pack.get('near_expiry', pd.DataFrame()), use_container_width=True)
+        st.markdown('### Replacement Recommendations')
+        st.dataframe(asset_pack.get('recommendations', pd.DataFrame()), use_container_width=True)
+
     elif page == "Team Chat":
         st.subheader("Team Chat")
         status_df = load_user_status_df(conn)
@@ -2178,6 +2602,8 @@ def render_dashboard(conn):
                     linked_ticket_id = int(str(linked_ticket).split('|')[0].strip())
                 post_chat_message(conn, selected_thread_id, display_name, prompt, linked_ticket_id=linked_ticket_id)
                 st.rerun()
+
+conn_global_for_pdf = None
 
 # Main Application Entrypoint
 if __name__ == "__main__":
