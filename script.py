@@ -1880,6 +1880,144 @@ def _filter_df_by_month(df, selected_month):
     return df[dt.dt.to_period('M').astype(str) == selected_month]
 
 
+
+
+def get_navigation_groups(role):
+    pages = get_role_pages(role)
+    groups = {
+        '📊 Dashboard': ['Home', 'Executive Command Center', 'Overview'],
+        '🎫 Operations': ['Ticket Operations', 'Task Center', 'Team Chat'],
+        '📈 Analytics': ['Reports', 'AVP Dashboard', 'Department Health', 'Vendor Dashboard'],
+        '🖥 Infrastructure': ['NAS Monitoring', 'Asset Health'],
+        '⚙ Administration': ['Admin Tools'],
+    }
+    return {g: [p for p in plist if p in pages] for g, plist in groups.items() if any(p in pages for p in plist)}
+
+def page_breadcrumb(page):
+    mapping = {
+        'Home': 'Home', 'Executive Command Center': 'Home > Dashboard > Executive Command Center', 'Overview': 'Home > Dashboard > Overview',
+        'Ticket Operations': 'Home > Operations > Ticket Operations', 'Task Center': 'Home > Operations > Task Center', 'Team Chat': 'Home > Operations > Team Chat',
+        'Reports': 'Home > Analytics > Reports', 'AVP Dashboard': 'Home > Analytics > AVP Dashboard', 'Department Health': 'Home > Analytics > Department Health',
+        'Vendor Dashboard': 'Home > Analytics > Vendor Dashboard', 'NAS Monitoring': 'Home > Infrastructure > NAS Monitoring', 'Asset Health': 'Home > Infrastructure > Asset Health',
+        'Admin Tools': 'Home > Administration > Admin Tools',
+    }
+    return mapping.get(page, f'Home > {page}')
+
+def inject_enterprise_ui_css():
+    css = """
+    <style>
+    :root { --bg:#020617; --surface:#0F172A; --surface-2:#111827; --border:rgba(148,163,184,0.16); --text:#E5EEF9; --muted:#94A3B8; --primary:#3B82F6; --success:#10B981; --warning:#F59E0B; --danger:#EF4444; --shadow:0 14px 40px rgba(2,6,23,.28); --shadow-soft:0 8px 24px rgba(15,23,42,.22); --radius:18px; }
+    .stApp, [data-testid='stAppViewContainer'], [data-testid='stHeader'] { background: radial-gradient(circle at top right, rgba(59,130,246,0.10), transparent 25%), linear-gradient(180deg, #020617 0%, #071122 100%); }
+    [data-testid='stSidebar'] { background: linear-gradient(180deg, #0b1220 0%, #111827 100%) !important; border-right:1px solid var(--border); }
+    [data-testid='stSidebarNav'] { display:none; }
+    .block-container { padding-top: 1rem !important; padding-bottom: 2rem !important; max-width: 1500px; }
+    .sticky-topbar { position: sticky; top: .25rem; z-index: 30; backdrop-filter: blur(12px); background: rgba(2,6,23,.72); border:1px solid var(--border); border-radius: 18px; padding: 14px 18px; margin-bottom: 16px; box-shadow: var(--shadow-soft); }
+    .app-hero { background: linear-gradient(135deg, rgba(59,130,246,.18), rgba(15,23,42,.96)); border:1px solid rgba(96,165,250,.24); border-radius: 24px; padding: 22px 24px; box-shadow: var(--shadow); }
+    .eyebrow { color: var(--muted); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+    .hero-title { font-size: 30px; font-weight: 800; color: white; margin: 4px 0 8px 0; }
+    .hero-sub,.crumb,.last-updated,.feed-meta,.panel-sub,.kpi-sub,.kpi-title { color: var(--muted); }
+    .crumb,.last-updated,.kpi-title { font-size:12px; }
+    .kpi-card { background: linear-gradient(180deg, rgba(15,23,42,.98), rgba(18,32,51,.96)); border:1px solid var(--border); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow-soft); min-height: 136px; transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
+    .kpi-card:hover { transform: translateY(-2px); box-shadow: 0 16px 36px rgba(2,6,23,.34); border-color: rgba(96,165,250,.28); }
+    .kpi-top { display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px; }
+    .kpi-icon { width: 38px; height:38px; border-radius: 12px; display:flex; align-items:center; justify-content:center; background: rgba(59,130,246,.14); color:#93C5FD; font-size:18px; }
+    .kpi-value { color:#fff; font-size: 28px; font-weight: 800; line-height:1.1; font-variant-numeric: tabular-nums; }
+    .trend-up { color: var(--success); } .trend-warn { color: var(--warning); } .trend-down { color: var(--danger); }
+    .panel,.stTabs [data-baseweb='tab'], div[data-testid='stMetric'] { background: linear-gradient(180deg, rgba(15,23,42,.95), rgba(15,23,42,.88)); border:1px solid var(--border); border-radius: 16px; }
+    .panel { padding:16px; box-shadow: var(--shadow-soft); }
+    .panel-title,.feed-title { color:#fff; }
+    .panel-title { font-size:18px; font-weight:700; margin-bottom:10px; }
+    .action-btn-row .stButton>button { width:100%; border-radius: 14px; border:1px solid rgba(96,165,250,.18); background: linear-gradient(180deg, rgba(30,41,59,.98), rgba(15,23,42,.98)); color:#e5eef9; min-height: 46px; }
+    .stTabs [data-baseweb='tab-list'] { gap: 8px; background: transparent; }
+    .stTabs [data-baseweb='tab'] { padding: 10px 14px; }
+    .stTabs [aria-selected='true'] { background: rgba(59,130,246,.14) !important; border-color: rgba(96,165,250,.34) !important; }
+    .stDataFrame, div[data-testid='stDataFrame'] { border-radius: 16px; overflow: hidden; border:1px solid var(--border); }
+    .feed-item { padding: 12px 0; border-bottom:1px solid rgba(148,163,184,.12); }
+    .feed-item:last-child { border-bottom:none; }
+    .insight-card { background: linear-gradient(180deg, rgba(30,41,59,.92), rgba(15,23,42,.96)); border:1px solid rgba(96,165,250,.16); border-radius:16px; padding:14px; min-height:100px; }
+    @media (max-width: 900px) { .hero-title { font-size:24px; } .block-container { padding-left: .9rem !important; padding-right: .9rem !important; } }
+    @media (max-width: 640px) { .kpi-card { min-height:auto; } }
+    </style>
+    """
+    st.markdown(css, unsafe_allow_html=True)
+
+def render_kpi_card(title, value, subtitle='', icon='📊', trend=None, tone='primary'):
+    trend_cls = 'trend-up' if tone == 'success' else ('trend-warn' if tone == 'warning' else ('trend-down' if tone == 'danger' else ''))
+    trend_html = f'<div class="kpi-sub {trend_cls}">{trend}</div>' if trend else ''
+    st.markdown(f'<div class="kpi-card"><div class="kpi-top"><div><div class="kpi-title">{title}</div><div class="kpi-value">{value}</div></div><div class="kpi-icon">{icon}</div></div><div class="kpi-sub">{subtitle}</div>{trend_html}</div>', unsafe_allow_html=True)
+
+def render_info_feed(title, rows, fields):
+    st.markdown(f'<div class="panel"><div class="panel-title">{title}</div>', unsafe_allow_html=True)
+    if rows is None or len(rows) == 0:
+        st.info('No recent activity available.')
+    else:
+        for _, row in rows.iterrows():
+            primary = ' · '.join([str(row.get(f, '')) for f in fields[:2] if str(row.get(f, '')) not in ['', 'nan']])
+            meta = ' · '.join([str(row.get(f, '')) for f in fields[2:] if str(row.get(f, '')) not in ['', 'nan']])
+            st.markdown(f'<div class="feed-item"><div class="feed-title">{primary}</div><div class="feed-meta">{meta}</div></div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+def render_home_page(user, ticket_df, nas_df, conn):
+    today = pd.Timestamp.now()
+    st.markdown('<div class="crumb">Home</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="app-hero"><div class="eyebrow">Welcome</div><div class="hero-title">Welcome {user.get("display_name", "User")}</div><div class="hero-sub">Today: {today.strftime("%d %b %Y")} · Role: {user.get("role", "User")}</div></div>', unsafe_allow_html=True)
+    st.markdown('')
+    qa = st.columns(6)
+    actions = [('New Ticket','Ticket Operations'),('Create Task','Task Center'),('Open Reports','Reports'),('Team Chat','Team Chat'),('View Assets','Asset Health'),('NAS Dashboard','NAS Monitoring')]
+    st.markdown('<div class="action-btn-row">', unsafe_allow_html=True)
+    for col, (label, target) in zip(qa, actions):
+        with col:
+            if st.button(label, key=f'home_{target}'):
+                st.session_state['page'] = target
+                st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+    metrics = build_ticket_exec_metrics(ticket_df)
+    cap = build_capacity_planning_dashboard(nas_df)
+    nas_health = round(max(0, 100 - cap['latest_storage'].mean()), 1) if cap is not None and not cap.empty and 'latest_storage' in cap.columns else 0
+    k1, k2, k3, k4, k5 = st.columns(5)
+    with k1: render_kpi_card('Open Tickets', metrics.get('pending',0), 'Current backlog', '🎫', tone='warning')
+    with k2: render_kpi_card('Resolved Today', metrics.get('today_closed',0), 'Closed today', '✅', tone='success')
+    with k3: render_kpi_card('SLA %', round(100 - add_priority_and_sla(ticket_df).get('sla_breach', pd.Series(dtype=bool)).fillna(False).mean()*100,1) if not ticket_df.empty else 0, 'Compliance view', '🎯')
+    with k4: render_kpi_card('MTTR', metrics.get('avg_resolution',0), 'Average minutes', '⏱')
+    with k5: render_kpi_card('NAS Health', nas_health, 'Storage posture', '🖥', tone='success' if nas_health >= 70 else 'warning')
+    left, mid, right = st.columns([1.1,1.1,1])
+    with left: render_info_feed('Recent Tickets', prepare_ticket_view(ticket_df).head(6) if ticket_df is not None else pd.DataFrame(), ['complaint','status','location','date'])
+    with mid: render_info_feed('Recent Tasks', load_tasks_df(conn).head(6), ['title','status','assigned_to','due_date'])
+    with right: render_info_feed('Recent Vendor Updates', load_vendor_followups_df(conn).head(6), ['vendor_name','followup_status','ticket_id','due_date'])
+    st.markdown('<div class="panel"><div class="panel-title">Management Insights</div><div class="panel-sub">Auto-generated operational observations.</div></div>', unsafe_allow_html=True)
+    insights = build_management_insights(ticket_df, nas_df, load_vendor_followups_df(conn))
+    cols = st.columns(3)
+    if insights is not None and not insights.empty:
+        for i, insight in enumerate(insights.head(6)['Insight'].tolist()):
+            with cols[i % 3]:
+                st.markdown(f'<div class="insight-card">{insight}</div>', unsafe_allow_html=True)
+
+def render_global_search(conn, ticket_df):
+    with st.sidebar.expander('🔎 Global Search', expanded=False):
+        q = st.text_input('Search tickets, users, departments, technicians, vendors, assets, locations, tasks', key='global_search_q')
+        if q:
+            qt = str(q).lower(); results = []
+            if ticket_df is not None and not ticket_df.empty:
+                t = ticket_df.astype(str).apply(lambda c: c.str.lower()); mask = t.apply(lambda c: c.str.contains(qt, na=False)).any(axis=1)
+                if mask.any():
+                    for _, r in ticket_df.loc[mask].head(8).iterrows(): results.append(f"🎫 Ticket #{r.get('id','')} · {r.get('complaint','')} · {r.get('location','')}")
+            task_df = load_tasks_df(conn)
+            if task_df is not None and not task_df.empty:
+                t = task_df.astype(str).apply(lambda c: c.str.lower()); mask = t.apply(lambda c: c.str.contains(qt, na=False)).any(axis=1)
+                if mask.any():
+                    for _, r in task_df.loc[mask].head(5).iterrows(): results.append(f"📌 Task #{r.get('id','')} · {r.get('title','')} · {r.get('assigned_to','')}")
+            vendor_df = load_vendor_followups_df(conn)
+            if vendor_df is not None and not vendor_df.empty:
+                t = vendor_df.astype(str).apply(lambda c: c.str.lower()); mask = t.apply(lambda c: c.str.contains(qt, na=False)).any(axis=1)
+                if mask.any():
+                    for _, r in vendor_df.loc[mask].head(5).iterrows(): results.append(f"🏭 Vendor · {r.get('vendor_name','')} · Ticket {r.get('ticket_id','')}")
+            assets_df = load_assets_df(conn) if 'load_assets_df' in globals() else pd.DataFrame()
+            if assets_df is not None and not assets_df.empty:
+                t = assets_df.astype(str).apply(lambda c: c.str.lower()); mask = t.apply(lambda c: c.str.contains(qt, na=False)).any(axis=1)
+                if mask.any():
+                    for _, r in assets_df.loc[mask].head(5).iterrows(): results.append(f"📦 Asset · {r.get('asset_id','')} · {r.get('location','')}")
+            [st.caption(r) for r in results[:12]] if results else st.caption('No matching records found.')
+
 def render_dashboard(conn):
     user = st.session_state.get("current_user", {})
     role = user.get("role", "IT Executive")
@@ -1910,7 +2048,10 @@ def render_dashboard(conn):
     df_ticket_filtered = filtered_tickets(df_tickets, site_filter, status_filter, tech_filter)
     df_nas_filtered = filtered_nas(df_nas, server_filter)
     st.markdown("<div class='app-banner'><div class='app-title'>🛠️ Vega & Knitpro IT Command Suite</div><div class='app-subtitle'>Single-window support operations, NAS monitoring, reporting, tasking, and infrastructure analytics</div></div>", unsafe_allow_html=True)
-    if page == "Overview":
+    if page == "Home":
+        render_home_page(user, df_ticket_filtered, df_nas_filtered, conn)
+
+    elif page == "Overview":
         st.subheader("Operations Overview")
         overview_df = add_priority_and_sla(df_ticket_filtered)
         total_tickets = len(overview_df)
@@ -2161,6 +2302,7 @@ def render_dashboard(conn):
         st.subheader("Reports")
         report_tabs = st.tabs(["Analysis Tables", "Detailed Reports", "NAS Forecast", "Excel Export"])
 
+        st.markdown("<div class="panel"><div class="panel-title">Analytics Center</div><div class="panel-sub">Executive, SLA, technician, department, site, asset, NAS, and insights views remain available through the existing reports plus the new management report layer.</div></div>", unsafe_allow_html=True)
         with report_tabs[0]:
             st.markdown("### Detailed Analysis Tables")
             analysis_tabs = st.tabs(["Technician Performance", "Department Summary", "Location Summary", "Repeat Issues"])
@@ -2461,7 +2603,8 @@ def render_dashboard(conn):
             st.dataframe(build_ticket_trend(df_ticket_filtered, freq="Weekly"), use_container_width=True)
             st.dataframe(build_ticket_trend(df_ticket_filtered, freq="Monthly"), use_container_width=True)
     elif page == "Executive Command Center":
-        st.subheader("Executive Command Center")
+        st.subheader("IT Operations War Room")
+        st.caption("A single-screen executive view with KPI ribbon, operational risk, and management insight blocks.")
         task_df = load_tasks_df(conn)
         vendor_df = load_vendor_followups_df(conn)
         status_df = load_user_status_df(conn)
@@ -2535,6 +2678,7 @@ def render_dashboard(conn):
         st.dataframe(asset_pack.get('recommendations', pd.DataFrame()), use_container_width=True)
 
     elif page == "Team Chat":
+        st.markdown("<div class="panel"><div class="panel-title">Team Chat</div><div class="panel-sub">Unread badges, presence indicators, mentions, and ticket-linked collaboration stay functionally unchanged while using a cleaner shell.</div></div>", unsafe_allow_html=True)
         st.subheader("Team Chat")
         status_df = load_user_status_df(conn)
         threads_df = load_chat_threads_df(conn)
