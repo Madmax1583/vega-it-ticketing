@@ -1544,6 +1544,25 @@ def build_detailed_ticket_exports(df):
         "Pending Tickets": pending,
     }
 
+
+
+# Added month/year helpers for detailed report selection
+def _month_options_from_df(df):
+    if df is None or df.empty or 'date' not in df.columns:
+        return []
+    dt = pd.to_datetime(df['date'], errors='coerce').dropna()
+    if dt.empty:
+        return []
+    periods = sorted(dt.dt.to_period('M').unique())
+    return [str(p) for p in periods]
+
+def _filter_df_by_month(df, selected_month):
+    if df is None or df.empty or not selected_month or selected_month == 'All':
+        return df
+    dt = pd.to_datetime(df.get('date'), errors='coerce')
+    return df[dt.dt.to_period('M').astype(str) == selected_month]
+
+
 def render_dashboard(conn):
     user = st.session_state.get("current_user", {})
     role = user.get("role", "IT Executive")
@@ -2167,19 +2186,3 @@ if __name__ == "__main__":
     seed_supabase_users_if_needed()
     bootstrap_auth_gate(conn)
     render_dashboard(conn)
-
-# Added month/year helpers for detailed report selection
-def _month_options_from_df(df):
-    if df is None or df.empty or 'date' not in df.columns:
-        return []
-    dt = pd.to_datetime(df['date'], errors='coerce').dropna()
-    if dt.empty:
-        return []
-    periods = sorted(dt.dt.to_period('M').unique())
-    return [str(p) for p in periods]
-
-def _filter_df_by_month(df, selected_month):
-    if df is None or df.empty or not selected_month or selected_month == 'All':
-        return df
-    dt = pd.to_datetime(df.get('date'), errors='coerce')
-    return df[dt.dt.to_period('M').astype(str) == selected_month]
