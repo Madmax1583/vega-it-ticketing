@@ -1329,28 +1329,11 @@ def load_chat_threads_df(conn):
     except Exception:
         return pd.DataFrame(columns=["id", "title", "created_by", "created_at"])
 
-def load_chat_messages_df(conn, thread_id=None):
-    try:
-        if thread_id is None:
-            return pd.read_sql_query("SELECT id, thread_id, sender, message, created_at FROM chat_messages ORDER BY id DESC", conn)
-        return pd.read_sql_query("SELECT id, thread_id, sender, message, created_at FROM chat_messages WHERE thread_id=? ORDER BY id ASC", conn, params=(int(thread_id),))
-    except Exception:
-        return pd.DataFrame(columns=["id", "thread_id", "sender", "message", "created_at"])
-
 def create_chat_thread(conn, title, created_by):
     cur = conn.cursor()
     cur.execute("INSERT INTO chat_threads (title, created_by) VALUES (?, ?)", (title, created_by))
     conn.commit()
     return cur.lastrowid
-
-def post_chat_message(conn, thread_id, sender, message):
-    conn.execute("INSERT INTO chat_messages (thread_id, sender, message) VALUES (?, ?, ?)", (int(thread_id), sender, message))
-    conn.commit()
-    users_df = get_all_users(conn)
-    if not users_df.empty and 'username' in users_df.columns:
-        for uname in users_df['username'].dropna().astype(str).tolist():
-            if uname.lower() != str(sender).lower():
-                add_notification(conn, uname, f"New team chat message from {sender}")
 
 def add_priority_and_sla(df):
     out = df.copy()
