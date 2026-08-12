@@ -1834,37 +1834,41 @@ def build_capacity_planning_dashboard(nas_df):
     return out
 
 def build_executive_pdf_bytes(ticket_df, nas_df, vendor_df, dept_df, tech_df, insights_df):
-    from reportlab.lib.pagesizes import A4
-    from reportlab.pdfgen import canvas
-    from reportlab.lib.units import mm
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.pdfgen import canvas
+        from reportlab.lib.units import mm
+    except Exception:
+        return None
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
     w, h = A4
-    y = h - 20*mm
+    y = h - 20 * mm
     c.setFont('Helvetica-Bold', 16)
-    c.drawString(20*mm, y, 'Executive Summary Report')
-    y -= 10*mm
+    c.drawString(20 * mm, y, 'Executive Summary Report')
+    y -= 10 * mm
     c.setFont('Helvetica', 10)
     metrics = build_executive_command_metrics(ticket_df, load_tasks_df(conn_global_for_pdf), vendor_df, load_user_status_df(conn_global_for_pdf), nas_df) if 'conn_global_for_pdf' in globals() else {}
     for k, v in metrics.items():
-        c.drawString(20*mm, y, f'{k}: {v}')
-        y -= 6*mm
+        c.drawString(20 * mm, y, f'{k}: {v}')
+        y -= 6 * mm
     def draw_df(title, df):
         nonlocal y
         c.setFont('Helvetica-Bold', 11)
-        c.drawString(20*mm, y, title)
-        y -= 6*mm
+        c.drawString(20 * mm, y, title)
+        y -= 6 * mm
         c.setFont('Helvetica', 9)
         if df is None or df.empty:
-            c.drawString(22*mm, y, 'No data available')
-            y -= 6*mm
+            c.drawString(22 * mm, y, 'No data available')
+            y -= 6 * mm
             return
         for _, row in df.head(5).iterrows():
             line = ' | '.join([f'{col}: {row[col]}' for col in df.columns[:4]])
-            c.drawString(22*mm, y, str(line)[:110])
-            y -= 5*mm
-            if y < 20*mm:
-                c.showPage(); y = h - 20*mm
+            c.drawString(22 * mm, y, str(line)[:110])
+            y -= 5 * mm
+            if y < 20 * mm:
+                c.showPage()
+                y = h - 20 * mm
     draw_df('Top Technicians', tech_df)
     draw_df('Department Load', dept_df)
     draw_df('Vendor Performance', vendor_df)
