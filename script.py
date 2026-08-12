@@ -2069,7 +2069,7 @@ def render_dashboard(conn):
         st.sidebar.warning("Session sandbox mode active")
     df_ticket_filtered = filtered_tickets(df_tickets, site_filter, status_filter, tech_filter)
     df_nas_filtered = filtered_nas(df_nas, server_filter)
-    st.markdown(f"<div class="sticky-topbar"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px"><div><div class="crumb">{page_breadcrumb(page)}</div><div class="hero-title" style="font-size:24px;margin:0">{page}</div></div><div class="last-updated">Updated:<br>{pd.Timestamp.now().strftime("%d %b %Y")}<br>{pd.Timestamp.now().strftime("%I:%M %p")}</div></div></div>", unsafe_allow_html=True)
+    st.markdown(f'''<div class="sticky-topbar"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px"><div><div class="crumb">{page_breadcrumb(page)}</div><div class="hero-title" style="font-size:24px;margin:0">{page}</div></div><div class="last-updated">Updated:<br>{pd.Timestamp.now().strftime('%d %b %Y')}<br>{pd.Timestamp.now().strftime('%I:%M %p')}</div></div></div>''', unsafe_allow_html=True)
     st.markdown("<div class='app-banner'><div class='app-title'>🛠️ Vega & Knitpro IT Command Suite</div><div class='app-subtitle'>Single-window support operations, NAS monitoring, reporting, tasking, and infrastructure analytics</div></div>", unsafe_allow_html=True)
     if page == "Home":
         render_home_page(user, df_ticket_filtered, df_nas_filtered, conn)
