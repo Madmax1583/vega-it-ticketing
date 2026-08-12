@@ -2459,7 +2459,10 @@ def render_dashboard(conn):
                     st.download_button(f"Download {fname} CSV", frame.to_csv(index=False).encode('utf-8'), f"{fname}.csv", 'text/csv', key=f"dl_{fname}")
         with adv_tabs[-1]:
             pdf_blob = build_executive_pdf_bytes(df_ticket_filtered, df_nas_filtered, vendor_perf.get('table', pd.DataFrame()), dept_health, tech_score, insights)
-            st.download_button("Download Executive PDF Report", data=pdf_blob, file_name="executive_summary_report.pdf", mime="application/pdf")
+            if pdf_blob:
+                st.download_button("Download Executive PDF Report", data=pdf_blob, file_name="executive_summary_report.pdf", mime="application/pdf")
+            else:
+                st.info("Executive PDF export is unavailable in this environment.")
     elif page == "Task Center":
         st.subheader("Task Center")
         tasks_df = load_tasks_df(conn)
