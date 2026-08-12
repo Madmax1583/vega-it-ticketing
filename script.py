@@ -1840,6 +1840,11 @@ def render_dashboard(conn):
         with report_tabs[1]:
             detailed = build_detailed_ticket_exports(df_ticket_filtered)
             grouped = build_grouped_detail_views(df_ticket_filtered)
+            month_options = ["All"] + _month_options_from_df(df_ticket_filtered)
+            selected_month = st.selectbox("Select month for ticket detailed reports", month_options, key="tickets_report_month")
+            selected_ticket_df = _filter_df_by_month(df_ticket_filtered, selected_month)
+            detailed = build_detailed_ticket_exports(selected_ticket_df)
+            grouped = build_grouped_detail_views(selected_ticket_df)
             detail_tabs = st.tabs(["All Logs", "Monthly Detail", "Weekly Detail", "Technician Detail", "Site Detail", "MTTR & SLA"])
             with detail_tabs[0]:
                 frame = detailed.get("Master Tickets", pd.DataFrame())
@@ -1877,10 +1882,10 @@ def render_dashboard(conn):
                     st.dataframe(frame, use_container_width=True)
                     st.download_button("Download site_detail CSV", frame.to_csv(index=False).encode("utf-8"), "site_detail.csv", "text/csv")
             with detail_tabs[5]:
-                mt1 = build_mttr_sla_summary(add_priority_and_sla(prepare_ticket_view(df_ticket_filtered)).assign(Month=pd.to_datetime(prepare_ticket_view(df_ticket_filtered).get("date"), errors="coerce").dt.strftime("%Y-%m")), "Month") if not df_ticket_filtered.empty else pd.DataFrame()
-                mt2 = build_mttr_sla_summary(add_priority_and_sla(prepare_ticket_view(df_ticket_filtered)).assign(Week=pd.to_datetime(prepare_ticket_view(df_ticket_filtered).get("date"), errors="coerce").dt.strftime("%Y-W") + pd.to_datetime(prepare_ticket_view(df_ticket_filtered).get("date"), errors="coerce").dt.isocalendar().week.astype(str)), "Week") if not df_ticket_filtered.empty else pd.DataFrame()
-                mt3 = build_mttr_sla_summary(prepare_ticket_view(df_ticket_filtered), "attended_by")
-                mt4 = build_mttr_sla_summary(prepare_ticket_view(df_ticket_filtered), "location")
+                mt1 = build_mttr_sla_summary(add_priority_and_sla(prepare_ticket_view(selected_ticket_df)).assign(Month=pd.to_datetime(prepare_ticket_view(selected_ticket_df).get("date"), errors="coerce").dt.strftime("%Y-%m")), "Month") if not selected_ticket_df.empty else pd.DataFrame()
+                mt2 = build_mttr_sla_summary(add_priority_and_sla(prepare_ticket_view(selected_ticket_df)).assign(Week=pd.to_datetime(prepare_ticket_view(selected_ticket_df).get("date"), errors="coerce").dt.strftime("%Y-W") + pd.to_datetime(prepare_ticket_view(selected_ticket_df).get("date"), errors="coerce").dt.isocalendar().week.astype(str)), "Week") if not selected_ticket_df.empty else pd.DataFrame()
+                mt3 = build_mttr_sla_summary(prepare_ticket_view(selected_ticket_df), "attended_by")
+                mt4 = build_mttr_sla_summary(prepare_ticket_view(selected_ticket_df), "location")
                 sub_tabs = st.tabs(["Month", "Week", "Technician", "Site"])
                 for tab, frame in zip(sub_tabs, [mt1, mt2, mt3, mt4]):
                     with tab:
@@ -1891,10 +1896,13 @@ def render_dashboard(conn):
 
         with report_tabs[2]:
             raw_nas = normalize_nas_df(df_nas_filtered)
-            deltas = compute_nas_changes(df_nas_filtered)
-            forecast = build_storage_forecast(df_nas_filtered)
+            month_options = ["All"] + _month_options_from_df(raw_nas)
+            selected_month = st.selectbox("Select month for NAS detailed reports", month_options, key="nas_report_month")
+            selected_nas_df = _filter_df_by_month(raw_nas, selected_month)
+            deltas = compute_nas_changes(selected_nas_df)
+            forecast = build_storage_forecast(selected_nas_df)
             nas_tabs = st.tabs(["Raw NAS Logs", "Delta Logs", "Forecast"])
-            for tab, frame, filename in zip(nas_tabs, [raw_nas, deltas, forecast], ["raw_nas_logs.csv", "nas_delta_logs.csv", "nas_forecast.csv"]):
+            for tab, frame, filename in zip(nas_tabs, [selected_nas_df, deltas, forecast], ["raw_nas_logs.csv", "nas_delta_logs.csv", "nas_forecast.csv"]):
                 with tab:
                     if frame.empty:
                         st.info("No NAS data available.")
@@ -2159,3 +2167,19 @@ if __name__ == "__main__":
     seed_supabase_users_if_needed()
     bootstrap_auth_gate(conn)
     render_dashboard(conn)
+
+# Added month/year helpers for detailed report selection
+def _month_options_from_df(df):
+    if df is None or df.empty or 'date' not in df.columns:
+        return []
+    dt = pd.to_datetime(df['date'], errors='coerce').dropna()
+    if dt.empty:
+        return []
+    periods = sorted(dt.dt.to_period('M').unique())
+    return [str(p) for p in periods]
+
+def _filter_df_by_month(df, selected_month):
+    if df is None or df.empty or not selected_month or selected_month == 'All':
+        return df
+    dt = pd.to_datetime(df.get('date'), errors='coerce')
+    return df[dt.dt.to_period('M').astype(str) == selected_month]
