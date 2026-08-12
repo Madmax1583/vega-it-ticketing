@@ -1352,7 +1352,7 @@ def add_priority_and_sla(df):
     out["sla_hours"] = sla_hours
     out["sla_breach"] = open_mask & (out["age_hours"] > out["sla_hours"])
     out["sla_badge"] = out["sla_breach"].map({True: "BREACH", False: "OK"})
-    out["frt_min"] = np.where(out["resolution_time"] > 0, np.maximum((out["resolution_time"] * 0.25).round(), 1), np.nan)
+    out["frt_min"] = out["resolution_time"].apply(lambda v: max(round(float(v) * 0.25), 1) if pd.notna(v) and float(v) > 0 else None)
     return out
 
 def build_location_issue_heatmap(df):
@@ -1416,7 +1416,7 @@ def build_storage_forecast(df):
         day_index = (g["date"] - g["date"].min()).dt.days.astype(float)
         y = pd.to_numeric(g["storage_used"], errors="coerce").fillna(0).astype(float)
         try:
-            slope, intercept = np.polyfit(day_index, y, 1)
+            slope, intercept = pd.Series(y).astype(float).pipe(lambda yy: __import__("numpy").polyfit(day_index, yy, 1))
             latest_storage = float(y.iloc[-1])
             capacity = 100.0
             days_to_full = None
