@@ -1052,232 +1052,6 @@ def build_nas_reports_extended(df):
     weekly = changes.groupby(["Week", "server_name"], as_index=False).agg(Logs=("server_name", "size"), Avg_Storage=("storage_used", "mean"), Total_Increment=("delta_gb", lambda s: s[s > 0].sum()), Total_Decrement=("delta_gb", lambda s: abs(s[s < 0].sum())), Failures=("status", lambda s: (s == "Failed").sum()))
     return master, monthly, weekly, serverwise
 
-
-
-def format_delta(current, previous, suffix=""):
-    delta = current - previous
-    pct = ((delta / previous) * 100.0) if previous not in [0, None] else None
-    delta_text = f"{delta:+,.2f}{suffix}" if isinstance(delta, float) else f"{delta:+,}{suffix}"
-    if pct is None:
-        return delta_text, "n/a"
-    return delta_text, f"{pct:+.1f}%"
-
-def build_mom_comparison_dataset(df):
-    x = prepare_ticket_view(df)
-    if x.empty:
-        return {"current": pd.DataFrame(), "previous": pd.DataFrame(), "summary": {}}
-    x["date_parsed"] = pd.to_datetime(x.get("date"), errors="coerce")
-    x = x.dropna(subset=["date_parsed"]).copy()
-    if x.empty:
-        return {"current": pd.DataFrame(), "previous": pd.DataFrame(), "summary": {}}
-    today = pd.Timestamp.now().normalize()
-    current_period = today.to_period("M")
-    previous_period = current_period - 1
-    current_df = x[x["date_parsed"].dt.to_period("M") == current_period].copy()
-    previous_df = x[x["date_parsed"].dt.to_period("M") == previous_period].copy()
-    for frame in (current_df, previous_df):
-        if not frame.empty:
-            frame["day_of_month"] = frame["date_parsed"].dt.day
-            frame["ticket_value_proxy"] = pd.to_numeric(frame.get("resolution_time"), errors="coerce").fillna(0)
-    current_total = int(len(current_df))
-    previous_total = int(len(previous_df))
-    current_value = float(pd.to_numeric(current_df.get("ticket_value_proxy"), errors="coerce").fillna(0).sum()) if not current_df.empty else 0.0
-    previous_value = float(pd.to_numeric(previous_df.get("ticket_value_proxy"), errors="coerce").fillna(0).sum()) if not previous_df.empty else 0.0
-    current_avg = float(current_value / current_total) if current_total else 0.0
-    previous_avg = float(previous_value / previous_total) if previous_total else 0.0
-    return {
-        "current": current_df,
-        "previous": previous_df,
-        "summary": {
-            "current_period": current_period,
-            "previous_period": previous_period,
-            "current_total": current_total,
-            "previous_total": previous_total,
-            "current_value": current_value,
-            "previous_value": previous_value,
-            "current_avg": current_avg,
-            "previous_avg": previous_avg,
-        },
-    }
-
-def build_mom_daywise_trend(current_df, previous_df):
-    day_index = pd.DataFrame({"day_of_month": list(range(1, 32))})
-    def daily(frame, label):
-        if frame.empty:
-            out = day_index.copy()
-            out["count"] = 0
-            out["series"] = label
-            return out
-        grp = frame.groupby("day_of_month", as_index=False).agg(count=("id", "size"))
-        out = day_index.merge(grp, on="day_of_month", how="left").fillna({"count": 0})
-        out["series"] = label
-        return out
-    return pd.concat([daily(current_df, "This Month"), daily(previous_df, "Last Month")], ignore_index=True)
-
-def build_mom_category_breakdown(current_df, previous_df):
-    cur = current_df.groupby("department", as_index=False).agg(Current_Month=("id", "size")) if not current_df.empty else pd.DataFrame(columns=["department", "Current_Month"])
-    prev = previous_df.groupby("department", as_index=False).agg(Last_Month=("id", "size")) if not previous_df.empty else pd.DataFrame(columns=["department", "Last_Month"])
-    out = cur.merge(prev, on="department", how="outer").fillna(0)
-    if out.empty:
-        return out
-    out["Current_Month"] = out["Current_Month"].astype(int)
-    out["Last_Month"] = out["Last_Month"].astype(int)
-    return out.sort_values("Current_Month", ascending=False)
-
-def render_mom_analytics_page(ticket_df):
-    st.subheader("Month-over-Month Analytics")
-    mom = build_mom_comparison_dataset(ticket_df)
-    current_df = mom["current"]
-    previous_df = mom["previous"]
-    summary = mom["summary"]
-    if not summary:
-        st.info("No ticket data is available for month-over-month analysis.")
-        return
-    current_period = summary["current_period"]
-    previous_period = summary["previous_period"]
-    current_start = current_period.start_time.strftime("%b %d")
-    current_end = min(pd.Timestamp.now().normalize(), current_period.end_time.normalize()).strftime("%b %d")
-    previous_start = previous_period.start_time.strftime("%b %d")
-    previous_end = previous_period.end_time.strftime("%b %d")
-    st.caption(f"This Month: {current_start} – {current_end}  |  Last Month: {previous_start} – {previous_end}")
-    c1, c2, c3 = st.columns(3)
-    total_delta, total_pct = format_delta(summary["current_total"], summary["previous_total"], "")
-    value_delta, value_pct = format_delta(summary["current_value"], summary["previous_value"], " min")
-    avg_delta, avg_pct = format_delta(summary["current_avg"], summary["previous_avg"], " min")
-    c1.metric("Total Volume / Ops Count", f"{summary['current_total']:,}", f"{total_delta} ({total_pct})")
-    c2.metric("Total Spend / Value", f"{summary['current_value']:,.1f} min", f"{value_delta} ({value_pct})")
-    c3.metric("Average Ticket / Transaction Size", f"{summary['current_avg']:,.1f} min", f"{avg_delta} ({avg_pct})")
-    st.divider()
-    trend = build_mom_daywise_trend(current_df, previous_df)
-    line_chart = alt.Chart(trend).mark_line(point=True, strokeWidth=3).encode(
-        x=alt.X('day_of_month:Q', title='Day of Month', scale=alt.Scale(domain=[1, 31])),
-        y=alt.Y('count:Q', title='Ops Count'),
-        color=alt.Color('series:N', title='Period', scale=alt.Scale(domain=['This Month', 'Last Month'], range=['#3B82F6', '#94A3B8'])),
-        strokeDash=alt.StrokeDash('series:N', scale=alt.Scale(domain=['This Month', 'Last Month'], range=[[1,0],[8,4]])),
-        tooltip=['series:N', 'day_of_month:Q', 'count:Q']
-    ).properties(height=360)
-    st.altair_chart(line_chart, use_container_width=True)
-    st.divider()
-    category = build_mom_category_breakdown(current_df, previous_df)
-    if category.empty:
-        st.info("No department/category data available for month comparison.")
-    else:
-        cat_long = category.melt(id_vars=['department'], value_vars=['Current_Month', 'Last_Month'], var_name='Period', value_name='Volume')
-        chart = alt.Chart(cat_long).mark_bar(cornerRadiusTopLeft=6, cornerRadiusTopRight=6).encode(
-            x=alt.X('department:N', title='Department'),
-            y=alt.Y('Volume:Q', title='Volume'),
-            xOffset='Period:N',
-            color=alt.Color('Period:N', scale=alt.Scale(domain=['Current_Month', 'Last_Month'], range=['#3B82F6', '#64748B'])),
-            tooltip=['department', 'Period', 'Volume']
-        ).properties(height=340)
-        st.altair_chart(chart, use_container_width=True)
-        st.dataframe(category, use_container_width=True)
-
-def render_nas_capacity_widgets(nas_df):
-    st.markdown("### Storage Capacity Indicators")
-    node_capacity_map = {'HRI': 500.0, 'Vega': 500.0, 'Sery': 250.0, 'Rise': 250.0}
-    if nas_df.empty:
-        st.info('No NAS data available for capacity analysis.')
-        return
-    latest = nas_df.copy()
-    latest['date'] = pd.to_datetime(latest['date'], errors='coerce')
-    latest = latest.sort_values(['server_name', 'date']).groupby('server_name', as_index=False).tail(1)
-    cols = st.columns(max(1, min(4, len(latest))))
-    for idx, (_, row) in enumerate(latest.iterrows()):
-        with cols[idx % len(cols)]:
-            capacity = float(node_capacity_map.get(row['server_name'], 500.0))
-            used = float(row.get('storage_used', 0) or 0)
-            pct = min((used / capacity) * 100 if capacity else 0, 100)
-            st.metric(f"{row['server_name']} Used", f"{used:.1f} GB", f"{pct:.1f}% of {capacity:.0f} GB")
-            st.progress(min(max(pct / 100, 0.0), 1.0))
-            if pct >= 95:
-                st.error(f"Critical capacity threshold crossed on {row['server_name']}.")
-            elif pct >= 85:
-                st.warning(f"High capacity usage detected on {row['server_name']}.")
-            else:
-                st.success(f"Healthy capacity on {row['server_name']}.")
-
-def build_nas_mom_health(nas_df):
-    x = normalize_nas_df(nas_df).copy()
-    if x.empty:
-        return {}
-    x['date_parsed'] = pd.to_datetime(x['date'], errors='coerce')
-    x = x.dropna(subset=['date_parsed'])
-    if x.empty:
-        return {}
-    x['month'] = x['date_parsed'].dt.to_period('M')
-    current = pd.Timestamp.now().to_period('M')
-    previous = current - 1
-    cur = x[x['month'] == current].copy()
-    prev = x[x['month'] == previous].copy()
-    def summarize(frame):
-        if frame.empty:
-            return {'size': 0.0, 'success_rate': 0.0, 'jobs': 0}
-        jobs = len(frame)
-        size = float(pd.to_numeric(frame['storage_used'], errors='coerce').fillna(0).sum())
-        success_rate = float((frame['status'].astype(str) == 'Success').mean() * 100) if jobs else 0.0
-        return {'size': size, 'success_rate': success_rate, 'jobs': jobs}
-    return {'current': summarize(cur), 'previous': summarize(prev)}
-
-def render_enhanced_nas_page(conn, nas_df):
-    st.subheader('NAS Backup & Storage Management')
-    top1, top2 = st.columns([2, 1])
-    with top1:
-        st.caption('Operational view of backup jobs, capacity, and month-over-month health.')
-    with top2:
-        a1, a2 = st.columns(2)
-        with a1:
-            if st.button('Run On-Demand Backup Verification', use_container_width=True):
-                st.success('Backup verification queued for review. No production logic was changed.')
-        with a2:
-            export_df = normalize_nas_df(nas_df)
-            st.download_button('Export Backup Logs (CSV)', export_df.to_csv(index=False).encode('utf-8'), file_name='nas_backup_logs.csv', mime='text/csv', use_container_width=True)
-    st.divider()
-    render_nas_capacity_widgets(nas_df)
-    st.divider()
-    st.markdown('### Backup Status & Health Tracker')
-    recent = normalize_nas_df(nas_df).copy()
-    if recent.empty:
-        st.info('No NAS backup jobs available.')
-    else:
-        recent['date'] = pd.to_datetime(recent['date'], errors='coerce')
-        recent = recent.sort_values(['date', 'id'], ascending=[False, False]).head(15)
-        def _color_status(v):
-            s = str(v)
-            if s == 'Success':
-                return 'background-color: rgba(16,185,129,0.20); color: #D1FAE5;'
-            if s == 'Failed':
-                return 'background-color: rgba(239,68,68,0.20); color: #FECACA;'
-            return 'background-color: rgba(245,158,11,0.20); color: #FDE68A;'
-        styled = recent[['date', 'server_name', 'status', 'storage_used', 'remarks']].style.applymap(_color_status, subset=['status'])
-        st.dataframe(styled, use_container_width=True)
-    st.divider()
-    st.markdown('### MoM Backup Health Analytics')
-    health = build_nas_mom_health(nas_df)
-    if not health:
-        st.info('Not enough NAS history available for month-over-month backup health analytics.')
-    else:
-        cur = health['current']
-        prev = health['previous']
-        k1, k2, k3 = st.columns(3)
-        d1, p1 = format_delta(cur['size'], prev['size'], ' GB')
-        d2, p2 = format_delta(cur['success_rate'], prev['success_rate'], '%')
-        d3, p3 = format_delta(cur['jobs'], prev['jobs'], '')
-        k1.metric('Total Backup Size', f"{cur['size']:.1f} GB", f"{d1} ({p1})")
-        k2.metric('Success Rate', f"{cur['success_rate']:.1f}%", f"{d2} ({p2})")
-        k3.metric('Backup Jobs', f"{cur['jobs']:,}", f"{d3} ({p3})")
-        changes = compute_nas_changes(nas_df)
-        if not changes.empty:
-            changes['date'] = pd.to_datetime(changes['date'], errors='coerce')
-            line = alt.Chart(changes).mark_line(point=True).encode(
-                x=alt.X('date:T', title='Date'),
-                y=alt.Y('storage_used:Q', title='Storage Used (GB)'),
-                color=alt.Color('server_name:N', title='Server'),
-                tooltip=['date:T', 'server_name:N', 'storage_used:Q', 'delta_gb:Q', 'status:N']
-            ).properties(height=320)
-            st.altair_chart(line, use_container_width=True)
-
-
 def load_tickets():
     if db_connected:
         try:
@@ -1473,19 +1247,10 @@ def bootstrap_auth_gate(conn):
         st.stop()
 
 def get_role_pages(role):
-    base = [
-        "Dashboard Overview",
-        "MoM Analytics",
-        "NAS Backup & Storage Management",
-        "Settings & DB Config",
-    ]
-    if role == "IT Manager":
-        return base + ["Ticket Operations", "Reports", "Task Center", "Admin Tools", "Executive Command Center", "AVP Dashboard", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health"]
-    if role == "IT AM":
-        return base + ["Ticket Operations", "Reports", "Task Center", "Executive Command Center", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health"]
-    if role == "AVP":
-        return base + ["Reports", "Task Center", "Executive Command Center", "AVP Dashboard", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health"]
-    return base + ["Ticket Operations", "Task Center", "Team Chat"]
+    if role == "IT Manager": return ["Home", "Executive Command Center", "Overview", "Ticket Operations", "NAS Monitoring", "Reports", "Task Center", "Admin Tools", "AVP Dashboard", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health"]
+    if role == "IT AM": return ["Home", "Executive Command Center", "Overview", "Ticket Operations", "NAS Monitoring", "Reports", "Task Center", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health"]
+    if role == "AVP": return ["Home", "Executive Command Center", "Overview", "AVP Dashboard", "Reports", "Task Center", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health"]
+    return ["Home", "Overview", "Ticket Operations", "NAS Monitoring", "Task Center", "Team Chat"]
 
 def create_task(conn, payload):
     conn.execute("INSERT INTO tasks (title, description, assigned_by, assigned_to, priority, status, progress, due_date, vendor_flag, vendor_status, vendor_remark, reminder_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (payload.get("title"), payload.get("description"), payload.get("assigned_by"), payload.get("assigned_to"), payload.get("priority", "Medium"), payload.get("status", "Open"), payload.get("progress", 0), payload.get("due_date"), payload.get("vendor_flag", 0), payload.get("vendor_status"), payload.get("vendor_remark"), payload.get("reminder_date")))
@@ -2319,8 +2084,6 @@ def render_dashboard(conn):
     df_nas_filtered = filtered_nas(df_nas, server_filter)
     st.markdown(f'''<div class="sticky-topbar"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px"><div><div class="crumb">{page_breadcrumb(page)}</div><div class="hero-title" style="font-size:24px;margin:0">{page}</div></div><div class="last-updated">Updated:<br>{pd.Timestamp.now().strftime('%d %b %Y')}<br>{pd.Timestamp.now().strftime('%I:%M %p')}</div></div></div>''', unsafe_allow_html=True)
     st.markdown("<div class='app-banner'><div class='app-title'>🛠️ Vega & Knitpro IT Command Suite</div><div class='app-subtitle'>Single-window support operations, NAS monitoring, reporting, tasking, and infrastructure analytics</div></div>", unsafe_allow_html=True)
-    if page == "Dashboard Overview":
-        page = "Home"
     if page == "Home":
         render_home_page(user, df_ticket_filtered, df_nas_filtered, conn)
 
@@ -2497,25 +2260,6 @@ def render_dashboard(conn):
                             st.error(f"Delete error: {e}")
                 st.markdown("### Active Queue")
                 render_status_table(queue_df.head(10), ["System Ticket ID", "date", "user_name", "department", "location", "category", "attended_by", "status"], compact=True)
-    elif page == "MoM Analytics":
-        render_mom_analytics_page(df_tickets)
-
-    elif page == "NAS Backup & Storage Management":
-        render_enhanced_nas_page(conn, df_nas_filtered if "df_nas_filtered" in locals() else df_nas)
-
-    elif page == "Settings & DB Config":
-        st.subheader("Settings & DB Config")
-        st.caption("Current runtime database mode with safe fallback visibility. Existing connection logic remains unchanged.")
-        s1, s2 = st.columns(2)
-        with s1:
-            st.metric("Primary Mode", "Supabase" if db_connected else "SQLite Session")
-            st.info("Supabase is active when credentials and reachable tables are available; otherwise the app continues with SQLite/session fallback.")
-        with s2:
-            st.metric("Fallback Status", "Available")
-            st.warning("Toggle selection is presented as an informational control layer only to avoid changing backend behavior in production.")
-            preferred = st.radio("Preferred Display Mode", ["Auto Detect", "Prefer Supabase", "Prefer SQLite Fallback"], horizontal=False, key="db_mode_display")
-            st.caption(f"Selected display preference: {preferred}")
-
     elif page == "NAS Monitoring":
         st.subheader("NAS Monitoring")
         t1, t2, t3, t4 = st.tabs(["Log Entry", "Health Dashboard", "Raw Logs", "Delete Wrong Entry"])
