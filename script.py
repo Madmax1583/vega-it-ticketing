@@ -394,6 +394,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     thread_id INTEGER NOT NULL,
     sender TEXT NOT NULL,
     message TEXT NOT NULL,
+    linked_ticket_id INTEGER,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 )
 """
@@ -415,6 +416,10 @@ def ensure_support_tables(conn):
     conn.execute(CHAT_THREADS_TABLE_SQL)
     conn.execute(CHAT_MESSAGES_TABLE_SQL)
     conn.execute(USER_STATUS_TABLE_SQL)
+    try:
+        conn.execute("ALTER TABLE chat_messages ADD COLUMN linked_ticket_id INTEGER")
+    except Exception:
+        pass
     conn.commit()
 
 def seed_default_users(conn):
@@ -868,25 +873,46 @@ def build_nas_reports(df):
 def build_excel_report(tickets_df, nas_df):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        tickets_df.to_excel(writer, sheet_name="Master Tickets", index=False)
-        ticket_monthly, ticket_weekly, ticket_technician, ticket_location = build_ticket_reports(tickets_df)
-        if not ticket_monthly.empty:
-            ticket_monthly.to_excel(writer, sheet_name="Ticket Monthly", index=False)
-        if not ticket_weekly.empty:
-            ticket_weekly.to_excel(writer, sheet_name="Ticket Weekly", index=False)
-        if not ticket_technician.empty:
-            ticket_technician.to_excel(writer, sheet_name="Ticket Technician", index=False)
-        if not ticket_location.empty:
-            ticket_location.to_excel(writer, sheet_name="Ticket Location", index=False)
+        detailed = build_detailed_ticket_exports(tickets_df)
+        grouped = build_grouped_detail_views(tickets_df)
+        mttr_month = build_mttr_sla_summary(add_priority_and_sla(prepare_ticket_view(tickets_df)).assign(Month=pd.to_datetime(prepare_ticket_view(tickets_df).get("date"), errors="coerce").dt.strftime("%Y-%m")), "Month") if tickets_df is not None and not tickets_df.empty else pd.DataFrame()
+        mttr_week = build_mttr_sla_summary(add_priority_and_sla(prepare_ticket_view(tickets_df)).assign(Week=pd.to_datetime(prepare_ticket_view(tickets_df).get("date"), errors="coerce").dt.strftime("%Y-W") + pd.to_datetime(prepare_ticket_view(tickets_df).get("date"), errors="coerce").dt.isocalendar().week.astype(str)), "Week") if tickets_df is not None and not tickets_df.empty else pd.DataFrame()
+        mttr_tech = build_mttr_sla_summary(prepare_ticket_view(tickets_df), "attended_by")
+        mttr_site = build_mttr_sla_summary(prepare_ticket_view(tickets_df), "location")
+        for name, frame in {
+            "Master Tickets": detailed.get("Master Tickets", pd.DataFrame()),
+            "Resolved Tickets": detailed.get("Resolved Tickets", pd.DataFrame()),
+            "Pending Tickets": detailed.get("Pending Tickets", pd.DataFrame()),
+            "Ticket Monthly": detailed.get("Ticket Monthly", pd.DataFrame()),
+            "Ticket Weekly": detailed.get("Ticket Weekly", pd.DataFrame()),
+            "Ticket Technician": detailed.get("Ticket Technician", pd.DataFrame()),
+            "Ticket Location": detailed.get("Ticket Location", pd.DataFrame()),
+            "Ticket Department": detailed.get("Ticket Department", pd.DataFrame()),
+            "Repeat Issues": detailed.get("Repeat Issues", pd.DataFrame()),
+            "Monthly Detail": grouped.get("monthly_detail", pd.DataFrame()),
+            "Weekly Detail": grouped.get("weekly_detail", pd.DataFrame()),
+            "Technician Detail": grouped.get("technician_detail", pd.DataFrame()),
+            "Site Detail": grouped.get("site_detail", pd.DataFrame()),
+            "MTTR SLA Month": mttr_month,
+            "MTTR SLA Week": mttr_week,
+            "MTTR SLA Tech": mttr_tech,
+            "MTTR SLA Site": mttr_site,
+        }.items():
+            if frame is not None and not frame.empty:
+                frame.to_excel(writer, sheet_name=name[:31], index=False)
         nas_master, nas_monthly, nas_weekly, nas_serverwise = build_nas_reports_extended(nas_df)
-        if not nas_master.empty:
-            nas_master.to_excel(writer, sheet_name="NAS Storage Logs", index=False)
-        if not nas_monthly.empty:
-            nas_monthly.to_excel(writer, sheet_name="NAS Monthly Summary", index=False)
-        if not nas_weekly.empty:
-            nas_weekly.to_excel(writer, sheet_name="NAS Weekly Summary", index=False)
-        if not nas_serverwise.empty:
-            nas_serverwise.to_excel(writer, sheet_name="NAS Server Summary", index=False)
+        nas_delta = compute_nas_changes(nas_df)
+        nas_forecast = build_storage_forecast(nas_df)
+        for name, frame in {
+            "NAS Raw Logs": normalize_nas_df(nas_df),
+            "NAS Deltas": nas_delta,
+            "NAS Monthly": nas_monthly,
+            "NAS Weekly": nas_weekly,
+            "NAS Server Summary": nas_serverwise,
+            "NAS Forecast": nas_forecast,
+        }.items():
+            if frame is not None and not frame.empty:
+                frame.to_excel(writer, sheet_name=name[:31], index=False)
     return output.getvalue()
 
 def build_ticket_exec_metrics(df):
@@ -1303,6 +1329,201 @@ def post_chat_message(conn, thread_id, sender, message):
             if uname.lower() != str(sender).lower():
                 add_notification(conn, uname, f"New team chat message from {sender}")
 
+def add_priority_and_sla(df):
+    out = df.copy()
+    if out.empty:
+        return out
+    if "priority" not in out.columns:
+        def infer_priority(x):
+            t = str(x).lower()
+            if any(k in t for k in ["server", "sap", "network down", "critical", "vpn down"]):
+                return "Critical"
+            if any(k in t for k in ["printer", "email", "outlook", "cctv", "camera"]):
+                return "High"
+            return "Medium"
+        out["priority"] = out.get("complaint", "").apply(infer_priority)
+    out["date_parsed"] = pd.to_datetime(out.get("date"), errors="coerce")
+    out["resolution_time"] = pd.to_numeric(out.get("resolution_time"), errors="coerce").fillna(0)
+    now = pd.Timestamp.now()
+    open_mask = out.get("status", pd.Series(dtype=str)).astype(str).isin(["Open", "In Progress", "On Hold - User Busy", "On Hold"])
+    age_hours = ((now - out["date_parsed"]).dt.total_seconds() / 3600).fillna(0)
+    out["age_hours"] = age_hours.round(1)
+    sla_hours = out["priority"].map({"Critical": 2, "High": 4, "Medium": 8, "Low": 12}).fillna(8)
+    out["sla_hours"] = sla_hours
+    out["sla_breach"] = open_mask & (out["age_hours"] > out["sla_hours"])
+    out["sla_badge"] = out["sla_breach"].map({True: "BREACH", False: "OK"})
+    out["frt_min"] = np.where(out["resolution_time"] > 0, np.maximum((out["resolution_time"] * 0.25).round(), 1), np.nan)
+    return out
+
+def build_location_issue_heatmap(df):
+    x = add_priority_and_sla(df)
+    if x.empty:
+        return alt.Chart(pd.DataFrame({"location": [], "category": [], "count": []})).mark_rect()
+    base = x.groupby(["location", "category"], as_index=False).agg(count=("id", "size"))
+    return alt.Chart(base).mark_rect().encode(
+        x=alt.X("location:N", title="Location", sort="-y"),
+        y=alt.Y("category:N", title="Issue Category"),
+        color=alt.Color("count:Q", title="Tickets"),
+        tooltip=["location", "category", "count"]
+    )
+
+def build_sla_breach_view(df):
+    x = add_priority_and_sla(df)
+    if x.empty:
+        return x
+    cols = [c for c in ["System Ticket ID", "user_name", "location", "category", "priority", "status", "age_hours", "sla_hours", "sla_badge", "attended_by", "remarks"] if c in x.columns]
+    return x[x["status"].astype(str).isin(["Open", "In Progress", "On Hold - User Busy", "On Hold"])][cols]
+
+def build_grouped_detail_views(df):
+    x = add_priority_and_sla(prepare_ticket_view(df))
+    if x.empty:
+        empty = pd.DataFrame()
+        return {"monthly_detail": empty, "weekly_detail": empty, "technician_detail": empty, "site_detail": empty}
+    x["Month"] = pd.to_datetime(x["date"], errors="coerce").dt.strftime("%Y-%m")
+    x["Week"] = pd.to_datetime(x["date"], errors="coerce").dt.strftime("%Y-W") + pd.to_datetime(x["date"], errors="coerce").dt.isocalendar().week.astype(str)
+    x["MTTR_Min"] = x["resolution_time"]
+    x["FRT_Min"] = x["frt_min"]
+    return {
+        "monthly_detail": x.sort_values(["Month", "date"], ascending=[False, False]),
+        "weekly_detail": x.sort_values(["Week", "date"], ascending=[False, False]),
+        "technician_detail": x.sort_values(["attended_by", "date"], ascending=[True, False]),
+        "site_detail": x.sort_values(["location", "date"], ascending=[True, False]),
+    }
+
+def build_mttr_sla_summary(df, group_col):
+    x = add_priority_and_sla(df)
+    if x.empty or group_col not in x.columns:
+        return pd.DataFrame()
+    x["resolution_time"] = pd.to_numeric(x.get("resolution_time"), errors="coerce").fillna(0)
+    return x.groupby(group_col, as_index=False).agg(
+        Tickets=("id", "size"),
+        Resolved=("status", lambda s: (s.astype(str) == "Resolved").sum()),
+        MTTR_Min=("resolution_time", lambda s: round(s[s > 0].mean(), 1) if (s > 0).any() else 0),
+        FRT_Min=("frt_min", lambda s: round(pd.Series(s).dropna().mean(), 1) if pd.Series(s).dropna().shape[0] else 0),
+        SLA_Breach_Rate=("sla_breach", lambda s: round(pd.Series(s).fillna(False).mean() * 100, 1)),
+    )
+
+def build_storage_forecast(df):
+    x = normalize_nas_df(df).copy()
+    if x.empty:
+        return pd.DataFrame()
+    x["date"] = pd.to_datetime(x["date"], errors="coerce")
+    x = x.dropna(subset=["date"]).sort_values(["server_name", "date"])
+    rows = []
+    for server, g in x.groupby("server_name"):
+        if len(g) < 2:
+            continue
+        day_index = (g["date"] - g["date"].min()).dt.days.astype(float)
+        y = pd.to_numeric(g["storage_used"], errors="coerce").fillna(0).astype(float)
+        try:
+            slope, intercept = np.polyfit(day_index, y, 1)
+            latest_storage = float(y.iloc[-1])
+            capacity = 100.0
+            days_to_full = None
+            if slope > 0 and latest_storage < capacity:
+                days_to_full = max(((capacity - intercept) / slope) - float(day_index.iloc[-1]), 0)
+            rows.append({
+                "server_name": server,
+                "latest_storage": round(latest_storage, 4),
+                "daily_growth_est": round(float(slope), 4),
+                "projected_days_to_100": round(float(days_to_full), 1) if days_to_full is not None else None,
+            })
+        except Exception:
+            pass
+    return pd.DataFrame(rows)
+
+def build_system_reliability_index(df):
+    x = add_priority_and_sla(df)
+    if x.empty:
+        return 100.0
+    resolved_rate = (x["status"].astype(str) == "Resolved").mean() * 100
+    breach_penalty = x["sla_breach"].fillna(False).mean() * 30
+    pending_penalty = x["status"].astype(str).isin(["Open", "In Progress", "On Hold - User Busy", "On Hold"]).mean() * 20
+    return round(max(min(resolved_rate - breach_penalty - pending_penalty + 20, 100), 0), 1)
+
+def build_department_load_distribution(df):
+    x = add_priority_and_sla(df)
+    if x.empty:
+        return pd.DataFrame()
+    out = x.groupby("department", as_index=False).agg(Tickets=("id", "size"), Avg_Resolution=("resolution_time", lambda s: round(pd.to_numeric(s, errors='coerce').fillna(0).replace(0, pd.NA).dropna().mean(), 1) if pd.to_numeric(s, errors='coerce').fillna(0).replace(0, pd.NA).dropna().shape[0] else 0))
+    total = out["Tickets"].sum()
+    out["Load_%"] = ((out["Tickets"] / total) * 100).round(1) if total else 0
+    out["Estimated_Cost_Index"] = (out["Tickets"] * out["Avg_Resolution"].replace(0, 5)).round(1)
+    return out.sort_values("Tickets", ascending=False)
+
+def build_technician_efficiency_matrix(df):
+    perf = build_technician_performance(df)
+    if perf.empty:
+        return alt.Chart(pd.DataFrame({"attended_by": [], "Resolved": [], "Avg_Resolution_Min": []})).mark_circle()
+    return alt.Chart(perf).mark_circle(size=160).encode(
+        x=alt.X("Resolved:Q", title="Tickets Resolved"),
+        y=alt.Y("Avg_Resolution_Min:Q", title="Average Resolution Time (MTTR Min)"),
+        color=alt.Color("attended_by:N", title="Technician"),
+        tooltip=["attended_by", "Assigned", "Resolved", "Avg_Resolution_Min", "Resolution_%"]
+    )
+
+def build_top_recurring_failures(df):
+    x = add_priority_and_sla(df)
+    if x.empty:
+        return pd.DataFrame()
+    return x.groupby(["location", "category"], as_index=False).agg(Tickets=("id", "size")).sort_values("Tickets", ascending=False).head(5)
+
+def render_clickable_metric_filters(default_value="All"):
+    if "overview_metric_filter" not in st.session_state:
+        st.session_state["overview_metric_filter"] = default_value
+    cols = st.columns(4)
+    labels = [
+        ("All Queue", "All"),
+        ("Open", "Open"),
+        ("In Progress", "In Progress"),
+        ("On Hold", "On Hold - User Busy"),
+    ]
+    for col, (label, value) in zip(cols, labels):
+        with col:
+            if st.button(label, use_container_width=True, key=f"metric_filter_{value}"):
+                st.session_state["overview_metric_filter"] = value
+    return st.session_state.get("overview_metric_filter", default_value)
+
+def filter_queue_by_metric(df, metric_value):
+    if df.empty or metric_value == "All":
+        return df
+    if metric_value == "On Hold - User Busy":
+        return df[df["status"].astype(str).isin(["On Hold - User Busy", "On Hold"])]
+    return df[df["status"].astype(str) == metric_value]
+
+def load_chat_messages_df(conn, thread_id=None):
+    try:
+        if thread_id is None:
+            return pd.read_sql_query("SELECT id, thread_id, sender, message, linked_ticket_id, created_at FROM chat_messages ORDER BY id DESC", conn)
+        return pd.read_sql_query("SELECT id, thread_id, sender, message, linked_ticket_id, created_at FROM chat_messages WHERE thread_id=? ORDER BY id ASC", conn, params=(int(thread_id),))
+    except Exception:
+        return pd.DataFrame(columns=["id", "thread_id", "sender", "message", "linked_ticket_id", "created_at"])
+
+def post_chat_message(conn, thread_id, sender, message, linked_ticket_id=None):
+    conn.execute("INSERT INTO chat_messages (thread_id, sender, message, linked_ticket_id) VALUES (?, ?, ?, ?)", (int(thread_id), sender, message, int(linked_ticket_id) if linked_ticket_id not in [None, '', 'None'] else None))
+    conn.commit()
+    users_df = get_all_users(conn)
+    mentions = {token[1:].strip(' ,.:;!') for token in str(message).split() if token.startswith('@') and len(token) > 1}
+    if not users_df.empty and 'username' in users_df.columns:
+        for uname in users_df['username'].dropna().astype(str).tolist():
+            if uname.lower() == str(sender).lower():
+                continue
+            msg = f"New team chat message from {sender}"
+            if uname in mentions:
+                msg = f"Mention from {sender} in team chat"
+            add_notification(conn, uname, msg)
+
+def build_thread_unread_map(conn, username):
+    msgs = load_chat_messages_df(conn)
+    notifs = load_notifications_df(conn, username)
+    out = {}
+    if msgs.empty:
+        return out
+    unread = 0 if notifs.empty else int((notifs['is_read'] == 0).sum())
+    for tid in msgs['thread_id'].dropna().astype(int).unique().tolist():
+        out[tid] = unread
+    return out
+
 def build_detailed_ticket_exports(df):
     x = prepare_ticket_view(df)
     x = x.drop(columns=[c for c in ["date_parsed"] if c in x.columns])
@@ -1355,56 +1576,52 @@ def render_dashboard(conn):
     st.markdown("<div class='app-banner'><div class='app-title'>🛠️ Vega & Knitpro IT Command Suite</div><div class='app-subtitle'>Single-window support operations, NAS monitoring, reporting, tasking, and infrastructure analytics</div></div>", unsafe_allow_html=True)
     if page == "Overview":
         st.subheader("Operations Overview")
-        total_tickets = len(df_ticket_filtered)
-        resolved_tickets = len(df_ticket_filtered[df_ticket_filtered["status"] == "Resolved"])
-        open_tickets = len(df_ticket_filtered[df_ticket_filtered["status"].isin(["Open", "In Progress"])])
-        hold_tickets = len(df_ticket_filtered[df_ticket_filtered["status"] == "On Hold - User Busy"])
-        resolved_df = df_ticket_filtered[(df_ticket_filtered["status"] == "Resolved") & (df_ticket_filtered["resolution_time"] > 0)]
-        avg_res_time = int(resolved_df["resolution_time"].mean()) if not resolved_df.empty else 0
-        nas_failures = int((df_nas_filtered["status"] == "Failed").sum()) if not df_nas_filtered.empty else 0
-        c1, c2, c3, c4, c5 = st.columns(5)
-        with c1: render_glass_card("Total Tickets", total_tickets, "Current filter", "--info")
-        with c2: render_glass_card("Open Backlog", open_tickets, "Open + In Progress", "--accent")
-        with c3: render_glass_card("Resolved", resolved_tickets, "Closed tickets", "--success")
-        with c4: render_glass_card("On Hold", hold_tickets, "User busy", "--warning")
-        with c5: render_glass_card("Avg Resolution", f"{avg_res_time} min", "Resolved only", "--info")
-        if nas_failures > 0:
-            st.error(f"Critical NAS alerts: {nas_failures} failed backup entries in current filter.")
+        overview_df = add_priority_and_sla(df_ticket_filtered)
+        total_tickets = len(overview_df)
+        resolved_tickets = int((overview_df["status"].astype(str) == "Resolved").sum()) if not overview_df.empty else 0
+        open_tickets = int((overview_df["status"].astype(str).isin(["Open", "In Progress"])).sum()) if not overview_df.empty else 0
+        hold_tickets = int((overview_df["status"].astype(str).isin(["On Hold - User Busy", "On Hold"])).sum()) if not overview_df.empty else 0
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total Tickets", total_tickets)
+        c2.metric("Resolved", resolved_tickets)
+        c3.metric("Open", open_tickets)
+        c4.metric("On Hold", hold_tickets)
+
+        st.markdown("#### Queue filters")
+        selected_queue_filter = render_clickable_metric_filters()
+        queue_view = filter_queue_by_metric(overview_df, selected_queue_filter)
+
+        trend_tabs = st.tabs(["Daily Trend", "Weekly Trend", "Monthly Trend", "Location vs Issue Heatmap"])
+        with trend_tabs[0]:
+            trend = build_ticket_trend(overview_df, freq="Daily")
+            if trend.empty:
+                st.info("No daily trend data available.")
+            else:
+                chart = alt.Chart(trend).mark_area(opacity=0.35).encode(x="bucket:N", y="Tickets:Q", tooltip=["bucket", "Tickets", "Resolved"]).properties(height=320)
+                st.altair_chart(chart, use_container_width=True)
+        with trend_tabs[1]:
+            trend = build_ticket_trend(overview_df, freq="Weekly")
+            if trend.empty:
+                st.info("No weekly trend data available.")
+            else:
+                chart = alt.Chart(trend).mark_line(point=True).encode(x="bucket:N", y="Tickets:Q", tooltip=["bucket", "Tickets", "Resolved"]).properties(height=320)
+                st.altair_chart(chart, use_container_width=True)
+        with trend_tabs[2]:
+            trend = build_ticket_trend(overview_df, freq="Monthly")
+            if trend.empty:
+                st.info("No monthly trend data available.")
+            else:
+                chart = alt.Chart(trend).mark_line(point=True).encode(x="bucket:N", y="Tickets:Q", tooltip=["bucket", "Tickets", "Resolved"]).properties(height=320)
+                st.altair_chart(chart, use_container_width=True)
+        with trend_tabs[3]:
+            st.altair_chart(build_location_issue_heatmap(overview_df).properties(height=420), use_container_width=True)
+
+        st.markdown("#### Active queue with SLA indicators")
+        breach_view = build_sla_breach_view(queue_view)
+        if breach_view.empty:
+            st.info("No active queue records available.")
         else:
-            st.success("No NAS failure alert in the current filtered view.")
-        ch1, ch2 = st.columns(2)
-        with ch1:
-            st.markdown("### Ticket Volume by Category")
-            if not df_ticket_filtered.empty:
-                cat_df = df_ticket_filtered["category"].value_counts().reset_index(); cat_df.columns = ["category", "count"]
-                st.altair_chart(build_bar_chart(cat_df, "category:N", "count:Q", "#ef4444"), use_container_width=True)
-        with ch2:
-            st.markdown("### Ticket Volume by Location")
-            if not df_ticket_filtered.empty:
-                loc_df = df_ticket_filtered["location"].value_counts().reset_index(); loc_df.columns = ["location", "count"]
-                st.altair_chart(build_bar_chart(loc_df, "location:N", "count:Q", "#3b82f6"), use_container_width=True)
-        ch3, ch4 = st.columns(2)
-        with ch3:
-            st.markdown("### Technician Load")
-            if not df_ticket_filtered.empty:
-                tech_df = df_ticket_filtered["attended_by"].value_counts().reset_index(); tech_df.columns = ["attended_by", "count"]
-                st.altair_chart(build_bar_chart(tech_df, "attended_by:N", "count:Q", "#22c55e"), use_container_width=True)
-        with ch4:
-            st.markdown("### NAS Storage Trend")
-            trend_df = separate_nas_series(df_nas_filtered)
-            if not trend_df.empty:
-                if server_filter == "All":
-                    chart = alt.Chart(trend_df).mark_line(point=True, strokeWidth=3).encode(x=alt.X("date:T", title=None), y=alt.Y("storage_used:Q", title=None), color=alt.Color("server_name:N", title="Server"), tooltip=["date:T", "server_name:N", "storage_used:Q", "status:N"]).properties(height=280)
-                    st.altair_chart(chart, use_container_width=True)
-                else:
-                    trend_df = trend_df.sort_values("date"); trend_df["date_label"] = trend_df["date"].dt.strftime("%Y-%m-%d")
-                    st.altair_chart(build_line_chart(trend_df, "date_label:N", "storage_used:Q", "#f59e0b"), use_container_width=True)
-        st.markdown("### Recent Ticket Activity")
-        recent = df_ticket_filtered.sort_values("id", ascending=False).head(8).copy() if not df_ticket_filtered.empty else pd.DataFrame()
-        if not recent.empty:
-            render_status_table(recent, ["System Ticket ID", "date", "user_name", "department", "location", "category", "attended_by", "status", "resolution_time"], compact=True)
-        else:
-            st.info("No ticket data available for the selected filters.")
+            st.dataframe(breach_view, use_container_width=True)
     elif page == "Ticket Operations":
         st.subheader("Ticket Operations")
         left, right = st.columns([1.05, 1.2], gap="large")
@@ -1606,7 +1823,7 @@ def render_dashboard(conn):
                         st.error(f"Delete error: {e}")
     elif page == "Reports":
         st.subheader("Reports")
-        report_tabs = st.tabs(["Analysis Tables", "Ticket Details", "NAS Details", "Excel Export"])
+        report_tabs = st.tabs(["Analysis Tables", "Detailed Reports", "NAS Forecast", "Excel Export"])
 
         with report_tabs[0]:
             st.markdown("### Detailed Analysis Tables")
@@ -1621,36 +1838,73 @@ def render_dashboard(conn):
                 st.dataframe(build_repeat_issue_summary(df_ticket_filtered), use_container_width=True)
 
         with report_tabs[1]:
-            exports = build_detailed_ticket_exports(df_ticket_filtered)
-            detail_tabs = st.tabs(["All Ticket Logs", "Resolved Logs", "Pending Logs", "Monthly", "Weekly", "Technician", "Location", "Department", "Repeat Issues"])
-            names = ["Master Tickets", "Resolved Tickets", "Pending Tickets", "Ticket Monthly", "Ticket Weekly", "Ticket Technician", "Ticket Location", "Ticket Department", "Repeat Issues"]
-            for tab, name in zip(detail_tabs, names):
-                with tab:
-                    frame = exports.get(name, pd.DataFrame())
-                    if frame is None or frame.empty:
-                        st.info("No records available.")
-                    else:
-                        st.dataframe(frame, use_container_width=True)
-                        st.download_button(f"Download {name} CSV", data=frame.to_csv(index=False).encode("utf-8"), file_name=name.lower().replace(' ', '_') + ".csv", mime="text/csv", key=f"dl_{name}")
+            detailed = build_detailed_ticket_exports(df_ticket_filtered)
+            grouped = build_grouped_detail_views(df_ticket_filtered)
+            detail_tabs = st.tabs(["All Logs", "Monthly Detail", "Weekly Detail", "Technician Detail", "Site Detail", "MTTR & SLA"])
+            with detail_tabs[0]:
+                frame = detailed.get("Master Tickets", pd.DataFrame())
+                if frame.empty:
+                    st.info("No ticket logs available.")
+                else:
+                    st.dataframe(frame, use_container_width=True)
+                    st.download_button("Download all_ticket_logs CSV", frame.to_csv(index=False).encode("utf-8"), "all_ticket_logs.csv", "text/csv")
+            with detail_tabs[1]:
+                frame = grouped.get("monthly_detail", pd.DataFrame())
+                if frame.empty:
+                    st.info("No monthly detail available.")
+                else:
+                    st.dataframe(frame, use_container_width=True)
+                    st.download_button("Download monthly_detail CSV", frame.to_csv(index=False).encode("utf-8"), "monthly_detail.csv", "text/csv")
+            with detail_tabs[2]:
+                frame = grouped.get("weekly_detail", pd.DataFrame())
+                if frame.empty:
+                    st.info("No weekly detail available.")
+                else:
+                    st.dataframe(frame, use_container_width=True)
+                    st.download_button("Download weekly_detail CSV", frame.to_csv(index=False).encode("utf-8"), "weekly_detail.csv", "text/csv")
+            with detail_tabs[3]:
+                frame = grouped.get("technician_detail", pd.DataFrame())
+                if frame.empty:
+                    st.info("No technician detail available.")
+                else:
+                    st.dataframe(frame, use_container_width=True)
+                    st.download_button("Download technician_detail CSV", frame.to_csv(index=False).encode("utf-8"), "technician_detail.csv", "text/csv")
+            with detail_tabs[4]:
+                frame = grouped.get("site_detail", pd.DataFrame())
+                if frame.empty:
+                    st.info("No site detail available.")
+                else:
+                    st.dataframe(frame, use_container_width=True)
+                    st.download_button("Download site_detail CSV", frame.to_csv(index=False).encode("utf-8"), "site_detail.csv", "text/csv")
+            with detail_tabs[5]:
+                mt1 = build_mttr_sla_summary(add_priority_and_sla(prepare_ticket_view(df_ticket_filtered)).assign(Month=pd.to_datetime(prepare_ticket_view(df_ticket_filtered).get("date"), errors="coerce").dt.strftime("%Y-%m")), "Month") if not df_ticket_filtered.empty else pd.DataFrame()
+                mt2 = build_mttr_sla_summary(add_priority_and_sla(prepare_ticket_view(df_ticket_filtered)).assign(Week=pd.to_datetime(prepare_ticket_view(df_ticket_filtered).get("date"), errors="coerce").dt.strftime("%Y-W") + pd.to_datetime(prepare_ticket_view(df_ticket_filtered).get("date"), errors="coerce").dt.isocalendar().week.astype(str)), "Week") if not df_ticket_filtered.empty else pd.DataFrame()
+                mt3 = build_mttr_sla_summary(prepare_ticket_view(df_ticket_filtered), "attended_by")
+                mt4 = build_mttr_sla_summary(prepare_ticket_view(df_ticket_filtered), "location")
+                sub_tabs = st.tabs(["Month", "Week", "Technician", "Site"])
+                for tab, frame in zip(sub_tabs, [mt1, mt2, mt3, mt4]):
+                    with tab:
+                        if frame.empty:
+                            st.info("No metrics available.")
+                        else:
+                            st.dataframe(frame, use_container_width=True)
 
         with report_tabs[2]:
-            nas_master, nas_monthly, nas_weekly, nas_serverwise = build_nas_reports_extended(df_nas_filtered)
-            raw_nas = normalize_nas_df(df_nas_filtered).copy() if df_nas_filtered is not None else pd.DataFrame()
-            nas_delta = compute_nas_changes(df_nas_filtered)
-            nas_tabs = st.tabs(["Raw NAS Logs", "NAS Performance Deltas", "NAS Monthly", "NAS Weekly", "NAS Server Summary"])
-            frames = [raw_nas, nas_delta, nas_monthly, nas_weekly, nas_serverwise]
-            labels = ["raw_nas_logs", "nas_performance_deltas", "nas_monthly", "nas_weekly", "nas_server_summary"]
-            for tab, frame, label in zip(nas_tabs, frames, labels):
+            raw_nas = normalize_nas_df(df_nas_filtered)
+            deltas = compute_nas_changes(df_nas_filtered)
+            forecast = build_storage_forecast(df_nas_filtered)
+            nas_tabs = st.tabs(["Raw NAS Logs", "Delta Logs", "Forecast"])
+            for tab, frame, filename in zip(nas_tabs, [raw_nas, deltas, forecast], ["raw_nas_logs.csv", "nas_delta_logs.csv", "nas_forecast.csv"]):
                 with tab:
-                    if frame is None or frame.empty:
-                        st.info("No NAS records available.")
+                    if frame.empty:
+                        st.info("No NAS data available.")
                     else:
                         st.dataframe(frame, use_container_width=True)
-                        st.download_button(f"Download {label} CSV", data=frame.to_csv(index=False).encode("utf-8"), file_name=f"{label}.csv", mime="text/csv", key=f"dl_{label}")
+                        st.download_button(f"Download {filename}", frame.to_csv(index=False).encode("utf-8"), filename, "text/csv")
 
         with report_tabs[3]:
             excel_blob = build_excel_report(df_ticket_filtered, df_nas_filtered)
-            st.download_button("Download Consolidated Excel Workbook", data=excel_blob, file_name="vega_knitpro_detailed_reports.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            st.download_button("Download detailed multi-tab Excel workbook", data=excel_blob, file_name="vega_knitpro_detailed_reports.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     elif page == "Task Center":
         st.subheader("Task Center")
         tasks_df = load_tasks_df(conn)
@@ -1808,79 +2062,35 @@ def render_dashboard(conn):
     elif page == "AVP Dashboard":
         st.subheader("AVP Strategic Overview")
         metrics = build_ticket_exec_metrics(df_ticket_filtered)
-        c1, c2, c3, c4, c5, c6 = st.columns(6)
-        c1.metric("Today Open", metrics.get("today_open", 0))
-        c2.metric("Today Closed", metrics.get("today_closed", 0))
-        c3.metric("Pending", metrics.get("pending", 0))
-        c4.metric("Overdue", metrics.get("overdue", 0))
-        c5.metric("Avg Resolution", metrics.get("avg_resolution", 0))
-        c6.metric("Resolution %", metrics.get("resolution_rate", 0.0))
+        sri = build_system_reliability_index(df_ticket_filtered)
+        dept_load = build_department_load_distribution(df_ticket_filtered)
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("System Reliability Index %", sri)
+        c2.metric("Pending", metrics.get("pending", 0))
+        c3.metric("Overdue", metrics.get("overdue", 0))
+        c4.metric("Resolution %", metrics.get("resolution_rate", 0.0))
 
-        avp_tabs = st.tabs(["Trend", "Technicians", "Locations", "Executive Notes", "Team Chat"])
+        avp_tabs = st.tabs(["Department Load", "Efficiency Matrix", "Recurring Failures", "Trend Snapshot"])
         with avp_tabs[0]:
+            if dept_load.empty:
+                st.info("No departmental load data available.")
+            else:
+                st.dataframe(dept_load, use_container_width=True)
+        with avp_tabs[1]:
+            st.altair_chart(build_technician_efficiency_matrix(df_ticket_filtered).properties(height=380), use_container_width=True)
+        with avp_tabs[2]:
+            st.dataframe(build_top_recurring_failures(df_ticket_filtered), use_container_width=True)
+        with avp_tabs[3]:
             st.dataframe(build_ticket_trend(df_ticket_filtered, freq="Weekly"), use_container_width=True)
             st.dataframe(build_ticket_trend(df_ticket_filtered, freq="Monthly"), use_container_width=True)
-        with avp_tabs[1]:
-            st.dataframe(build_technician_performance(df_ticket_filtered), use_container_width=True)
-        with avp_tabs[2]:
-            st.dataframe(build_location_summary(df_ticket_filtered), use_container_width=True)
-        with avp_tabs[3]:
-            notes = [
-                f"Pending tickets: {metrics.get('pending', 0)}",
-                f"Overdue tickets: {metrics.get('overdue', 0)}",
-                f"Resolution rate: {metrics.get('resolution_rate', 0.0)}%",
-            ]
-            for note in notes:
-                st.markdown(f"- {note}")
-        with avp_tabs[4]:
-            status_df = load_user_status_df(conn)
-            threads_df = load_chat_threads_df(conn)
-            st.markdown("#### Team status")
-            status_user = user.get("username") or display_name.lower()
-            current_status = st.selectbox("Set your status", ["Available", "Busy", "In Meeting", "Offline"], key="chat_status")
-            if st.button("Update Status", key="chat_status_save"):
-                set_user_status(conn, status_user, display_name, current_status)
-                st.success("Status updated.")
-                st.rerun()
-            st.dataframe(status_df, use_container_width=True)
-            st.markdown("#### Team chat")
-            if threads_df.empty:
-                if st.button("Create General Thread", key="create_general_thread"):
-                    create_chat_thread(conn, "General Team Chat", display_name)
-                    st.rerun()
-                st.info("No chat threads available.")
-            else:
-                thread_map = {f"{row['title']} (#{int(row['id'])})": int(row['id']) for _, row in threads_df.iterrows()}
-                selected_thread_label = st.selectbox("Choose thread", list(thread_map.keys()), key="chat_thread_select")
-                selected_thread_id = thread_map[selected_thread_label]
-                messages_df = load_chat_messages_df(conn, selected_thread_id)
-                if messages_df.empty:
-                    st.info("No messages yet.")
-                else:
-                    st.dataframe(messages_df, use_container_width=True)
-                new_message = st.text_area("Message", key="chat_new_message")
-                col_a, col_b = st.columns([1,1])
-                with col_a:
-                    if st.button("Send Message", key="chat_send"):
-                        if str(new_message).strip():
-                            post_chat_message(conn, selected_thread_id, display_name, new_message.strip())
-                            st.success("Message sent.")
-                            st.rerun()
-                with col_b:
-                    new_thread_title = st.text_input("New thread title", key="new_thread_title")
-                    if st.button("Create Thread", key="chat_create_thread"):
-                        if str(new_thread_title).strip():
-                            create_chat_thread(conn, new_thread_title.strip(), display_name)
-                            st.success("Thread created.")
-                            st.rerun()
-
     elif page == "Team Chat":
         st.subheader("Team Chat")
         status_df = load_user_status_df(conn)
         threads_df = load_chat_threads_df(conn)
         user_key = user.get("username") or display_name.lower()
-        c1, c2 = st.columns([1, 2])
-        with c1:
+        unread_map = build_thread_unread_map(conn, user.get("username"))
+        left, right = st.columns([1, 2])
+        with left:
             chosen_status = st.selectbox("Your status", ["Available", "Busy", "In Meeting", "Offline"], key="team_chat_status")
             if st.button("Save Status", key="team_chat_save_status"):
                 set_user_status(conn, user_key, display_name, chosen_status)
@@ -1888,42 +2098,59 @@ def render_dashboard(conn):
                 st.rerun()
             st.markdown("#### Team presence")
             st.dataframe(status_df, use_container_width=True)
-            st.markdown("#### Notifications")
-            my_notifs = load_notifications_df(conn, user.get("username"))
-            if my_notifs.empty:
-                st.info("No notifications.")
-            else:
-                st.dataframe(my_notifs, use_container_width=True)
-        with c2:
-            st.markdown("#### Chat threads")
+            st.markdown("#### Threads")
             if threads_df.empty:
                 default_thread = create_chat_thread(conn, "General Team Chat", display_name)
                 post_chat_message(conn, default_thread, display_name, "General thread created.")
                 st.rerun()
-            thread_map = {f"{row['title']} (#{int(row['id'])})": int(row['id']) for _, row in threads_df.iterrows()}
-            selected_thread_label = st.selectbox("Select thread", list(thread_map.keys()), key="team_chat_thread")
+            thread_labels = []
+            thread_map = {}
+            for _, row in threads_df.iterrows():
+                tid = int(row['id'])
+                unread = unread_map.get(tid, 0)
+                label = f"{row['title']} (#{tid})"
+                if unread > 0:
+                    label += f" • unread {unread}"
+                thread_labels.append(label)
+                thread_map[label] = tid
+            selected_thread_label = st.selectbox("Select thread", thread_labels, key="team_chat_thread")
             selected_thread_id = thread_map[selected_thread_label]
+            new_thread_title = st.text_input("New thread title", key="team_chat_new_thread")
+            if st.button("Create Thread", key="team_chat_create_thread"):
+                if str(new_thread_title).strip():
+                    create_chat_thread(conn, new_thread_title.strip(), display_name)
+                    st.success("Thread created.")
+                    st.rerun()
+        with right:
+            ticket_options = ["No linked ticket"]
+            if not df_ticket_filtered.empty and 'id' in df_ticket_filtered.columns:
+                ticket_options += [f"{int(r['id'])} | {r.get('System Ticket ID', '')} | {str(r.get('complaint', ''))[:50]}" for _, r in df_ticket_filtered[['id', 'System Ticket ID', 'complaint']].drop_duplicates().iterrows()]
+            linked_ticket = st.selectbox("Link this reply to ticket", ticket_options, key="chat_link_ticket")
             messages_df = load_chat_messages_df(conn, selected_thread_id)
             if messages_df.empty:
                 st.info("No messages in this thread yet.")
             else:
-                st.dataframe(messages_df, use_container_width=True)
-            new_message = st.text_area("Write message", key="team_chat_message")
-            if st.button("Send", key="team_chat_send"):
-                if not str(new_message).strip():
-                    st.error("Message cannot be empty.")
-                else:
-                    post_chat_message(conn, selected_thread_id, display_name, new_message.strip())
-                    st.success("Message sent.")
-                    st.rerun()
-            new_thread_title = st.text_input("Create new thread", key="team_chat_new_thread")
-            if st.button("Create Thread", key="team_chat_create_thread"):
-                if not str(new_thread_title).strip():
-                    st.error("Thread title is required.")
-                else:
-                    create_chat_thread(conn, new_thread_title.strip(), display_name)
-                    st.success("Thread created.")
-                    st.rerun()
+                for _, row in messages_df.iterrows():
+                    with st.chat_message("user" if str(row['sender']) == str(display_name) else "assistant"):
+                        msg = str(row['message'])
+                        words = []
+                        for token in msg.split():
+                            if token.startswith('@'):
+                                words.append(f"**{token}**")
+                            else:
+                                words.append(token)
+                        st.markdown(" ".join(words))
+                        meta = f"{row['sender']} • {row['created_at']}"
+                        if 'linked_ticket_id' in row and pd.notna(row['linked_ticket_id']):
+                            meta += f" • Ticket #{int(row['linked_ticket_id'])}"
+                        st.caption(meta)
+            prompt = st.chat_input("Type a message or mention @user")
+            if prompt:
+                linked_ticket_id = None
+                if linked_ticket != "No linked ticket":
+                    linked_ticket_id = int(str(linked_ticket).split('|')[0].strip())
+                post_chat_message(conn, selected_thread_id, display_name, prompt, linked_ticket_id=linked_ticket_id)
+                st.rerun()
 
 # Main Application Entrypoint
 if __name__ == "__main__":
