@@ -1247,10 +1247,10 @@ def bootstrap_auth_gate(conn):
         st.stop()
 
 def get_role_pages(role):
-    if role == "IT Manager": return ["Overview", "Ticket Operations", "NAS Monitoring", "Reports", "Task Center", "Admin Tools", "AVP Dashboard", "Team Chat", "Executive Command Center", "Vendor Dashboard", "Department Health", "Asset Health"]
-    if role == "IT AM": return ["Overview", "Ticket Operations", "NAS Monitoring", "Reports", "Task Center", "Team Chat", "Executive Command Center", "Vendor Dashboard", "Department Health", "Asset Health"]
-    if role == "AVP": return ["Overview", "AVP Dashboard", "Reports", "Task Center", "Team Chat", "Executive Command Center", "Vendor Dashboard", "Department Health", "Asset Health"]
-    return ["Overview", "Ticket Operations", "NAS Monitoring", "Task Center", "Team Chat"]
+    if role == "IT Manager": return ["Home", "Executive Command Center", "Overview", "Ticket Operations", "NAS Monitoring", "Reports", "Task Center", "Admin Tools", "AVP Dashboard", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health"]
+    if role == "IT AM": return ["Home", "Executive Command Center", "Overview", "Ticket Operations", "NAS Monitoring", "Reports", "Task Center", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health"]
+    if role == "AVP": return ["Home", "Executive Command Center", "Overview", "AVP Dashboard", "Reports", "Task Center", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health"]
+    return ["Home", "Overview", "Ticket Operations", "NAS Monitoring", "Task Center", "Team Chat"]
 
 def create_task(conn, payload):
     conn.execute("INSERT INTO tasks (title, description, assigned_by, assigned_to, priority, status, progress, due_date, vendor_flag, vendor_status, vendor_remark, reminder_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (payload.get("title"), payload.get("description"), payload.get("assigned_by"), payload.get("assigned_to"), payload.get("priority", "Medium"), payload.get("status", "Open"), payload.get("progress", 0), payload.get("due_date"), payload.get("vendor_flag", 0), payload.get("vendor_status"), payload.get("vendor_remark"), payload.get("reminder_date")))
@@ -1992,6 +1992,15 @@ def render_home_page(user, ticket_df, nas_df, conn):
             with cols[i % 3]:
                 st.markdown(f'<div class="insight-card">{insight}</div>', unsafe_allow_html=True)
 
+def render_insight_cards(insights_df, columns_count=3):
+    if insights_df is None or insights_df.empty:
+        st.info("No insights available.")
+        return
+    cols = st.columns(columns_count)
+    for i, insight in enumerate(insights_df[insights_df.columns[0]].astype(str).tolist()[:12]):
+        with cols[i % columns_count]:
+            st.markdown(f'<div class="insight-card">💡 {insight}</div>', unsafe_allow_html=True)
+
 def render_global_search(conn, ticket_df):
     with st.sidebar.expander('🔎 Global Search', expanded=False):
         q = st.text_input('Search tickets, users, departments, technicians, vendors, assets, locations, tasks', key='global_search_q')
@@ -2623,27 +2632,54 @@ def render_dashboard(conn):
         vendor_df = load_vendor_followups_df(conn)
         status_df = load_user_status_df(conn)
         exec_metrics = build_executive_command_metrics(df_ticket_filtered, task_df, vendor_df, status_df, df_nas_filtered)
-        cards = st.columns(4)
-        items = list(exec_metrics.items())
-        for i, (k, v) in enumerate(items):
-            cards[i % 4].metric(f"{_status_light(v, green_ok=(k not in ['Total Open Tickets','Critical SLA Breaches','Overdue Tasks','Open Vendor Cases']))} {k}", v)
-        st.markdown("### Ticket Aging")
+        ribbon = st.columns(6)
+        ribbon_items = [
+            ("Open Tickets", exec_metrics.get("Total Open Tickets", 0), "Current backlog", "🎫", "warning"),
+            ("SLA Breaches", exec_metrics.get("Critical SLA Breaches", 0), "Attention needed", "🚨", "danger"),
+            ("Vendor Open Cases", exec_metrics.get("Open Vendor Cases", 0), "Pending with vendors", "🏭", "warning"),
+            ("Tasks Due", exec_metrics.get("Overdue Tasks", 0), "Overdue tasks", "📌", "warning"),
+            ("NAS Health", exec_metrics.get("NAS Health Score", 0), "Infrastructure health", "🖥", "success"),
+            ("Resolution %", exec_metrics.get("Resolution Rate %", 0), "Closure efficiency", "✅", "success"),
+        ]
+        for col, item in zip(ribbon, ribbon_items):
+            with col:
+                render_kpi_card(*item)
         aging_pack = build_ticket_aging_analysis(df_ticket_filtered)
-        a1, a2 = st.columns([1,1])
-        with a1:
-            st.dataframe(aging_pack.get('aging_table', pd.DataFrame()), use_container_width=True)
-        with a2:
+        dept_health = build_department_health(df_ticket_filtered)
+        insights_df = build_management_insights(df_ticket_filtered, df_nas_filtered, vendor_df)
+        mom_df = build_month_over_month_comparison(df_ticket_filtered)
+        mid1, mid2 = st.columns([1.1, 1])
+        with mid1:
+            st.markdown("### Ticket Aging")
             aging_df = aging_pack.get('aging_table', pd.DataFrame())
             if not aging_df.empty:
-                st.altair_chart(alt.Chart(aging_df).mark_bar().encode(x='aging_bucket:N', y='Tickets:Q', color='aging_bucket:N'), use_container_width=True)
-        st.markdown(f"Average Pending Age: **{aging_pack.get('avg_pending_age', 0)} days**")
-        oldest = aging_pack.get('oldest_ticket', pd.DataFrame())
-        if oldest is not None and not oldest.empty:
-            st.dataframe(oldest, use_container_width=True)
+                st.altair_chart(alt.Chart(aging_df).mark_bar(cornerRadiusTopLeft=6, cornerRadiusTopRight=6).encode(x='aging_bucket:N', y='Tickets:Q', color='aging_bucket:N'), use_container_width=True)
+            st.caption(f"Average pending age: {aging_pack.get('avg_pending_age', 0)} days")
+        with mid2:
+            st.markdown("### Department Risk")
+            if dept_health is not None and not dept_health.empty:
+                st.altair_chart(alt.Chart(dept_health.head(8)).mark_bar(cornerRadiusTopLeft=6, cornerRadiusTopRight=6).encode(x='department:N', y='Risk_Score:Q', color='Department_Health:N'), use_container_width=True)
+            else:
+                st.info("No department risk data available.")
         st.markdown("### Management Insights")
-        st.dataframe(build_management_insights(df_ticket_filtered, df_nas_filtered, vendor_df), use_container_width=True)
+        render_insight_cards(insights_df, columns_count=3)
         st.markdown("### Month-over-Month")
-        st.dataframe(build_month_over_month_comparison(df_ticket_filtered), use_container_width=True)
+        if mom_df is not None and not mom_df.empty:
+            mcols = st.columns(len(mom_df))
+            for col, (_, row) in zip(mcols, mom_df.iterrows()):
+                with col:
+                    tone = 'success' if 'Increase' in str(row['Direction']) and row['Metric'] in ['Resolution Rate', 'SLA %'] else ('danger' if 'Decrease' in str(row['Direction']) and row['Metric'] in ['Resolution Rate', 'SLA %'] else 'primary')
+                    render_kpi_card(str(row['Metric']), row['Current_Month'], f"Prev: {row['Previous_Month']}", '📈', str(row['Direction']), tone)
+        with st.expander("Detailed executive tables", expanded=False):
+            if aging_pack.get('most_aged', pd.DataFrame()) is not None and not aging_pack.get('most_aged', pd.DataFrame()).empty:
+                st.markdown("#### Most aged tickets")
+                st.dataframe(aging_pack.get('most_aged', pd.DataFrame()), use_container_width=True)
+            if dept_health is not None and not dept_health.empty:
+                st.markdown("#### Department risk table")
+                st.dataframe(dept_health, use_container_width=True)
+            if mom_df is not None and not mom_df.empty:
+                st.markdown("#### Month-over-month table")
+                st.dataframe(mom_df, use_container_width=True)
 
     elif page == "Vendor Dashboard":
         st.subheader("Vendor Performance Analytics")
