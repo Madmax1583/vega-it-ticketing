@@ -2302,7 +2302,7 @@ def render_dashboard(conn):
         st.subheader("Reports")
         report_tabs = st.tabs(["Analysis Tables", "Detailed Reports", "NAS Forecast", "Excel Export"])
 
-        st.markdown("<div class="panel"><div class="panel-title">Analytics Center</div><div class="panel-sub">Executive, SLA, technician, department, site, asset, NAS, and insights views remain available through the existing reports plus the new management report layer.</div></div>", unsafe_allow_html=True)
+        st.markdown('''<div class="panel"><div class="panel-title">Analytics Center</div><div class="panel-sub">Executive, SLA, technician, department, site, asset, NAS, and insights views remain available through the existing reports plus the new management report layer.</div></div>''', unsafe_allow_html=True)
         with report_tabs[0]:
             st.markdown("### Detailed Analysis Tables")
             analysis_tabs = st.tabs(["Technician Performance", "Department Summary", "Location Summary", "Repeat Issues"])
@@ -2678,7 +2678,7 @@ def render_dashboard(conn):
         st.dataframe(asset_pack.get('recommendations', pd.DataFrame()), use_container_width=True)
 
     elif page == "Team Chat":
-        st.markdown("<div class="panel"><div class="panel-title">Team Chat</div><div class="panel-sub">Unread badges, presence indicators, mentions, and ticket-linked collaboration stay functionally unchanged while using a cleaner shell.</div></div>", unsafe_allow_html=True)
+        st.markdown('''<div class="panel"><div class="panel-title">Team Chat</div><div class="panel-sub">Unread badges, presence indicators, mentions, and ticket-linked collaboration stay functionally unchanged while using a cleaner shell.</div></div>''', unsafe_allow_html=True)
         st.subheader("Team Chat")
         status_df = load_user_status_df(conn)
         threads_df = load_chat_threads_df(conn)
