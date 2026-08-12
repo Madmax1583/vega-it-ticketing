@@ -2022,6 +2022,7 @@ def render_dashboard(conn):
     user = st.session_state.get("current_user", {})
     role = user.get("role", "IT Executive")
     display_name = user.get("display_name", "Guest")
+    inject_enterprise_ui_css()
     df_tickets = prepare_ticket_view(load_tickets())
     df_nas = load_nas_data()
     st.sidebar.markdown(f"👤 **{display_name}** ({role})")
@@ -2033,13 +2034,25 @@ def render_dashboard(conn):
         st.session_state["must_set_password"] = False
         st.rerun()
     allowed_pages = get_role_pages(role)
+    render_global_search(conn, df_tickets)
     st.sidebar.markdown("---")
     site_filter = st.sidebar.selectbox("Site", ["All"] + OFFICIAL_LOCATIONS)
     status_filter = st.sidebar.selectbox("Ticket Status", ["All"] + STATUS_OPTIONS)
     tech_filter = st.sidebar.selectbox("Technician", ["All"] + list(TECH_MAP.keys()))
     server_filter = st.sidebar.selectbox("NAS Server", ["All"] + SERVER_NAMES)
     st.sidebar.markdown("---")
-    page = st.sidebar.radio("Navigation", allowed_pages)
+    current_page = st.session_state.get("page", "Home" if "Home" in allowed_pages else allowed_pages[0])
+    for group, pages in get_navigation_groups(role).items():
+        with st.sidebar.expander(group, expanded=(current_page in pages)):
+            for p in pages:
+                label = f"➤ {p}" if p == current_page else p
+                if st.button(label, key=f"nav_{group}_{p}", use_container_width=True):
+                    st.session_state["page"] = p
+                    st.rerun()
+    page = st.session_state.get("page", "Home" if "Home" in allowed_pages else allowed_pages[0])
+    if page not in allowed_pages:
+        page = allowed_pages[0]
+        st.session_state["page"] = page
     st.sidebar.markdown("---")
     if db_connected:
         st.sidebar.success("Supabase cloud connected")
@@ -2047,6 +2060,7 @@ def render_dashboard(conn):
         st.sidebar.warning("Session sandbox mode active")
     df_ticket_filtered = filtered_tickets(df_tickets, site_filter, status_filter, tech_filter)
     df_nas_filtered = filtered_nas(df_nas, server_filter)
+    st.markdown(f"<div class="sticky-topbar"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px"><div><div class="crumb">{page_breadcrumb(page)}</div><div class="hero-title" style="font-size:24px;margin:0">{page}</div></div><div class="last-updated">Updated:<br>{pd.Timestamp.now().strftime("%d %b %Y")}<br>{pd.Timestamp.now().strftime("%I:%M %p")}</div></div></div>", unsafe_allow_html=True)
     st.markdown("<div class='app-banner'><div class='app-title'>🛠️ Vega & Knitpro IT Command Suite</div><div class='app-subtitle'>Single-window support operations, NAS monitoring, reporting, tasking, and infrastructure analytics</div></div>", unsafe_allow_html=True)
     if page == "Home":
         render_home_page(user, df_ticket_filtered, df_nas_filtered, conn)
