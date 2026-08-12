@@ -1818,9 +1818,35 @@ def build_capacity_planning_dashboard(nas_df):
     today = pd.Timestamp.now().normalize()
     out = forecast.copy()
     out['Storage Growth Rate'] = out['daily_growth_est']
-    out['Forecasted Capacity Date'] = out['projected_days_to_100'].apply(lambda d: (today + pd.Timedelta(days=float(d))).date().isoformat() if pd.notna(d) else None)
-    out['Recommended Upgrade Date'] = out['projected_days_to_100'].apply(lambda d: (today + pd.Timedelta(days=max(float(d)-30,0))).date().isoformat() if pd.notna(d) else None)
-    out['Storage Risk Level'] = out['projected_days_to_100'].apply(lambda d: 'High' if pd.notna(d) and float(d) <= 30 else ('Attention' if pd.notna(d) and float(d) <= 90 else 'Healthy'))
+
+    def _safe_future_date(days_value, subtract_days=0):
+        try:
+            if pd.isna(days_value):
+                return None
+            d = float(days_value) - float(subtract_days)
+            d = max(d, 0)
+            if d > 3650:
+                return None
+            return (today + pd.Timedelta(days=d)).date().isoformat()
+        except Exception:
+            return None
+
+    def _safe_risk_level(days_value):
+        try:
+            if pd.isna(days_value):
+                return 'Healthy'
+            d = float(days_value)
+            if d <= 30:
+                return 'High'
+            if d <= 90:
+                return 'Attention'
+            return 'Healthy'
+        except Exception:
+            return 'Healthy'
+
+    out['Forecasted Capacity Date'] = out['projected_days_to_100'].apply(_safe_future_date)
+    out['Recommended Upgrade Date'] = out['projected_days_to_100'].apply(lambda d: _safe_future_date(d, subtract_days=30))
+    out['Storage Risk Level'] = out['projected_days_to_100'].apply(_safe_risk_level)
     out['Server Utilization %'] = out['latest_storage'].round(2)
     return out
 
