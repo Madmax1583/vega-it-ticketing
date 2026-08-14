@@ -3231,16 +3231,7 @@ def build_asset_health(asset_df, ticket_df):
 _original_render_dashboard = render_dashboard
 
 def render_dashboard(conn):
-    custom_page = st.session_state.get('page', 'Home')
-    if custom_page in {'Home', 'Executive Command Center', 'Reports'}:
-        st.session_state['_enterprise_override_page'] = custom_page
-        st.session_state['page'] = 'Overview'
-        try:
-            _original_render_dashboard(conn)
-        finally:
-            st.session_state['page'] = custom_page
-            st.session_state.pop('_enterprise_override_page', None)
-        return
+    st.session_state['_enterprise_override_page'] = st.session_state.get('page', 'Home')
     return _original_render_dashboard(conn)
 
 if __name__ == "__main__":
