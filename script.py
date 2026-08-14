@@ -442,7 +442,6 @@ def seed_default_users(conn):
 def init_support_data(conn):
     ensure_support_tables(conn)
     ensure_enterprise_extension_tables(conn)
-    ensure_ticket_analytics_tables(conn)
     globals()["conn_global_for_pdf"] = conn
     seed_default_users(conn)
 
@@ -1554,263 +1553,6 @@ def build_detailed_ticket_exports(df):
 
 
 # Added month/year helpers for detailed report selection
-
-
-# ===== Ticket analytics classification extension =====
-TICKET_ANALYTICS_CLASSIFICATION_SQL = """
-CREATE TABLE IF NOT EXISTS ticket_analytics_classification (
-    ticket_id INTEGER PRIMARY KEY,
-    ticket_type TEXT,
-    operational_category TEXT,
-    reporting_category_v2 TEXT,
-    count_in_incident_analytics INTEGER DEFAULT 1,
-    classification_source TEXT,
-    classification_confidence REAL,
-    classification_review_status TEXT,
-    classification_version TEXT,
-    legacy_category TEXT,
-    legacy_status TEXT,
-    legacy_attended_by TEXT,
-    legacy_location TEXT,
-    classified_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    classified_by TEXT
-)
-"""
-
-INCIDENT_KEYWORDS = ['down','not working','failed','failure','error','unable','offline','issue','problem','outage','disconnect','printer not working','vpn down','network down','camera offline']
-REQUEST_KEYWORDS = ['install','installation','access','create id','id creation','new user','setup','handover','delivery','mailbox access','password reset','extension config','configuration']
-PLANNED_KEYWORDS = ['daily check','health check','backup verification','backup check','routine','preventive','maintenance','monitoring','audit','checklist','verification','patch activity']
-CHANGE_KEYWORDS = ['upgrade','migration','patch','change','cutover','deployment','rollout','configuration update']
-
-CATEGORY_TYPE_MAP = {
-    'Network': ('Incident', 'Network Support', 'Network Incident'),
-    'Printer': ('Incident', 'Printer Support', 'Printer Incident'),
-    'CCTV/Camera': ('Incident', 'Surveillance Support', 'CCTV Incident'),
-    'Server/UPS': ('Incident', 'Server & UPS Support', 'Server Incident'),
-    'Telephony': ('Incident', 'Telephony Support', 'Telephony Incident'),
-    'Email/Outlook': ('Service Request', 'Messaging Support', 'Messaging Request'),
-    'Software Support': ('Service Request', 'Software Support', 'Software Request'),
-    'Installation/Setup': ('Service Request', 'Provisioning', 'Setup Request'),
-    'Access Control': ('Service Request', 'Access Management', 'Access Request'),
-    'AV Support': ('Planned Activity', 'AV Operations', 'AV Planned Work'),
-    'SAP': ('Service Request', 'Business App Support', 'SAP Request'),
-}
-
-
-def ensure_ticket_analytics_tables(conn):
-    try:
-        conn.execute(TICKET_ANALYTICS_CLASSIFICATION_SQL)
-        conn.commit()
-    except Exception:
-        pass
-
-
-def _safe_text(x):
-    return '' if x is None else str(x).strip()
-
-
-def derive_ticket_classification(row):
-    category = _safe_text(row.get('category'))
-    complaint = _safe_text(row.get('complaint'))
-    remarks = _safe_text(row.get('remarks'))
-    status = _safe_text(row.get('status'))
-    attended_by = _safe_text(row.get('attended_by'))
-    location = _safe_text(row.get('location'))
-    text = ' '.join([category, complaint, remarks]).lower()
-
-    ticket_type = 'Legacy-Unclassified'
-    operational_category = 'Unclassified'
-    reporting_category_v2 = 'Legacy-Unclassified'
-    count_flag = 0
-    source = 'Legacy Default'
-    confidence = 0.35
-    review_status = 'Needs Review'
-
-    if category in CATEGORY_TYPE_MAP:
-        ticket_type, operational_category, reporting_category_v2 = CATEGORY_TYPE_MAP[category]
-        count_flag = 1 if ticket_type == 'Incident' else 0
-        source = 'Category Map'
-        confidence = 0.78
-        review_status = 'Auto-Classified'
-
-    if any(k in text for k in INCIDENT_KEYWORDS):
-        ticket_type = 'Incident'
-        operational_category = operational_category if operational_category != 'Unclassified' else (category or 'General Support')
-        reporting_category_v2 = f"{category or 'General'} Incident"
-        count_flag = 1
-        source = 'Keyword Rule'
-        confidence = max(confidence, 0.90)
-        review_status = 'Auto-Classified'
-    elif any(k in text for k in PLANNED_KEYWORDS):
-        ticket_type = 'Planned Activity'
-        operational_category = operational_category if operational_category != 'Unclassified' else (category or 'Routine Operations')
-        reporting_category_v2 = f"{category or 'General'} Planned Work"
-        count_flag = 0
-        source = 'Keyword Rule'
-        confidence = max(confidence, 0.92)
-        review_status = 'Auto-Classified'
-    elif any(k in text for k in REQUEST_KEYWORDS):
-        ticket_type = 'Service Request'
-        operational_category = operational_category if operational_category != 'Unclassified' else (category or 'User Request')
-        reporting_category_v2 = f"{category or 'General'} Request"
-        count_flag = 0
-        source = 'Keyword Rule'
-        confidence = max(confidence, 0.88)
-        review_status = 'Auto-Classified'
-    elif any(k in text for k in CHANGE_KEYWORDS):
-        ticket_type = 'Change Support'
-        operational_category = operational_category if operational_category != 'Unclassified' else (category or 'Change Activity')
-        reporting_category_v2 = f"{category or 'General'} Change"
-        count_flag = 0
-        source = 'Keyword Rule'
-        confidence = max(confidence, 0.80)
-        review_status = 'Auto-Classified'
-
-    if ticket_type == 'Legacy-Unclassified' and category in ['Installation/Setup', 'Access Control', 'Software Support']:
-        ticket_type = 'Service Request'
-        operational_category = category
-        reporting_category_v2 = f'{category} Request'
-        count_flag = 0
-        source = 'Category Heuristic'
-        confidence = 0.72
-        review_status = 'Auto-Classified'
-
-    return {
-        'ticket_type': ticket_type,
-        'operational_category': operational_category,
-        'reporting_category_v2': reporting_category_v2,
-        'count_in_incident_analytics': int(count_flag),
-        'classification_source': source,
-        'classification_confidence': float(confidence),
-        'classification_review_status': review_status,
-        'classification_version': 'v1_2026_08',
-        'legacy_category': category,
-        'legacy_status': status,
-        'legacy_attended_by': attended_by,
-        'legacy_location': location,
-        'classified_by': 'system_backfill',
-    }
-
-
-def load_ticket_analytics_classification_df(conn):
-    try:
-        return pd.read_sql_query('SELECT * FROM ticket_analytics_classification ORDER BY ticket_id DESC', conn)
-    except Exception:
-        return pd.DataFrame(columns=['ticket_id','ticket_type','operational_category','reporting_category_v2','count_in_incident_analytics','classification_source','classification_confidence','classification_review_status','classification_version','legacy_category','legacy_status','legacy_attended_by','legacy_location','classified_at','classified_by'])
-
-
-def upsert_ticket_classification(conn, ticket_id, payload):
-    values = [ticket_id, payload.get('ticket_type'), payload.get('operational_category'), payload.get('reporting_category_v2'), int(payload.get('count_in_incident_analytics', 0)), payload.get('classification_source'), payload.get('classification_confidence'), payload.get('classification_review_status'), payload.get('classification_version'), payload.get('legacy_category'), payload.get('legacy_status'), payload.get('legacy_attended_by'), payload.get('legacy_location'), payload.get('classified_by', 'system')]
-    sql = """
-        INSERT INTO ticket_analytics_classification (
-            ticket_id, ticket_type, operational_category, reporting_category_v2, count_in_incident_analytics,
-            classification_source, classification_confidence, classification_review_status, classification_version,
-            legacy_category, legacy_status, legacy_attended_by, legacy_location, classified_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(ticket_id) DO UPDATE SET
-            ticket_type=excluded.ticket_type,
-            operational_category=excluded.operational_category,
-            reporting_category_v2=excluded.reporting_category_v2,
-            count_in_incident_analytics=excluded.count_in_incident_analytics,
-            classification_source=excluded.classification_source,
-            classification_confidence=excluded.classification_confidence,
-            classification_review_status=excluded.classification_review_status,
-            classification_version=excluded.classification_version,
-            legacy_category=excluded.legacy_category,
-            legacy_status=excluded.legacy_status,
-            legacy_attended_by=excluded.legacy_attended_by,
-            legacy_location=excluded.legacy_location,
-            classified_at=CURRENT_TIMESTAMP,
-            classified_by=excluded.classified_by
-    """
-    conn.execute(sql, values)
-    conn.commit()
-
-
-def backfill_ticket_classification(conn, ticket_df, overwrite=False, limit=None):
-    ensure_ticket_analytics_tables(conn)
-    if ticket_df is None or ticket_df.empty or 'id' not in ticket_df.columns:
-        return {'processed': 0, 'inserted_or_updated': 0}
-    existing = load_ticket_analytics_classification_df(conn)
-    existing_ids = set(pd.to_numeric(existing['ticket_id'], errors='coerce').dropna().astype(int).tolist()) if not existing.empty else set()
-    processed = 0
-    touched = 0
-    for _, row in ticket_df.iterrows():
-        try:
-            tid = int(row.get('id'))
-        except Exception:
-            continue
-        if (not overwrite) and tid in existing_ids:
-            continue
-        payload = derive_ticket_classification(row)
-        upsert_ticket_classification(conn, tid, payload)
-        processed += 1
-        touched += 1
-        if limit and processed >= limit:
-            break
-    return {'processed': processed, 'inserted_or_updated': touched}
-
-
-def merge_ticket_analytics(ticket_df, class_df=None, conn=None):
-    if ticket_df is None:
-        return pd.DataFrame()
-    out = ticket_df.copy()
-    if class_df is None and conn is not None:
-        class_df = load_ticket_analytics_classification_df(conn)
-    if class_df is None or class_df.empty:
-        out['ticket_type'] = 'Legacy-Unclassified'
-        out['count_in_incident_analytics'] = 1
-        out['classification_review_status'] = 'Missing'
-        return out
-    class_df = class_df.copy().rename(columns={'ticket_id': 'id'})
-    out = out.merge(class_df, on='id', how='left')
-    out['ticket_type'] = out['ticket_type'].fillna('Legacy-Unclassified') if 'ticket_type' in out.columns else 'Legacy-Unclassified'
-    out['count_in_incident_analytics'] = pd.to_numeric(out['count_in_incident_analytics'], errors='coerce').fillna(1).astype(int) if 'count_in_incident_analytics' in out.columns else 1
-    out['classification_review_status'] = out['classification_review_status'].fillna('Missing') if 'classification_review_status' in out.columns else 'Missing'
-    return out
-
-
-def filter_incident_analytics(ticket_df, conn):
-    merged = merge_ticket_analytics(ticket_df, conn=conn)
-    return merged[merged['count_in_incident_analytics'] == 1].copy()
-
-
-def render_ticket_classification_admin(conn):
-    st.markdown('### Ticket Analytics Classification')
-    st.caption('Backfill legacy tickets into a reporting-safe classification layer without changing the original ticket records.')
-    ticket_df = prepare_ticket_view(load_tickets())
-    class_df = load_ticket_analytics_classification_df(conn)
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.metric('Ticket Rows', len(ticket_df))
-    with c2:
-        st.metric('Classified Rows', len(class_df))
-    with c3:
-        needs_review = 0 if class_df.empty else int((class_df['classification_review_status'] == 'Needs Review').sum())
-        st.metric('Needs Review', needs_review)
-    cols = st.columns([1,1,1])
-    with cols[0]:
-        dry_limit = st.number_input('Backfill batch size', min_value=50, max_value=5000, value=500, step=50)
-    with cols[1]:
-        overwrite = st.checkbox('Overwrite existing classified rows', value=False)
-    with cols[2]:
-        if st.button('Run classification backfill', use_container_width=True):
-            stats = backfill_ticket_classification(conn, ticket_df, overwrite=overwrite, limit=int(dry_limit))
-            st.success(f"Processed {stats['processed']} rows. Updated {stats['inserted_or_updated']} rows.")
-            st.rerun()
-    merged = merge_ticket_analytics(ticket_df, class_df=load_ticket_analytics_classification_df(conn))
-    if not merged.empty:
-        summary = merged.groupby(['ticket_type','classification_review_status'], as_index=False).agg(Tickets=('id','size'))
-        st.markdown('#### Classification Summary')
-        st.dataframe(summary, use_container_width=True, hide_index=True)
-        review_df = merged[merged['classification_review_status'].isin(['Needs Review','Missing'])]
-        st.markdown('#### Review Queue')
-        if review_df.empty:
-            st.success('No review queue pending.')
-        else:
-            show_cols = [c for c in ['id','System Ticket ID','date','location','category','complaint','remarks','ticket_type','classification_review_status','classification_confidence'] if c in review_df.columns]
-            st.dataframe(review_df[show_cols].head(200), use_container_width=True, hide_index=True)
-
 ASSET_REGISTRY_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS asset_registry (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2787,100 +2529,97 @@ def render_dashboard(conn):
         st.subheader("Admin Tools")
         admin_tabs = st.tabs(["Users", "Reset Password", "Assign Task", "Vendor Follow-up", "Ticket Classification", "Admin Snapshot"])
 
-    with admin_tabs[0]:
-        users_df = get_all_users(conn)
-        if users_df.empty:
-            st.info("No user records available.")
-        else:
-            view = users_df.copy()
-            rename_map = {"display_name": "Display Name", "password_hash": "Password Hash", "must_change_password": "Must Change Password"}
-            view = view.rename(columns=rename_map)
-            safe_cols = [c for c in ["id", "username", "Display Name", "role", "active", "Must Change Password"] if c in view.columns]
-            st.dataframe(view[safe_cols], use_container_width=True)
-
-    with admin_tabs[1]:
-        users_df = get_all_users(conn)
-        user_options = users_df["username"].dropna().astype(str).tolist() if not users_df.empty and "username" in users_df.columns else []
-        reset_user = st.selectbox("Select user", user_options, key="admin_reset_user") if user_options else None
-        reset_password = st.text_input("New password", type="password", key="admin_reset_password")
-        force_change = st.checkbox("Require password change on next login", value=False, key="admin_force_change")
-        if st.button("Update Password", key="admin_update_password"):
-            if not reset_user:
-                st.error("No user available for reset.")
-            elif len(reset_password) < 6:
-                st.error("Password must be at least 6 characters long.")
+        with admin_tabs[0]:
+            users_df = get_all_users(conn)
+            if users_df.empty:
+                st.info("No user records available.")
             else:
-                set_user_password(conn, reset_user, reset_password, require_change=1 if force_change else 0)
-                st.success(f"Password updated for {reset_user}.")
+                view = users_df.copy()
+                rename_map = {"display_name": "Display Name", "password_hash": "Password Hash", "must_change_password": "Must Change Password"}
+                view = view.rename(columns=rename_map)
+                safe_cols = [c for c in ["id", "username", "Display Name", "role", "active", "Must Change Password"] if c in view.columns]
+                st.dataframe(view[safe_cols], use_container_width=True)
 
-    with admin_tabs[2]:
-        with st.form("admin_create_task_form"):
-            task_title = st.text_input("Task title")
-            task_desc = st.text_area("Task description")
-            task_assignee = st.selectbox("Assign to", ["Satish", "Priyanshu", "Amit", "Ranjan", "Manish"], key="admin_task_assign_to")
-            task_priority = st.selectbox("Priority", ["Low", "Medium", "High", "Critical"], index=1, key="admin_task_priority")
-            task_due = st.date_input("Due date", key="admin_task_due")
-            submitted_task = st.form_submit_button("Create Task")
-            if submitted_task:
-                if not str(task_title).strip():
-                    st.error("Task title is required.")
+        with admin_tabs[1]:
+            users_df = get_all_users(conn)
+            user_options = users_df["username"].dropna().astype(str).tolist() if not users_df.empty and "username" in users_df.columns else []
+            reset_user = st.selectbox("Select user", user_options, key="admin_reset_user") if user_options else None
+            reset_password = st.text_input("New password", type="password", key="admin_reset_password")
+            force_change = st.checkbox("Require password change on next login", value=False, key="admin_force_change")
+            if st.button("Update Password", key="admin_update_password"):
+                if not reset_user:
+                    st.error("No user available for reset.")
+                elif len(reset_password) < 6:
+                    st.error("Password must be at least 6 characters long.")
                 else:
-                    create_task(conn, {
-                        "title": task_title.strip(),
-                        "description": task_desc.strip(),
-                        "assigned_by": display_name,
-                        "assigned_to": task_assignee,
-                        "priority": task_priority,
-                        "status": "Open",
-                        "progress": 0,
-                        "due_date": str(task_due),
-                        "vendor_flag": 0,
-                        "vendor_status": None,
-                        "vendor_remark": None,
-                        "reminder_date": str(task_due),
-                    })
-                    st.success("Task created successfully.")
-                    st.rerun()
-        tasks_df = load_tasks_df(conn)
-        if not tasks_df.empty:
-            st.dataframe(tasks_df, use_container_width=True)
+                    set_user_password(conn, reset_user, reset_password, require_change=1 if force_change else 0)
+                    st.success(f"Password updated for {reset_user}.")
 
-    with admin_tabs[3]:
-        ticket_options = df_tickets[["id", "System Ticket ID", "complaint"]].copy() if not df_tickets.empty else pd.DataFrame(columns=["id", "System Ticket ID", "complaint"])
-        if ticket_options.empty:
-            st.info("No tickets available for vendor follow-up.")
-        else:
-            ticket_labels = {f"{row['System Ticket ID']} - {str(row['complaint'])[:60]}": int(row['id']) for _, row in ticket_options.iterrows()}
-            with st.form("vendor_followup_form"):
-                chosen_label = st.selectbox("Ticket", list(ticket_labels.keys()), key="vendor_ticket")
-                vendor_name = st.text_input("Vendor name")
-                vendor_status = st.selectbox("Follow-up status", ["Pending from Vendor", "Follow-up Done", "Resolved by Vendor", "Escalated"], key="vendor_status")
-                vendor_remark = st.text_area("Vendor remark")
-                vendor_due = st.date_input("Follow-up due date", key="vendor_due")
-                submitted_vendor = st.form_submit_button("Add Follow-up")
-                if submitted_vendor:
-                    if not str(vendor_name).strip():
-                        st.error("Vendor name is required.")
+        with admin_tabs[2]:
+            with st.form("admin_create_task_form"):
+                task_title = st.text_input("Task title")
+                task_desc = st.text_area("Task description")
+                task_assignee = st.selectbox("Assign to", ["Satish", "Priyanshu", "Amit", "Ranjan", "Manish"], key="admin_task_assign_to")
+                task_priority = st.selectbox("Priority", ["Low", "Medium", "High", "Critical"], index=1, key="admin_task_priority")
+                task_due = st.date_input("Due date", key="admin_task_due")
+                submitted_task = st.form_submit_button("Create Task")
+                if submitted_task:
+                    if not str(task_title).strip():
+                        st.error("Task title is required.")
                     else:
-                        add_vendor_followup(conn, ticket_labels[chosen_label], vendor_name.strip(), vendor_status, vendor_remark.strip(), str(vendor_due))
-                        st.success("Vendor follow-up saved.")
-                        st.rerun()
-        vendor_df = load_vendor_followups_df(conn)
-        if not vendor_df.empty:
-            st.dataframe(vendor_df, use_container_width=True)
+                        create_task(conn, {
+                            "title": task_title.strip(),
+                            "description": task_desc.strip(),
+                            "assigned_by": display_name,
+                            "assigned_to": task_assignee,
+                            "priority": task_priority,
+                            "status": "Open",
+                            "progress": 0,
+                            "due_date": str(task_due),
+                            "vendor_flag": 0,
+                            "vendor_status": None,
+                            "vendor_remark": None,
+                            "reminder_date": str(task_due),
+                        })
+                        st.success("Task created successfully.")
+            tasks_df = load_tasks_df(conn)
+            if not tasks_df.empty:
+                st.dataframe(tasks_df, use_container_width=True)
 
-    with admin_tabs[4]:
-        render_ticket_classification_admin(conn)
+        with admin_tabs[3]:
+            ticket_options = df_tickets[["id", "System Ticket ID", "complaint"]].copy() if not df_tickets.empty else pd.DataFrame(columns=["id", "System Ticket ID", "complaint"])
+            if ticket_options.empty:
+                st.info("No tickets available for vendor follow-up.")
+            else:
+                ticket_labels = {f"{row['System Ticket ID']} - {str(row['complaint'])[:60]}": int(row['id']) for _, row in ticket_options.iterrows()}
+                with st.form("vendor_followup_form"):
+                    chosen_label = st.selectbox("Ticket", list(ticket_labels.keys()), key="vendor_ticket")
+                    vendor_name = st.text_input("Vendor name")
+                    vendor_status = st.selectbox("Follow-up status", ["Pending from Vendor", "Follow-up Done", "Resolved by Vendor", "Escalated"], key="vendor_status")
+                    vendor_remark = st.text_area("Vendor remark")
+                    vendor_due = st.date_input("Follow-up due date", key="vendor_due")
+                    submitted_vendor = st.form_submit_button("Add Follow-up")
+                    if submitted_vendor:
+                        if not str(vendor_name).strip():
+                            st.error("Vendor name is required.")
+                        else:
+                            add_vendor_followup(conn, ticket_labels[chosen_label], vendor_name.strip(), vendor_status, vendor_remark.strip(), str(vendor_due))
+                            st.success("Vendor follow-up saved.")
+                vendor_df = load_vendor_followups_df(conn)
+                if not vendor_df.empty:
+                    st.dataframe(vendor_df, use_container_width=True)
 
-    with admin_tabs[5]:
-        users_df = get_all_users(conn)
-        tasks_df = load_tasks_df(conn)
-        vendor_df = load_vendor_followups_df(conn)
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Users", len(users_df))
-        c2.metric("Open Tasks", int((tasks_df["status"] != "Closed").sum()) if not tasks_df.empty and "status" in tasks_df.columns else 0)
-        c3.metric("Vendor Follow-ups", len(vendor_df))
+        with admin_tabs[4]:
+            render_ticket_classification_admin(conn)
 
+        with admin_tabs[5]:
+            users_df = get_all_users(conn)
+            tasks_df = load_tasks_df(conn)
+            vendor_df = load_vendor_followups_df(conn)
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Users", len(users_df))
+            c2.metric("Open Tasks", int((tasks_df["status"] != "Closed").sum()) if not tasks_df.empty and "status" in tasks_df.columns else 0)
+            c3.metric("Vendor Follow-ups", len(vendor_df))
     elif page == "AVP Dashboard":
         st.subheader("AVP Strategic Overview")
         metrics = build_ticket_exec_metrics(df_ticket_filtered)
