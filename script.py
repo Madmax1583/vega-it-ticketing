@@ -1914,11 +1914,11 @@ def build_month_over_month_comparison(df):
         var = round(cur_v - prev_v, 1)
         var_pct = round((var / prev_v) * 100, 1) if prev_v not in [0, 0.0] else None
         if cur_v == prev_v:
-            trend = 'Stable'
+            trend = 'No Change'
         elif metric in higher_better:
-            trend = 'Positive' if cur_v > prev_v else 'Negative'
+            trend = 'Increase' if cur_v > prev_v else 'Decrease'
         else:
-            trend = 'Negative' if cur_v > prev_v else 'Positive'
+            trend = 'Decrease' if cur_v > prev_v else 'Increase'
         if metric in ['Backlog Growth Base', 'Open Ticket Growth Base', 'Escalation Growth Base', 'Critical Ticket Growth Base'] and cur_v > prev_v:
             risk = 'High Risk'
         elif metric in ['MTTR', 'FRT'] and cur_v > prev_v:
@@ -2904,11 +2904,29 @@ def render_dashboard(conn):
         render_insight_cards(insights_df, columns_count=3)
         st.markdown("### Month-over-Month")
         if mom_df is not None and not mom_df.empty:
-            mcols = st.columns(len(mom_df))
-            for col, (_, row) in zip(mcols, mom_df.iterrows()):
+            preferred_order = ['Ticket Volume', 'Resolution Rate', 'MTTR', 'FRT', 'SLA %']
+            visible_mom = mom_df[mom_df['Metric'].isin(preferred_order)].copy()
+            if visible_mom.empty:
+                visible_mom = mom_df.head(5).copy()
+            metric_labels = {
+                'Ticket Volume': 'Ticket Volume',
+                'Resolution Rate': 'Resolution Rate',
+                'MTTR': 'MTTR',
+                'FRT': 'FRT',
+                'SLA %': 'SLA %'
+            }
+            mcols = st.columns(len(visible_mom))
+            for col, (_, row) in zip(mcols, visible_mom.iterrows()):
                 with col:
-                    tone = 'success' if 'Increase' in str(row['Direction']) and row['Metric'] in ['Resolution Rate', 'SLA %'] else ('danger' if 'Decrease' in str(row['Direction']) and row['Metric'] in ['Resolution Rate', 'SLA %'] else 'primary')
-                    render_kpi_card(str(row['Metric']), row['Current_Month'], f"Prev: {row['Previous_Month']}", '📈', str(row['Direction']), tone)
+                    metric_name = metric_labels.get(str(row['Metric']), str(row['Metric']))
+                    direction = str(row['Direction'])
+                    if metric_name in ['Resolution Rate', 'SLA %']:
+                        tone = 'success' if direction == 'Increase' else ('danger' if direction == 'Decrease' else 'primary')
+                    elif metric_name in ['MTTR', 'FRT']:
+                        tone = 'danger' if direction == 'Increase' else ('success' if direction == 'Decrease' else 'primary')
+                    else:
+                        tone = 'primary'
+                    render_kpi_card(metric_name, row['Current_Month'], f"Prev: {row['Previous_Month']}", '📈', direction, tone)
         with st.expander("Detailed executive tables", expanded=False):
             if aging_pack.get('most_aged', pd.DataFrame()) is not None and not aging_pack.get('most_aged', pd.DataFrame()).empty:
                 st.markdown("#### Most aged tickets")
