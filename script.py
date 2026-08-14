@@ -3013,7 +3013,7 @@ def render_dashboard(conn):
                 st.dataframe(mom_df, use_container_width=True)
 
             st.markdown("#### Ticket reporting views")
-            reporting_views = build_ticket_reporting_views(filtered_ticket_df)
+            reporting_views = build_ticket_reporting_views(df_ticket_filtered)
             rpt_tabs = st.tabs(["Daily", "Weekly", "Monthly", "Technician Wise", "Site Wise", "Month Wise Technician"])
             with rpt_tabs[0]:
                 if reporting_views['daily'].empty:
