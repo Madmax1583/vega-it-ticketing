@@ -1047,6 +1047,80 @@ def build_ticket_reports(df):
     location = x.groupby("location", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum()))
     return monthly, weekly, technician, location
 
+
+def build_ticket_reporting_views(df):
+    x = add_priority_and_sla(df)
+    if x is None or x.empty:
+        empty = pd.DataFrame()
+        return {
+            'daily': empty,
+            'weekly': empty,
+            'monthly': empty,
+            'technician': empty,
+            'site': empty,
+            'monthwise_technician': empty,
+        }
+    x = x.copy()
+    x['date_parsed'] = pd.to_datetime(x.get('date'), errors='coerce')
+    x = x.dropna(subset=['date_parsed'])
+    if x.empty:
+        empty = pd.DataFrame()
+        return {
+            'daily': empty,
+            'weekly': empty,
+            'monthly': empty,
+            'technician': empty,
+            'site': empty,
+            'monthwise_technician': empty,
+        }
+    x['Day'] = x['date_parsed'].dt.strftime('%Y-%m-%d')
+    x['Week'] = x['date_parsed'].dt.isocalendar().year.astype(str) + '-W' + x['date_parsed'].dt.isocalendar().week.astype(int).astype(str).str.zfill(2)
+    x['Month'] = x['date_parsed'].dt.strftime('%Y-%m')
+    base_agg = dict(
+        Tickets=('id', 'size'),
+        Resolved=('status', lambda s: (s.astype(str) == 'Resolved').sum()),
+        Open=('status', lambda s: (s.astype(str) == 'Open').sum()),
+        In_Progress=('status', lambda s: (s.astype(str) == 'In Progress').sum()),
+        On_Hold=('status', lambda s: s.astype(str).isin(['On Hold - User Busy', 'On Hold']).sum()),
+        SLA_Breaches=('sla_breach', lambda s: int(pd.Series(s).fillna(False).sum())),
+    )
+    daily = x.groupby('Day', as_index=False).agg(**base_agg)
+    weekly = x.groupby('Week', as_index=False).agg(**base_agg)
+    monthly = x.groupby('Month', as_index=False).agg(**base_agg)
+    technician = x.groupby('attended_by', as_index=False).agg(
+        Tickets=('id', 'size'),
+        Resolved=('status', lambda s: (s.astype(str) == 'Resolved').sum()),
+        Pending=('status', lambda s: s.astype(str).isin(['Open','In Progress','On Hold - User Busy','On Hold']).sum()),
+        MTTR=('actual_resolution_min', lambda s: round(pd.to_numeric(s, errors='coerce').dropna().mean(), 1) if pd.to_numeric(s, errors='coerce').dropna().shape[0] else 0),
+        FRT=('frt_min', lambda s: round(pd.to_numeric(s, errors='coerce').dropna().mean(), 1) if pd.to_numeric(s, errors='coerce').dropna().shape[0] else 0),
+        SLA_Breaches=('sla_breach', lambda s: int(pd.Series(s).fillna(False).sum())),
+    )
+    technician['Resolution_%'] = ((technician['Resolved'] / technician['Tickets'].replace(0, 1)) * 100).round(1)
+    site = x.groupby('location', as_index=False).agg(
+        Tickets=('id', 'size'),
+        Resolved=('status', lambda s: (s.astype(str) == 'Resolved').sum()),
+        Pending=('status', lambda s: s.astype(str).isin(['Open','In Progress','On Hold - User Busy','On Hold']).sum()),
+        MTTR=('actual_resolution_min', lambda s: round(pd.to_numeric(s, errors='coerce').dropna().mean(), 1) if pd.to_numeric(s, errors='coerce').dropna().shape[0] else 0),
+        SLA_Breaches=('sla_breach', lambda s: int(pd.Series(s).fillna(False).sum())),
+    )
+    site['Resolution_%'] = ((site['Resolved'] / site['Tickets'].replace(0, 1)) * 100).round(1)
+    monthwise_technician = x.groupby(['Month', 'attended_by'], as_index=False).agg(
+        Tickets=('id', 'size'),
+        Resolved=('status', lambda s: (s.astype(str) == 'Resolved').sum()),
+        Pending=('status', lambda s: s.astype(str).isin(['Open','In Progress','On Hold - User Busy','On Hold']).sum()),
+        MTTR=('actual_resolution_min', lambda s: round(pd.to_numeric(s, errors='coerce').dropna().mean(), 1) if pd.to_numeric(s, errors='coerce').dropna().shape[0] else 0),
+        SLA_Breaches=('sla_breach', lambda s: int(pd.Series(s).fillna(False).sum())),
+    )
+    monthwise_technician['Resolution_%'] = ((monthwise_technician['Resolved'] / monthwise_technician['Tickets'].replace(0, 1)) * 100).round(1)
+    return {
+        'daily': daily.sort_values('Day', ascending=False),
+        'weekly': weekly.sort_values('Week', ascending=False),
+        'monthly': monthly.sort_values('Month', ascending=False),
+        'technician': technician.sort_values('Tickets', ascending=False),
+        'site': site.sort_values('Tickets', ascending=False),
+        'monthwise_technician': monthwise_technician.sort_values(['Month', 'Tickets'], ascending=[False, False]),
+    }
+
 def build_nas_reports_extended(df):
     master, monthly, serverwise = build_nas_reports(df)
     changes = compute_nas_changes(df)
@@ -2937,6 +3011,40 @@ def render_dashboard(conn):
             if mom_df is not None and not mom_df.empty:
                 st.markdown("#### Month-over-month table")
                 st.dataframe(mom_df, use_container_width=True)
+
+            st.markdown("#### Ticket reporting views")
+            reporting_views = build_ticket_reporting_views(filtered_ticket_df)
+            rpt_tabs = st.tabs(["Daily", "Weekly", "Monthly", "Technician Wise", "Site Wise", "Month Wise Technician"])
+            with rpt_tabs[0]:
+                if reporting_views['daily'].empty:
+                    st.info("No daily ticket data available.")
+                else:
+                    st.dataframe(reporting_views['daily'], use_container_width=True)
+            with rpt_tabs[1]:
+                if reporting_views['weekly'].empty:
+                    st.info("No weekly ticket data available.")
+                else:
+                    st.dataframe(reporting_views['weekly'], use_container_width=True)
+            with rpt_tabs[2]:
+                if reporting_views['monthly'].empty:
+                    st.info("No monthly ticket data available.")
+                else:
+                    st.dataframe(reporting_views['monthly'], use_container_width=True)
+            with rpt_tabs[3]:
+                if reporting_views['technician'].empty:
+                    st.info("No technician-wise ticket data available.")
+                else:
+                    st.dataframe(reporting_views['technician'], use_container_width=True)
+            with rpt_tabs[4]:
+                if reporting_views['site'].empty:
+                    st.info("No site-wise ticket data available.")
+                else:
+                    st.dataframe(reporting_views['site'], use_container_width=True)
+            with rpt_tabs[5]:
+                if reporting_views['monthwise_technician'].empty:
+                    st.info("No month-wise technician data available.")
+                else:
+                    st.dataframe(reporting_views['monthwise_technician'], use_container_width=True)
 
     elif page == "Vendor Dashboard":
         st.subheader("Vendor Performance Analytics")
