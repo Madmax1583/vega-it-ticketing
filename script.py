@@ -2956,7 +2956,10 @@ def render_command_center_page(ticket_df, task_df, vendor_df, status_df, nas_df)
     render_breadcrumbs('Home > Dashboard > Executive Command Center')
     st.markdown("<div class='page-hero'><div><div class='eyebrow'>War Room</div><h1>Executive Command Center</h1><p>Operational command view for IT leadership.</p></div></div>", unsafe_allow_html=True)
     m = build_executive_command_metrics(ticket_df, task_df, vendor_df, status_df, nas_df)
-    vals = [int(m.get('Critical SLA Breaches',0)), int(m.get('Total Open Tickets',0)), int(m.get('Open Vendor Cases',0)), int(m.get('Overdue Tasks',0)), int(build_nas_reports(nas_df)[0].shape[0] if nas_df is not None and not nas_df.empty else 0)]
+    nas_failures = 0
+    if nas_df is not None and not nas_df.empty and 'status' in nas_df.columns:
+        nas_failures = int(nas_df['status'].astype(str).str.lower().ne('success').sum())
+    vals = [int(m.get('Critical SLA Breaches',0)), int(m.get('Total Open Tickets',0)), int(m.get('Open Vendor Cases',0)), int(m.get('Overdue Tasks',0)), nas_failures]
     meta = [('Critical SLA Breaches','danger','🚨'),('Open Tickets','primary','🎫'),('Vendor Delays','warning','🏭'),('Tasks Due Today','warning','🗓️'),('NAS Failures','danger','🖥️')]
     cols = st.columns(5)
     for c, (title, tone, icon), value in zip(cols, meta, vals):
@@ -3228,32 +3231,16 @@ def build_asset_health(asset_df, ticket_df):
 _original_render_dashboard = render_dashboard
 
 def render_dashboard(conn):
-    ticket_df = load_tickets()
-    nas_df = load_nas_data()
-    vendor_df = load_vendor_followups_df(conn) if 'load_vendor_followups_df' in globals() else pd.DataFrame()
-    task_df = load_tasks(conn) if 'load_tasks' in globals() else pd.DataFrame()
-    status_df = load_user_status_df(conn) if 'load_user_status_df' in globals() else pd.DataFrame()
-    asset_df = load_assets_df(conn) if 'load_assets_df' in globals() else pd.DataFrame()
-    try:
-        render_sidebar_search(ticket_df, vendor_df, task_df, asset_df)
-    except Exception:
-        pass
-    page = st.session_state.get('page', 'Home')
-    if page == 'Home':
+    custom_page = st.session_state.get('page', 'Home')
+    if custom_page in {'Home', 'Executive Command Center', 'Reports'}:
+        st.session_state['_enterprise_override_page'] = custom_page
+        st.session_state['page'] = 'Overview'
         try:
-            return render_home_page(ticket_df, task_df, vendor_df, nas_df, status_df, asset_df)
-        except Exception:
-            return _original_render_dashboard(conn)
-    if page == 'Executive Command Center':
-        try:
-            return render_command_center_page(ticket_df, task_df, vendor_df, status_df, nas_df)
-        except Exception:
-            return _original_render_dashboard(conn)
-    if page == 'Reports':
-        try:
-            return render_reports_page(ticket_df, nas_df, vendor_df, asset_df)
-        except Exception:
-            return _original_render_dashboard(conn)
+            _original_render_dashboard(conn)
+        finally:
+            st.session_state['page'] = custom_page
+            st.session_state.pop('_enterprise_override_page', None)
+        return
     return _original_render_dashboard(conn)
 
 if __name__ == "__main__":
