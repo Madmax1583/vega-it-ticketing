@@ -2040,6 +2040,36 @@ def render_global_search(conn, ticket_df):
                     for _, r in assets_df.loc[mask].head(5).iterrows(): results.append(f"📦 Asset · {r.get('asset_id','')} · {r.get('location','')}")
             [st.caption(r) for r in results[:12]] if results else st.caption('No matching records found.')
 
+def render_ticket_classification_admin(conn):
+    st.markdown("### Ticket Classification")
+    st.caption("Review ticket category distribution and auto-classification guidance without changing ticket workflow.")
+    tickets_df = prepare_ticket_view(load_tickets())
+    if tickets_df is None or tickets_df.empty:
+        st.info("No ticket records available for classification analysis.")
+        return
+    view = tickets_df.copy()
+    if "category" not in view.columns:
+        view["category"] = "Other"
+    if "complaint" not in view.columns:
+        view["complaint"] = ""
+    view["Suggested Category"] = view["complaint"].apply(auto_categorize)
+    total = len(view)
+    matched = int((view["category"].astype(str) == view["Suggested Category"].astype(str)).sum())
+    mismatched = int(total - matched)
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Total Tickets", total)
+    c2.metric("Classification Match", matched)
+    c3.metric("Needs Review", mismatched)
+    category_summary = view.groupby("category", as_index=False).agg(Tickets=("id", "size")).sort_values("Tickets", ascending=False)
+    if not category_summary.empty:
+        st.bar_chart(category_summary.set_index("category")["Tickets"], use_container_width=True)
+    mismatch_view = view[view["category"].astype(str) != view["Suggested Category"].astype(str)].copy()
+    cols = [c for c in ["System Ticket ID", "date", "user_name", "department", "location", "category", "Suggested Category", "complaint", "status", "attended_by"] if c in mismatch_view.columns]
+    if mismatch_view.empty:
+        st.success("All visible tickets match the current auto-classification suggestion.")
+    else:
+        st.dataframe(mismatch_view[cols], use_container_width=True)
+
 def render_dashboard(conn):
     user = st.session_state.get("current_user", {})
     role = user.get("role", "IT Executive")
