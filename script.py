@@ -1928,7 +1928,7 @@ def build_month_over_month_comparison(df):
         else:
             risk = 'Healthy'
         rows.append([metric, prev_m, cur_m, prev_v, cur_v, var, var_pct, trend, risk])
-    return pd.DataFrame(rows, columns=['Metric','Previous_Month_Label','Current_Month_Label','Previous_Month','Current_Month','Variance','Variance_%','Trend_Direction','Risk_Assessment'])
+    return pd.DataFrame(rows, columns=['Metric','Previous_Month_Label','Current_Month_Label','Previous_Month','Current_Month','Variance','Variance_%','Direction','Risk_Assessment'])
 
 def load_assets_df(conn):
     try:
