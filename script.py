@@ -841,11 +841,7 @@ def split_reporting_datasets(df):
     normalized = normalize_ticket_df(df)
     if normalized is None or normalized.empty:
         empty = pd.DataFrame(columns=["id", "date", "user_name", "department", "complaint", "location", "attended_by", "status", "category", "start_time", "close_time", "resolution_time", "remarks"])
-        return {
-            "all": empty,
-            "user_complaints": empty,
-            "it_operations": empty,
-        }
+        return {"all": empty, "user_complaints": empty, "it_operations": empty}
     dept_series = normalized["department"].fillna("").astype(str).str.strip().str.lower()
     it_mask = dept_series.isin(USER_COMPLAINT_EXCLUDED_DEPARTMENTS)
     return {
@@ -853,6 +849,57 @@ def split_reporting_datasets(df):
         "user_complaints": normalized.loc[~it_mask].copy(),
         "it_operations": normalized.loc[it_mask].copy(),
     }
+
+
+def build_nas_comparison_summary(df):
+    d = compute_nas_changes(df)
+    if d is None or d.empty:
+        return pd.DataFrame()
+    out = d.groupby("server_name", as_index=False).agg(
+        Logs=("server_name", "size"),
+        Latest_Storage_GB=("storage_used", "last"),
+        Total_Increment_GB=("delta_gb", lambda s: round(s[s > 0].sum(), 4)),
+        Total_Decrement_GB=("delta_gb", lambda s: round(abs(s[s < 0].sum()), 4)),
+        Net_Change_GB=("delta_gb", lambda s: round(s.sum(), 4)),
+        Max_Change_GB=("delta_gb", lambda s: round(s.max() if len(s) else 0, 4)),
+        Min_Change_GB=("delta_gb", lambda s: round(s.min() if len(s) else 0, 4)),
+        Failures=("status", lambda s: int((s == "Failed").sum())),
+    )
+    return out.sort_values(["Latest_Storage_GB", "Net_Change_GB"], ascending=[False, False])
+
+
+def build_nas_weekly_comparison(df):
+    d = compute_nas_changes(df)
+    if d is None or d.empty:
+        return pd.DataFrame()
+    d = d.copy()
+    d["Week"] = d["date"].dt.isocalendar().year.astype(str) + '-W' + d["date"].dt.isocalendar().week.astype(int).astype(str).str.zfill(2)
+    out = d.groupby(["Week", "server_name"], as_index=False).agg(
+        Logs=("server_name", "size"),
+        Avg_Storage_GB=("storage_used", "mean"),
+        Net_Change_GB=("delta_gb", "sum"),
+        Failures=("status", lambda s: int((s == "Failed").sum())),
+    )
+    out["Avg_Storage_GB"] = out["Avg_Storage_GB"].round(4)
+    out["Net_Change_GB"] = out["Net_Change_GB"].round(4)
+    return out.sort_values(["Week", "server_name"])
+
+
+def build_nas_monthly_comparison(df):
+    d = compute_nas_changes(df)
+    if d is None or d.empty:
+        return pd.DataFrame()
+    d = d.copy()
+    d["Month"] = d["date"].dt.strftime('%Y-%m')
+    out = d.groupby(["Month", "server_name"], as_index=False).agg(
+        Logs=("server_name", "size"),
+        Avg_Storage_GB=("storage_used", "mean"),
+        Net_Change_GB=("delta_gb", "sum"),
+        Failures=("status", lambda s: int((s == "Failed").sum())),
+    )
+    out["Avg_Storage_GB"] = out["Avg_Storage_GB"].round(4)
+    out["Net_Change_GB"] = out["Net_Change_GB"].round(4)
+    return out.sort_values(["Month", "server_name"])
 
 def filtered_tickets(df, site_filter, status_filter, tech_filter):
     out = df.copy()
@@ -946,6 +993,9 @@ def build_excel_report(tickets_df, nas_df):
         nas_master, nas_monthly, nas_weekly, nas_serverwise = build_nas_reports_extended(nas_df)
         nas_delta = compute_nas_changes(nas_df)
         nas_forecast = build_storage_forecast(nas_df)
+        nas_compare = build_nas_comparison_summary(nas_df)
+        nas_week_compare = build_nas_weekly_comparison(nas_df)
+        nas_month_compare = build_nas_monthly_comparison(nas_df)
         for name, frame in {
             "NAS Raw Logs": normalize_nas_df(nas_df),
             "NAS Deltas": nas_delta,
@@ -953,6 +1003,9 @@ def build_excel_report(tickets_df, nas_df):
             "NAS Weekly": nas_weekly,
             "NAS Server Summary": nas_serverwise,
             "NAS Forecast": nas_forecast,
+            "NAS Comparison": nas_compare,
+            "NAS Weekly Compare": nas_week_compare,
+            "NAS Monthly Compare": nas_month_compare,
         }.items():
             if frame is not None and not frame.empty:
                 frame.to_excel(writer, sheet_name=name[:31], index=False)
@@ -2671,290 +2724,71 @@ def render_dashboard(conn):
                         st.error(f"Delete error: {e}")
     elif page == "Reports":
         st.subheader("Reports")
-        report_tabs = st.tabs(["Analysis Tables", "Detailed Reports", "NAS Forecast", "Excel Export"])
-
-        st.markdown('''<div class="panel"><div class="panel-title">Analytics Center</div><div class="panel-sub">Executive, SLA, technician, department, site, asset, NAS, and insights views remain available through the existing reports plus the new management report layer.</div></div>''', unsafe_allow_html=True)
+        reporting_sets = split_reporting_datasets(df_ticket_filtered)
+        user_df = reporting_sets["user_complaints"]
+        it_ops_df = reporting_sets["it_operations"]
+        report_tabs = st.tabs(["Analysis Tables", "Detailed Reports", "IT Operations", "NAS Comparison", "NAS Forecast", "Excel Export"])
         with report_tabs[0]:
-            st.markdown("### Detailed Analysis Tables")
-            analysis_tabs = st.tabs(["Technician Performance", "Department Summary", "Location Summary", "Repeat Issues"])
-            with analysis_tabs[0]:
-                st.dataframe(build_technician_performance(df_ticket_filtered), use_container_width=True)
-            with analysis_tabs[1]:
-                st.dataframe(build_department_summary(df_ticket_filtered), use_container_width=True)
-            with analysis_tabs[2]:
-                st.dataframe(build_location_summary(df_ticket_filtered), use_container_width=True)
-            with analysis_tabs[3]:
-                st.dataframe(build_repeat_issue_summary(df_ticket_filtered), use_container_width=True)
-
+            st.info("User complaint reports exclude internal IT department operational tickets by default.")
+            st.markdown("### User Complaint Analysis Tables")
+            tab_a, tab_b, tab_c, tab_d = st.tabs(["Technician Performance", "Department Summary", "Location Summary", "Repeat Issues"])
+            with tab_a: st.dataframe(build_technician_performance(user_df), use_container_width=True)
+            with tab_b: st.dataframe(build_department_summary(user_df), use_container_width=True)
+            with tab_c: st.dataframe(build_location_summary(user_df), use_container_width=True)
+            with tab_d: st.dataframe(build_repeat_issue_summary(user_df), use_container_width=True)
+            st.markdown("""<div class='glass-card'><h4 style='margin:0 0 .5rem;'>Analytics Center</h4><p style='margin:0;color:#9fb3d9;'>Complaint-facing analytics now stay separate from internal IT operational workload. NAS comparison views are also available as a visible reporting layer.</p></div>""", unsafe_allow_html=True)
+            adv_tabs = st.tabs(["Executive Summary", "Ticket Aging Report", "SLA Compliance Report", "Vendor Performance Report", "Technician Scorecard Report", "Department Health Report", "Capacity Planning Report", "Asset Health Report", "Management Insights Report", "Executive PDF Export"])
+            with adv_tabs[0]: st.dataframe(build_month_over_month_comparison(user_df), use_container_width=True)
+            with adv_tabs[1]: st.dataframe(build_ticket_aging_analysis(user_df).get("aging_table", pd.DataFrame()), use_container_width=True)
+            with adv_tabs[2]: st.dataframe(build_mttr_sla_summary(prepare_ticket_view(user_df), "location"), use_container_width=True)
+            with adv_tabs[3]: st.dataframe(build_vendor_performance(load_vendor_followups_df(conn)).get("table", pd.DataFrame()), use_container_width=True)
+            with adv_tabs[4]: st.dataframe(build_technician_scorecard(user_df), use_container_width=True)
+            with adv_tabs[5]: st.dataframe(build_department_health(user_df), use_container_width=True)
+            with adv_tabs[6]: st.dataframe(build_capacity_planning_dashboard(df_nas_filtered), use_container_width=True)
+            with adv_tabs[7]: st.dataframe(build_asset_health(load_assets_df(conn), user_df).get("registry", pd.DataFrame()), use_container_width=True)
+            with adv_tabs[8]: st.dataframe(build_management_insights(user_df, df_nas_filtered, load_vendor_followups_df(conn)), use_container_width=True)
+            with adv_tabs[9]:
+                pdf_bytes = build_executive_pdf_bytes(user_df, df_nas_filtered, conn)
+                st.download_button("Download Executive PDF", data=pdf_bytes, file_name="executive_dashboard.pdf", mime="application/pdf")
         with report_tabs[1]:
-            detailed = build_detailed_ticket_exports(df_ticket_filtered)
-            grouped = build_grouped_detail_views(df_ticket_filtered)
-            month_options = ["All"] + _month_options_from_df(df_ticket_filtered)
-            selected_month = st.selectbox("Select month for ticket detailed reports", month_options, key="tickets_report_month")
-            selected_ticket_df = _filter_df_by_month(df_ticket_filtered, selected_month)
-            detailed = build_detailed_ticket_exports(selected_ticket_df)
-            grouped = build_grouped_detail_views(selected_ticket_df)
-            detail_tabs = st.tabs(["All Logs", "Monthly Detail", "Weekly Detail", "Technician Detail", "Site Detail", "MTTR & SLA"])
-            with detail_tabs[0]:
-                frame = detailed.get("Master Tickets", pd.DataFrame())
-                if frame.empty:
-                    st.info("No ticket logs available.")
-                else:
-                    st.dataframe(frame, use_container_width=True)
-                    st.download_button("Download all_ticket_logs CSV", frame.to_csv(index=False).encode("utf-8"), "all_ticket_logs.csv", "text/csv")
-            with detail_tabs[1]:
-                frame = grouped.get("monthly_detail", pd.DataFrame())
-                if frame.empty:
-                    st.info("No monthly detail available.")
-                else:
-                    st.dataframe(frame, use_container_width=True)
-                    st.download_button("Download monthly_detail CSV", frame.to_csv(index=False).encode("utf-8"), "monthly_detail.csv", "text/csv")
-            with detail_tabs[2]:
-                frame = grouped.get("weekly_detail", pd.DataFrame())
-                if frame.empty:
-                    st.info("No weekly detail available.")
-                else:
-                    st.dataframe(frame, use_container_width=True)
-                    st.download_button("Download weekly_detail CSV", frame.to_csv(index=False).encode("utf-8"), "weekly_detail.csv", "text/csv")
-            with detail_tabs[3]:
-                frame = grouped.get("technician_detail", pd.DataFrame())
-                if frame.empty:
-                    st.info("No technician detail available.")
-                else:
-                    st.dataframe(frame, use_container_width=True)
-                    st.download_button("Download technician_detail CSV", frame.to_csv(index=False).encode("utf-8"), "technician_detail.csv", "text/csv")
-            with detail_tabs[4]:
-                frame = grouped.get("site_detail", pd.DataFrame())
-                if frame.empty:
-                    st.info("No site detail available.")
-                else:
-                    st.dataframe(frame, use_container_width=True)
-                    st.download_button("Download site_detail CSV", frame.to_csv(index=False).encode("utf-8"), "site_detail.csv", "text/csv")
-            with detail_tabs[5]:
-                mt1 = build_mttr_sla_summary(add_priority_and_sla(prepare_ticket_view(selected_ticket_df)).assign(Month=pd.to_datetime(prepare_ticket_view(selected_ticket_df).get("date"), errors="coerce").dt.strftime("%Y-%m")), "Month") if not selected_ticket_df.empty else pd.DataFrame()
-                mt2 = build_mttr_sla_summary(add_priority_and_sla(prepare_ticket_view(selected_ticket_df)).assign(Week=pd.to_datetime(prepare_ticket_view(selected_ticket_df).get("date"), errors="coerce").dt.strftime("%Y-W") + pd.to_datetime(prepare_ticket_view(selected_ticket_df).get("date"), errors="coerce").dt.isocalendar().week.astype(str)), "Week") if not selected_ticket_df.empty else pd.DataFrame()
-                mt3 = build_mttr_sla_summary(prepare_ticket_view(selected_ticket_df), "attended_by")
-                mt4 = build_mttr_sla_summary(prepare_ticket_view(selected_ticket_df), "location")
-                sub_tabs = st.tabs(["Month", "Week", "Technician", "Site"])
-                for tab, frame in zip(sub_tabs, [mt1, mt2, mt3, mt4]):
-                    with tab:
-                        if frame.empty:
-                            st.info("No metrics available.")
-                        else:
-                            st.dataframe(frame, use_container_width=True)
-
+            st.markdown("### Detailed User Complaint Reports")
+            detail_views = build_ticket_reporting_views(user_df)
+            d1, d2, d3, d4, d5, d6, d7 = st.tabs(["All Logs", "Daily", "Weekly", "Monthly", "Technician", "Site", "Month Wise Technician"])
+            with d1: st.dataframe(prepare_ticket_view(user_df), use_container_width=True)
+            with d2: st.dataframe(detail_views.get("daily", pd.DataFrame()), use_container_width=True)
+            with d3: st.dataframe(detail_views.get("weekly", pd.DataFrame()), use_container_width=True)
+            with d4: st.dataframe(detail_views.get("monthly", pd.DataFrame()), use_container_width=True)
+            with d5: st.dataframe(detail_views.get("technician", pd.DataFrame()), use_container_width=True)
+            with d6: st.dataframe(detail_views.get("site", pd.DataFrame()), use_container_width=True)
+            with d7: st.dataframe(detail_views.get("monthwise_technician", pd.DataFrame()), use_container_width=True)
         with report_tabs[2]:
-            raw_nas = normalize_nas_df(df_nas_filtered)
-            month_options = ["All"] + _month_options_from_df(raw_nas)
-            selected_month = st.selectbox("Select month for NAS detailed reports", month_options, key="nas_report_month")
-            selected_nas_df = _filter_df_by_month(raw_nas, selected_month)
-            deltas = compute_nas_changes(selected_nas_df)
-            forecast = build_storage_forecast(selected_nas_df)
-            nas_tabs = st.tabs(["Raw NAS Logs", "Delta Logs", "Forecast"])
-            for tab, frame, filename in zip(nas_tabs, [selected_nas_df, deltas, forecast], ["raw_nas_logs.csv", "nas_delta_logs.csv", "nas_forecast.csv"]):
-                with tab:
-                    if frame.empty:
-                        st.info("No NAS data available.")
-                    else:
-                        st.dataframe(frame, use_container_width=True)
-                        st.download_button(f"Download {filename}", frame.to_csv(index=False).encode("utf-8"), filename, "text/csv")
-
+            st.markdown("### IT Operations Reports")
+            st.caption("Internal IT operational workload is shown separately to avoid conflict with user complaint reporting.")
+            if it_ops_df.empty:
+                st.info("No internal IT department operational tickets found.")
+            else:
+                it_views = build_ticket_reporting_views(it_ops_df)
+                it1, it2, it3, it4, it5, it6 = st.tabs(["All IT Tickets", "Weekly", "Monthly", "Technician", "Site", "Department Health"])
+                with it1: st.dataframe(prepare_ticket_view(it_ops_df), use_container_width=True)
+                with it2: st.dataframe(it_views.get("weekly", pd.DataFrame()), use_container_width=True)
+                with it3: st.dataframe(it_views.get("monthly", pd.DataFrame()), use_container_width=True)
+                with it4: st.dataframe(it_views.get("technician", pd.DataFrame()), use_container_width=True)
+                with it5: st.dataframe(it_views.get("site", pd.DataFrame()), use_container_width=True)
+                with it6: st.dataframe(build_department_health(it_ops_df), use_container_width=True)
         with report_tabs[3]:
+            st.markdown("### NAS Comparison")
+            n1, n2, n3, n4 = st.tabs(["Server Comparison", "Deltas", "Weekly Comparison", "Monthly Comparison"])
+            with n1: st.dataframe(build_nas_comparison_summary(df_nas_filtered), use_container_width=True)
+            with n2: st.dataframe(compute_nas_changes(df_nas_filtered), use_container_width=True)
+            with n3: st.dataframe(build_nas_weekly_comparison(df_nas_filtered), use_container_width=True)
+            with n4: st.dataframe(build_nas_monthly_comparison(df_nas_filtered), use_container_width=True)
+        with report_tabs[4]:
+            st.markdown("### NAS Forecast")
+            st.dataframe(build_storage_forecast(df_nas_filtered), use_container_width=True)
+        with report_tabs[5]:
             excel_blob = build_excel_report(df_ticket_filtered, df_nas_filtered)
-            st.download_button("Download detailed multi-tab Excel workbook", data=excel_blob, file_name="vega_knitpro_detailed_reports.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            st.download_button("Download Excel Report", data=excel_blob, file_name="it_operations_reports.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-        st.markdown("### Advanced Management Reports")
-        adv_tabs = st.tabs(["Executive Summary", "Ticket Aging Report", "SLA Compliance Report", "Vendor Performance Report", "Technician Scorecard Report", "Department Health Report", "Capacity Planning Report", "Asset Health Report", "Management Insights Report", "Executive PDF Export"])
-        aging_pack = build_ticket_aging_analysis(df_ticket_filtered)
-        vendor_perf = build_vendor_performance(load_vendor_followups_df(conn))
-        tech_score = build_technician_scorecard(df_ticket_filtered)
-        dept_health = build_department_health(df_ticket_filtered)
-        capacity = build_capacity_planning_dashboard(df_nas_filtered)
-        assets = build_asset_health(load_assets_df(conn), df_ticket_filtered)
-        insights = build_management_insights(df_ticket_filtered, df_nas_filtered, load_vendor_followups_df(conn))
-        mom = build_month_over_month_comparison(df_ticket_filtered)
-        adv_frames = [
-            mom,
-            aging_pack.get('aging_table', pd.DataFrame()),
-            build_mttr_sla_summary(prepare_ticket_view(df_ticket_filtered), 'location'),
-            vendor_perf.get('table', pd.DataFrame()),
-            tech_score,
-            dept_health,
-            capacity,
-            assets.get('registry', pd.DataFrame()),
-            insights,
-        ]
-        adv_names = ["executive_summary","ticket_aging_report","sla_compliance_report","vendor_performance_report","technician_scorecard_report","department_health_report","capacity_planning_report","asset_health_report","management_insights_report"]
-        for tab, frame, fname in zip(adv_tabs[:-1], adv_frames, adv_names):
-            with tab:
-                if frame is None or frame.empty:
-                    st.info("No data available.")
-                else:
-                    st.dataframe(frame, use_container_width=True)
-                    st.download_button(f"Download {fname} CSV", frame.to_csv(index=False).encode('utf-8'), f"{fname}.csv", 'text/csv', key=f"dl_{fname}")
-        with adv_tabs[-1]:
-            pdf_blob = build_executive_pdf_bytes(df_ticket_filtered, df_nas_filtered, vendor_perf.get('table', pd.DataFrame()), dept_health, tech_score, insights)
-            if pdf_blob:
-                st.download_button("Download Executive PDF Report", data=pdf_blob, file_name="executive_summary_report.pdf", mime="application/pdf")
-            else:
-                st.info("Executive PDF export is unavailable in this environment.")
-    elif page == "Task Center":
-        st.subheader("Task Center")
-        tasks_df = load_tasks_df(conn)
-        comments_df = load_task_comments_df(conn)
-        t1, t2, t3, t4 = st.columns(4)
-        t1.metric("Total Tasks", len(tasks_df))
-        t2.metric("Open", int((tasks_df["status"] == "Open").sum()) if not tasks_df.empty and "status" in tasks_df.columns else 0)
-        t3.metric("In Progress", int((tasks_df["status"] == "In Progress").sum()) if not tasks_df.empty and "status" in tasks_df.columns else 0)
-        t4.metric("Completed", int((tasks_df["status"].isin(["Closed", "Completed"]).sum())) if not tasks_df.empty and "status" in tasks_df.columns else 0)
-
-        task_tabs = st.tabs(["Task Board", "Update Task", "Comments", "My Queue"])
-
-        with task_tabs[0]:
-            if tasks_df.empty:
-                st.info("No tasks available.")
-            else:
-                board = tasks_df.copy()
-                st.dataframe(board, use_container_width=True)
-
-        with task_tabs[1]:
-            if tasks_df.empty:
-                st.info("No tasks available for update.")
-            else:
-                task_ids = tasks_df["id"].astype(int).tolist()
-                selected_task = st.selectbox("Select task ID", task_ids, key="task_update_id")
-                row = tasks_df[tasks_df["id"] == selected_task].iloc[0]
-                new_status = st.selectbox("Status", ["Open", "In Progress", "On Hold", "Closed", "Completed"], index=["Open", "In Progress", "On Hold", "Closed", "Completed"].index(row["status"]) if row["status"] in ["Open", "In Progress", "On Hold", "Closed", "Completed"] else 0, key="task_update_status")
-                new_progress = st.slider("Progress", 0, 100, int(row["progress"]) if pd.notna(row["progress"]) else 0, key="task_update_progress")
-                new_assignee = st.selectbox("Assigned to", ["Satish", "Priyanshu", "Amit", "Ranjan", "Manish"], index=["Satish", "Priyanshu", "Amit", "Ranjan", "Manish"].index(row["assigned_to"]) if row["assigned_to"] in ["Satish", "Priyanshu", "Amit", "Ranjan", "Manish"] else 0, key="task_update_assignee")
-                if st.button("Save Task Update", key="task_update_save"):
-                    update_task(conn, selected_task, {"status": new_status, "progress": int(new_progress), "assigned_to": new_assignee})
-                    st.success("Task updated successfully.")
-                    st.rerun()
-
-        with task_tabs[2]:
-            if tasks_df.empty:
-                st.info("No tasks available for comments.")
-            else:
-                comment_task = st.selectbox("Task for comment", tasks_df["id"].astype(int).tolist(), key="task_comment_task")
-                comment_text = st.text_area("Add comment", key="task_comment_text")
-                if st.button("Post Comment", key="task_comment_post"):
-                    if not str(comment_text).strip():
-                        st.error("Comment cannot be empty.")
-                    else:
-                        add_task_comment(conn, int(comment_task), comment_text.strip(), display_name)
-                        st.success("Comment added.")
-                        st.rerun()
-                task_comments = comments_df[comments_df["task_id"] == int(comment_task)] if not comments_df.empty else pd.DataFrame()
-                if task_comments.empty:
-                    st.info("No comments for this task yet.")
-                else:
-                    st.dataframe(task_comments, use_container_width=True)
-
-        with task_tabs[3]:
-            if tasks_df.empty:
-                st.info("No assigned tasks available.")
-            else:
-                my_queue = tasks_df[tasks_df["assigned_to"].astype(str).str.lower() == display_name.lower()]
-                if my_queue.empty:
-                    st.info("No tasks currently assigned to you.")
-                else:
-                    st.dataframe(my_queue, use_container_width=True)
-    elif page == "Admin Tools":
-        st.subheader("Admin Tools")
-        admin_tabs = st.tabs(["Users", "Reset Password", "Assign Task", "Vendor Follow-up", "Ticket Classification", "Admin Snapshot"])
-
-        with admin_tabs[0]:
-            users_df = get_all_users(conn)
-            if users_df.empty:
-                st.info("No user records available.")
-            else:
-                view = users_df.copy()
-                rename_map = {"display_name": "Display Name", "password_hash": "Password Hash", "must_change_password": "Must Change Password"}
-                view = view.rename(columns=rename_map)
-                safe_cols = [c for c in ["id", "username", "Display Name", "role", "active", "Must Change Password"] if c in view.columns]
-                st.dataframe(view[safe_cols], use_container_width=True)
-
-        with admin_tabs[1]:
-            users_df = get_all_users(conn)
-            user_options = users_df["username"].dropna().astype(str).tolist() if not users_df.empty and "username" in users_df.columns else []
-            reset_user = st.selectbox("Select user", user_options, key="admin_reset_user") if user_options else None
-            reset_password = st.text_input("New password", type="password", key="admin_reset_password")
-            force_change = st.checkbox("Require password change on next login", value=False, key="admin_force_change")
-            if st.button("Update Password", key="admin_update_password"):
-                if not reset_user:
-                    st.error("No user available for reset.")
-                elif len(reset_password) < 6:
-                    st.error("Password must be at least 6 characters long.")
-                else:
-                    set_user_password(conn, reset_user, reset_password, require_change=1 if force_change else 0)
-                    st.success(f"Password updated for {reset_user}.")
-
-        with admin_tabs[2]:
-            with st.form("admin_create_task_form"):
-                task_title = st.text_input("Task title")
-                task_desc = st.text_area("Task description")
-                task_assignee = st.selectbox("Assign to", ["Satish", "Priyanshu", "Amit", "Ranjan", "Manish"], key="admin_task_assign_to")
-                task_priority = st.selectbox("Priority", ["Low", "Medium", "High", "Critical"], index=1, key="admin_task_priority")
-                task_due = st.date_input("Due date", key="admin_task_due")
-                submitted_task = st.form_submit_button("Create Task")
-                if submitted_task:
-                    if not str(task_title).strip():
-                        st.error("Task title is required.")
-                    else:
-                        create_task(conn, {
-                            "title": task_title.strip(),
-                            "description": task_desc.strip(),
-                            "assigned_by": display_name,
-                            "assigned_to": task_assignee,
-                            "priority": task_priority,
-                            "status": "Open",
-                            "progress": 0,
-                            "due_date": str(task_due),
-                            "vendor_flag": 0,
-                            "vendor_status": None,
-                            "vendor_remark": None,
-                            "reminder_date": str(task_due),
-                        })
-                        st.success("Task created successfully.")
-            tasks_df = load_tasks_df(conn)
-            if not tasks_df.empty:
-                st.dataframe(tasks_df, use_container_width=True)
-
-        with admin_tabs[3]:
-            ticket_options = df_tickets[["id", "System Ticket ID", "complaint"]].copy() if not df_tickets.empty else pd.DataFrame(columns=["id", "System Ticket ID", "complaint"])
-            if ticket_options.empty:
-                st.info("No tickets available for vendor follow-up.")
-            else:
-                ticket_labels = {f"{row['System Ticket ID']} - {str(row['complaint'])[:60]}": int(row['id']) for _, row in ticket_options.iterrows()}
-                with st.form("vendor_followup_form"):
-                    chosen_label = st.selectbox("Ticket", list(ticket_labels.keys()), key="vendor_ticket")
-                    vendor_name = st.text_input("Vendor name")
-                    vendor_status = st.selectbox("Follow-up status", ["Pending from Vendor", "Follow-up Done", "Resolved by Vendor", "Escalated"], key="vendor_status")
-                    vendor_remark = st.text_area("Vendor remark")
-                    vendor_due = st.date_input("Follow-up due date", key="vendor_due")
-                    submitted_vendor = st.form_submit_button("Add Follow-up")
-                    if submitted_vendor:
-                        if not str(vendor_name).strip():
-                            st.error("Vendor name is required.")
-                        else:
-                            add_vendor_followup(conn, ticket_labels[chosen_label], vendor_name.strip(), vendor_status, vendor_remark.strip(), str(vendor_due))
-                            st.success("Vendor follow-up saved.")
-                vendor_df = load_vendor_followups_df(conn)
-                if not vendor_df.empty:
-                    st.dataframe(vendor_df, use_container_width=True)
-
-        with admin_tabs[4]:
-            render_ticket_classification_admin(conn)
-
-        with admin_tabs[5]:
-            users_df = get_all_users(conn)
-            tasks_df = load_tasks_df(conn)
-            vendor_df = load_vendor_followups_df(conn)
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Users", len(users_df))
-            c2.metric("Open Tasks", int((tasks_df["status"] != "Closed").sum()) if not tasks_df.empty and "status" in tasks_df.columns else 0)
-            c3.metric("Vendor Follow-ups", len(vendor_df))
     elif page == "AVP Dashboard":
         st.subheader("AVP Strategic Overview")
         metrics = build_ticket_exec_metrics(df_ticket_filtered)
@@ -3212,5 +3046,3 @@ if __name__ == "__main__":
     seed_supabase_users_if_needed()
     bootstrap_auth_gate(conn)
     render_dashboard(conn)
-
-# Reporting upgrade applied: user complaint reports exclude internal IT department tickets and provide separate IT operations reporting.
