@@ -631,6 +631,9 @@ CATEGORY_MASTER = {
     "Other": ["Unclassified"]
 }
 
+
+USER_COMPLAINT_EXCLUDED_DEPARTMENTS = {"it", "information technology", "it department", "its"}
+
 def suggest_subcategory(category, complaint):
     c = str(category)
     text = str(complaint).lower()
@@ -828,6 +831,29 @@ def prepare_ticket_view(df):
         view["date_parsed"] = pd.to_datetime(view["date"], errors="coerce")
     return view
 
+
+
+def department_is_it(value):
+    return str(value).strip().lower() in USER_COMPLAINT_EXCLUDED_DEPARTMENTS
+
+
+def split_reporting_datasets(df):
+    normalized = normalize_ticket_df(df)
+    if normalized is None or normalized.empty:
+        empty = pd.DataFrame(columns=["id", "date", "user_name", "department", "complaint", "location", "attended_by", "status", "category", "start_time", "close_time", "resolution_time", "remarks"])
+        return {
+            "all": empty,
+            "user_complaints": empty,
+            "it_operations": empty,
+        }
+    dept_series = normalized["department"].fillna("").astype(str).str.strip().str.lower()
+    it_mask = dept_series.isin(USER_COMPLAINT_EXCLUDED_DEPARTMENTS)
+    return {
+        "all": normalized.copy(),
+        "user_complaints": normalized.loc[~it_mask].copy(),
+        "it_operations": normalized.loc[it_mask].copy(),
+    }
+
 def filtered_tickets(df, site_filter, status_filter, tech_filter):
     out = df.copy()
     if out.empty: return out
@@ -873,14 +899,17 @@ def build_nas_reports(df):
     return master, monthly, serverwise
 
 def build_excel_report(tickets_df, nas_df):
+    datasets = split_reporting_datasets(tickets_df)
+    user_df = datasets["user_complaints"]
+    it_ops_df = datasets["it_operations"]
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        detailed = build_detailed_ticket_exports(tickets_df)
-        grouped = build_grouped_detail_views(tickets_df)
-        mttr_month = build_mttr_sla_summary(add_priority_and_sla(prepare_ticket_view(tickets_df)).assign(Month=pd.to_datetime(prepare_ticket_view(tickets_df).get("date"), errors="coerce").dt.strftime("%Y-%m")), "Month") if tickets_df is not None and not tickets_df.empty else pd.DataFrame()
-        mttr_week = build_mttr_sla_summary(add_priority_and_sla(prepare_ticket_view(tickets_df)).assign(Week=pd.to_datetime(prepare_ticket_view(tickets_df).get("date"), errors="coerce").dt.strftime("%Y-W") + pd.to_datetime(prepare_ticket_view(tickets_df).get("date"), errors="coerce").dt.isocalendar().week.astype(str)), "Week") if tickets_df is not None and not tickets_df.empty else pd.DataFrame()
-        mttr_tech = build_mttr_sla_summary(prepare_ticket_view(tickets_df), "attended_by")
-        mttr_site = build_mttr_sla_summary(prepare_ticket_view(tickets_df), "location")
+        detailed = build_detailed_ticket_exports(user_df)
+        grouped = build_grouped_detail_views(user_df)
+        mttr_month = build_mttr_sla_summary(add_priority_and_sla(prepare_ticket_view(user_df)).assign(Month=pd.to_datetime(prepare_ticket_view(user_df).get("date"), errors="coerce").dt.strftime("%Y-%m")), "Month") if user_df is not None and not user_df.empty else pd.DataFrame()
+        mttr_week = build_mttr_sla_summary(add_priority_and_sla(prepare_ticket_view(user_df)).assign(Week=pd.to_datetime(prepare_ticket_view(user_df).get("date"), errors="coerce").dt.strftime("%Y-W") + pd.to_datetime(prepare_ticket_view(user_df).get("date"), errors="coerce").dt.isocalendar().week.astype(str)), "Week") if user_df is not None and not user_df.empty else pd.DataFrame()
+        mttr_tech = build_mttr_sla_summary(prepare_ticket_view(user_df), "attended_by")
+        mttr_site = build_mttr_sla_summary(prepare_ticket_view(user_df), "location")
         for name, frame in {
             "Master Tickets": detailed.get("Master Tickets", pd.DataFrame()),
             "Resolved Tickets": detailed.get("Resolved Tickets", pd.DataFrame()),
@@ -902,6 +931,18 @@ def build_excel_report(tickets_df, nas_df):
         }.items():
             if frame is not None and not frame.empty:
                 frame.to_excel(writer, sheet_name=name[:31], index=False)
+        if it_ops_df is not None and not it_ops_df.empty:
+            it_views = build_ticket_reporting_views(it_ops_df)
+            for name, frame in {
+                "IT Ops Tickets": prepare_ticket_view(it_ops_df),
+                "IT Ops Monthly": it_views.get("monthly", pd.DataFrame()),
+                "IT Ops Weekly": it_views.get("weekly", pd.DataFrame()),
+                "IT Ops Technician": it_views.get("technician", pd.DataFrame()),
+                "IT Ops Site": it_views.get("site", pd.DataFrame()),
+                "IT Ops Dept Health": build_department_health(it_ops_df),
+            }.items():
+                if frame is not None and not frame.empty:
+                    frame.to_excel(writer, sheet_name=name[:31], index=False)
         nas_master, nas_monthly, nas_weekly, nas_serverwise = build_nas_reports_extended(nas_df)
         nas_delta = compute_nas_changes(nas_df)
         nas_forecast = build_storage_forecast(nas_df)
@@ -916,16 +957,16 @@ def build_excel_report(tickets_df, nas_df):
             if frame is not None and not frame.empty:
                 frame.to_excel(writer, sheet_name=name[:31], index=False)
         vendor_perf = build_vendor_performance(load_vendor_followups_df(conn_global_for_pdf) if 'conn_global_for_pdf' in globals() and conn_global_for_pdf is not None else pd.DataFrame())
-        dept_health = build_department_health(tickets_df)
-        tech_score = build_technician_scorecard(tickets_df)
-        aging = build_ticket_aging_analysis(tickets_df)
-        insights = build_management_insights(tickets_df, nas_df, load_vendor_followups_df(conn_global_for_pdf) if 'conn_global_for_pdf' in globals() and conn_global_for_pdf is not None else pd.DataFrame())
+        dept_health = build_department_health(user_df)
+        tech_score = build_technician_scorecard(user_df)
+        aging = build_ticket_aging_analysis(user_df)
+        insights = build_management_insights(user_df, nas_df, load_vendor_followups_df(conn_global_for_pdf) if 'conn_global_for_pdf' in globals() and conn_global_for_pdf is not None else pd.DataFrame())
         capacity = build_capacity_planning_dashboard(nas_df)
-        assets = build_asset_health(load_assets_df(conn_global_for_pdf) if 'conn_global_for_pdf' in globals() and conn_global_for_pdf is not None else pd.DataFrame(), tickets_df)
+        assets = build_asset_health(load_assets_df(conn_global_for_pdf) if 'conn_global_for_pdf' in globals() and conn_global_for_pdf is not None else pd.DataFrame(), user_df)
         extra_frames = {
-            'Executive Summary': build_month_over_month_comparison(tickets_df),
+            'Executive Summary': build_month_over_month_comparison(user_df),
             'Ticket Aging Report': aging.get('aging_table', pd.DataFrame()),
-            'SLA Compliance Report': build_mttr_sla_summary(prepare_ticket_view(tickets_df), 'location'),
+            'SLA Compliance Report': build_mttr_sla_summary(prepare_ticket_view(user_df), 'location'),
             'Vendor Performance Report': vendor_perf.get('table', pd.DataFrame()),
             'Technician Scorecard': tech_score,
             'Department Health': dept_health,
@@ -3171,3 +3212,5 @@ if __name__ == "__main__":
     seed_supabase_users_if_needed()
     bootstrap_auth_gate(conn)
     render_dashboard(conn)
+
+# Reporting upgrade applied: user complaint reports exclude internal IT department tickets and provide separate IT operations reporting.
