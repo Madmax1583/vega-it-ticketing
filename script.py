@@ -2748,7 +2748,18 @@ def render_dashboard(conn):
             with adv_tabs[7]: st.dataframe(build_asset_health(load_assets_df(conn), user_df).get("registry", pd.DataFrame()), use_container_width=True)
             with adv_tabs[8]: st.dataframe(build_management_insights(user_df, df_nas_filtered, load_vendor_followups_df(conn)), use_container_width=True)
             with adv_tabs[9]:
-                pdf_bytes = build_executive_pdf_bytes(user_df, df_nas_filtered, conn)
+                vendor_perf_pdf = build_vendor_performance(load_vendor_followups_df(conn))
+                dept_health_pdf = build_department_health(user_df)
+                tech_score_pdf = build_technician_scorecard(user_df)
+                insights_pdf = build_management_insights(user_df, df_nas_filtered, load_vendor_followups_df(conn))
+                pdf_bytes = build_executive_pdf_bytes(
+                    user_df,
+                    df_nas_filtered,
+                    vendor_perf_pdf.get('table', pd.DataFrame()),
+                    dept_health_pdf,
+                    tech_score_pdf,
+                    insights_pdf,
+                )
                 st.download_button("Download Executive PDF", data=pdf_bytes, file_name="executive_dashboard.pdf", mime="application/pdf")
         with report_tabs[1]:
             st.markdown("### Detailed User Complaint Reports")
