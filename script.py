@@ -2760,7 +2760,12 @@ def render_dashboard(conn):
                     tech_score_pdf,
                     insights_pdf,
                 )
-                st.download_button("Download Executive PDF", data=pdf_bytes, file_name="executive_dashboard.pdf", mime="application/pdf")
+                if pdf_bytes is None:
+                    st.warning("Executive PDF export is unavailable because PDF dependencies are missing in the current environment.")
+                elif not isinstance(pdf_bytes, (bytes, bytearray)):
+                    st.error("Executive PDF export returned an invalid file format.")
+                else:
+                    st.download_button("Download Executive PDF", data=pdf_bytes, file_name="executive_dashboard.pdf", mime="application/pdf")
         with report_tabs[1]:
             st.markdown("### Detailed User Complaint Reports")
             detail_views = build_ticket_reporting_views(user_df)
