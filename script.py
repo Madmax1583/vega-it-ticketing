@@ -940,24 +940,28 @@ def build_excel_report(tickets_df, nas_df):
 
 def build_ticket_exec_metrics(df):
     if df is None or df.empty:
-        return {"today_open": 0, "today_closed": 0, "pending": 0, "overdue": 0, "avg_resolution": 0, "resolution_rate": 0.0}
-    x = df.copy()
-    x["date_parsed"] = pd.to_datetime(x.get("date"), errors="coerce")
+        return {"today_open": 0, "today_closed": 0, "pending": 0, "overdue": 0, "avg_resolution": 0, "resolution_rate": 0.0, "avg_frt": 0.0}
+    x = add_priority_and_sla(df)
     today = pd.Timestamp.now().normalize()
-    today_mask = x["date_parsed"].dt.normalize() == today
-    pending_mask = x["status"].isin(["Open", "In Progress", "On Hold - User Busy"])
-    resolved_mask = x["status"] == "Resolved"
-    overdue_mask = pending_mask & x["date_parsed"].notna() & ((today - x["date_parsed"].dt.normalize()).dt.days >= 2)
-    resolved_df = x[resolved_mask & (pd.to_numeric(x.get("resolution_time"), errors="coerce").fillna(0) > 0)]
+    x["date_parsed"] = pd.to_datetime(x.get("date"), errors="coerce")
+    x["close_time_parsed"] = pd.to_datetime(x.get("close_time"), errors="coerce") if "close_time" in x.columns else pd.NaT
+    pending_mask = x["status"].astype(str).isin(["Open", "In Progress", "On Hold - User Busy", "On Hold"])
+    resolved_mask = x["status"].astype(str) == "Resolved"
+    today_open_mask = x["date_parsed"].dt.normalize() == today
+    today_closed_mask = x["close_time_parsed"].dt.normalize() == today
+    overdue_mask = pending_mask & x["sla_breach"].fillna(False)
+    resolved_df = x[resolved_mask & x["resolution_available"].fillna(False)]
     total = len(x)
     resolved = int(resolved_mask.sum())
+    avg_frt = round(x.loc[x["response_available"].fillna(False), "frt_min"].mean(), 1) if x["response_available"].fillna(False).any() else 0.0
     return {
-        "today_open": int((today_mask & pending_mask).sum()),
-        "today_closed": int((today_mask & resolved_mask).sum()),
+        "today_open": int((today_open_mask & pending_mask).sum()),
+        "today_closed": int(today_closed_mask.sum()),
         "pending": int(pending_mask.sum()),
         "overdue": int(overdue_mask.sum()),
-        "avg_resolution": int(resolved_df["resolution_time"].mean()) if not resolved_df.empty else 0,
+        "avg_resolution": round(resolved_df["actual_resolution_min"].mean(), 1) if not resolved_df.empty else 0,
         "resolution_rate": round((resolved / total) * 100, 1) if total else 0.0,
+        "avg_frt": avg_frt,
     }
 
 def build_ticket_trend(df, freq="Daily"):
@@ -1042,6 +1046,80 @@ def build_ticket_reports(df):
     technician = x.groupby("attended_by", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum()), Avg_Resolution_Min=("resolution_time", lambda s: int(pd.to_numeric(s, errors='coerce').fillna(0)[pd.to_numeric(s, errors='coerce').fillna(0) > 0].mean()) if (pd.to_numeric(s, errors='coerce').fillna(0) > 0).any() else 0))
     location = x.groupby("location", as_index=False).agg(Tickets=("id", "size"), Resolved=("status", lambda s: (s == "Resolved").sum()))
     return monthly, weekly, technician, location
+
+
+def build_ticket_reporting_views(df):
+    x = add_priority_and_sla(df)
+    if x is None or x.empty:
+        empty = pd.DataFrame()
+        return {
+            'daily': empty,
+            'weekly': empty,
+            'monthly': empty,
+            'technician': empty,
+            'site': empty,
+            'monthwise_technician': empty,
+        }
+    x = x.copy()
+    x['date_parsed'] = pd.to_datetime(x.get('date'), errors='coerce')
+    x = x.dropna(subset=['date_parsed'])
+    if x.empty:
+        empty = pd.DataFrame()
+        return {
+            'daily': empty,
+            'weekly': empty,
+            'monthly': empty,
+            'technician': empty,
+            'site': empty,
+            'monthwise_technician': empty,
+        }
+    x['Day'] = x['date_parsed'].dt.strftime('%Y-%m-%d')
+    x['Week'] = x['date_parsed'].dt.isocalendar().year.astype(str) + '-W' + x['date_parsed'].dt.isocalendar().week.astype(int).astype(str).str.zfill(2)
+    x['Month'] = x['date_parsed'].dt.strftime('%Y-%m')
+    base_agg = dict(
+        Tickets=('id', 'size'),
+        Resolved=('status', lambda s: (s.astype(str) == 'Resolved').sum()),
+        Open=('status', lambda s: (s.astype(str) == 'Open').sum()),
+        In_Progress=('status', lambda s: (s.astype(str) == 'In Progress').sum()),
+        On_Hold=('status', lambda s: s.astype(str).isin(['On Hold - User Busy', 'On Hold']).sum()),
+        SLA_Breaches=('sla_breach', lambda s: int(pd.Series(s).fillna(False).sum())),
+    )
+    daily = x.groupby('Day', as_index=False).agg(**base_agg)
+    weekly = x.groupby('Week', as_index=False).agg(**base_agg)
+    monthly = x.groupby('Month', as_index=False).agg(**base_agg)
+    technician = x.groupby('attended_by', as_index=False).agg(
+        Tickets=('id', 'size'),
+        Resolved=('status', lambda s: (s.astype(str) == 'Resolved').sum()),
+        Pending=('status', lambda s: s.astype(str).isin(['Open','In Progress','On Hold - User Busy','On Hold']).sum()),
+        MTTR=('actual_resolution_min', lambda s: round(pd.to_numeric(s, errors='coerce').dropna().mean(), 1) if pd.to_numeric(s, errors='coerce').dropna().shape[0] else 0),
+        FRT=('frt_min', lambda s: round(pd.to_numeric(s, errors='coerce').dropna().mean(), 1) if pd.to_numeric(s, errors='coerce').dropna().shape[0] else 0),
+        SLA_Breaches=('sla_breach', lambda s: int(pd.Series(s).fillna(False).sum())),
+    )
+    technician['Resolution_%'] = ((technician['Resolved'] / technician['Tickets'].replace(0, 1)) * 100).round(1)
+    site = x.groupby('location', as_index=False).agg(
+        Tickets=('id', 'size'),
+        Resolved=('status', lambda s: (s.astype(str) == 'Resolved').sum()),
+        Pending=('status', lambda s: s.astype(str).isin(['Open','In Progress','On Hold - User Busy','On Hold']).sum()),
+        MTTR=('actual_resolution_min', lambda s: round(pd.to_numeric(s, errors='coerce').dropna().mean(), 1) if pd.to_numeric(s, errors='coerce').dropna().shape[0] else 0),
+        SLA_Breaches=('sla_breach', lambda s: int(pd.Series(s).fillna(False).sum())),
+    )
+    site['Resolution_%'] = ((site['Resolved'] / site['Tickets'].replace(0, 1)) * 100).round(1)
+    monthwise_technician = x.groupby(['Month', 'attended_by'], as_index=False).agg(
+        Tickets=('id', 'size'),
+        Resolved=('status', lambda s: (s.astype(str) == 'Resolved').sum()),
+        Pending=('status', lambda s: s.astype(str).isin(['Open','In Progress','On Hold - User Busy','On Hold']).sum()),
+        MTTR=('actual_resolution_min', lambda s: round(pd.to_numeric(s, errors='coerce').dropna().mean(), 1) if pd.to_numeric(s, errors='coerce').dropna().shape[0] else 0),
+        SLA_Breaches=('sla_breach', lambda s: int(pd.Series(s).fillna(False).sum())),
+    )
+    monthwise_technician['Resolution_%'] = ((monthwise_technician['Resolved'] / monthwise_technician['Tickets'].replace(0, 1)) * 100).round(1)
+    return {
+        'daily': daily.sort_values('Day', ascending=False),
+        'weekly': weekly.sort_values('Week', ascending=False),
+        'monthly': monthly.sort_values('Month', ascending=False),
+        'technician': technician.sort_values('Tickets', ascending=False),
+        'site': site.sort_values('Tickets', ascending=False),
+        'monthwise_technician': monthwise_technician.sort_values(['Month', 'Tickets'], ascending=[False, False]),
+    }
 
 def build_nas_reports_extended(df):
     master, monthly, serverwise = build_nas_reports(df)
@@ -1342,23 +1420,43 @@ def add_priority_and_sla(df):
     if "priority" not in out.columns:
         def infer_priority(x):
             t = str(x).lower()
-            if any(k in t for k in ["server", "sap", "network down", "critical", "vpn down"]):
+            if any(k in t for k in ["server", "sap", "network down", "critical", "vpn down", "firewall", "switch"]):
                 return "Critical"
-            if any(k in t for k in ["printer", "email", "outlook", "cctv", "camera"]):
+            if any(k in t for k in ["printer", "email", "outlook", "cctv", "camera", "access", "attendance"]):
                 return "High"
+            if any(k in t for k in ["install", "setup", "software", "laptop", "desktop"]):
+                return "Medium"
             return "Medium"
         out["priority"] = out.get("complaint", "").apply(infer_priority)
     out["date_parsed"] = pd.to_datetime(out.get("date"), errors="coerce")
-    out["resolution_time"] = pd.to_numeric(out.get("resolution_time"), errors="coerce").fillna(0)
+    out["start_time_parsed"] = pd.to_datetime(out.get("start_time"), errors="coerce") if "start_time" in out.columns else pd.NaT
+    out["close_time_parsed"] = pd.to_datetime(out.get("close_time"), errors="coerce") if "close_time" in out.columns else pd.NaT
+    out["resolution_time"] = pd.to_numeric(out.get("resolution_time"), errors="coerce")
     now = pd.Timestamp.now()
     open_mask = out.get("status", pd.Series(dtype=str)).astype(str).isin(["Open", "In Progress", "On Hold - User Busy", "On Hold"])
-    age_hours = ((now - out["date_parsed"]).dt.total_seconds() / 3600).fillna(0)
-    out["age_hours"] = age_hours.round(1)
+
+    created_ts = out["date_parsed"]
+    response_anchor = out["start_time_parsed"]
+    close_anchor = out["close_time_parsed"]
+
+    age_start = response_anchor.combine_first(created_ts)
+    age_hours = ((now - age_start).dt.total_seconds() / 3600).where(open_mask)
+    out["age_hours"] = age_hours.fillna(0).round(1)
+
+    resolved_duration = ((close_anchor - response_anchor).dt.total_seconds() / 60)
+    fallback_resolution = pd.to_numeric(out["resolution_time"], errors="coerce")
+    out["actual_resolution_min"] = resolved_duration.where(resolved_duration > 0).fillna(fallback_resolution)
+
+    frt_duration = ((response_anchor - created_ts).dt.total_seconds() / 60)
+    out["frt_min"] = frt_duration.where(frt_duration >= 0)
+
     sla_hours = out["priority"].map({"Critical": 2, "High": 4, "Medium": 8, "Low": 12}).fillna(8)
     out["sla_hours"] = sla_hours
-    out["sla_breach"] = open_mask & (out["age_hours"] > out["sla_hours"])
+    resolution_clock_hours = ((close_anchor.fillna(now) - created_ts).dt.total_seconds() / 3600)
+    out["sla_breach"] = resolution_clock_hours > out["sla_hours"]
     out["sla_badge"] = out["sla_breach"].map({True: "BREACH", False: "OK"})
-    out["frt_min"] = out["resolution_time"].apply(lambda v: max(round(float(v) * 0.25), 1) if pd.notna(v) and float(v) > 0 else None)
+    out["response_available"] = out["frt_min"].notna()
+    out["resolution_available"] = out["actual_resolution_min"].notna() & (out["actual_resolution_min"] > 0)
     return out
 
 def build_location_issue_heatmap(df):
@@ -1413,26 +1511,43 @@ def build_storage_forecast(df):
     x = normalize_nas_df(df).copy()
     if x.empty:
         return pd.DataFrame()
-    x["date"] = pd.to_datetime(x["date"], errors="coerce")
-    x = x.dropna(subset=["date"]).sort_values(["server_name", "date"])
+    x['date'] = pd.to_datetime(x['date'], errors='coerce')
+    x = x.dropna(subset=['date']).sort_values(['server_name', 'date'])
+    capacity_map = {'HRI': 1000.0, 'Vega': 500.0, 'Sery': 100.0, 'Rise': 100.0}
     rows = []
-    for server, g in x.groupby("server_name"):
+    for server, g in x.groupby('server_name'):
         if len(g) < 2:
             continue
-        day_index = (g["date"] - g["date"].min()).dt.days.astype(float)
-        y = pd.to_numeric(g["storage_used"], errors="coerce").fillna(0).astype(float)
+        day_index = (g['date'] - g['date'].min()).dt.days.astype(float)
+        y = pd.to_numeric(g['storage_used'], errors='coerce').fillna(0).astype(float)
+        capacity = float(capacity_map.get(server, max(y.max() * 1.25, 100.0)))
         try:
-            slope, intercept = pd.Series(y).astype(float).pipe(lambda yy: __import__("numpy").polyfit(day_index, yy, 1))
+            slope, intercept = __import__('numpy').polyfit(day_index, y, 1)
             latest_storage = float(y.iloc[-1])
-            capacity = 100.0
+            utilization_pct = round((latest_storage / capacity) * 100, 2) if capacity > 0 else 0.0
             days_to_full = None
             if slope > 0 and latest_storage < capacity:
-                days_to_full = max(((capacity - intercept) / slope) - float(day_index.iloc[-1]), 0)
+                days_to_full = round((capacity - latest_storage) / slope, 1)
+            forecast_7 = round(latest_storage + slope * 7, 2)
+            forecast_30 = round(latest_storage + slope * 30, 2)
+            forecast_90 = round(latest_storage + slope * 90, 2)
+            backup_success = round((g['status'].astype(str).eq('Success').mean()) * 100, 1)
+            util_score = max(0, 100 - utilization_pct)
+            growth_score = max(0, 100 - min(max(slope, 0) * 20, 100))
+            horizon_score = 100 if days_to_full is None else max(0, min((days_to_full / 180) * 100, 100))
+            health_score = round(util_score * 0.35 + growth_score * 0.25 + horizon_score * 0.25 + backup_success * 0.15, 1)
             rows.append({
-                "server_name": server,
-                "latest_storage": round(latest_storage, 4),
-                "daily_growth_est": round(float(slope), 4),
-                "projected_days_to_100": round(float(days_to_full), 1) if days_to_full is not None else None,
+                'server_name': server,
+                'capacity_gb': round(capacity, 2),
+                'latest_storage': round(latest_storage, 4),
+                'utilization_pct': utilization_pct,
+                'daily_growth_est': round(float(slope), 4),
+                'forecast_7d': forecast_7,
+                'forecast_30d': forecast_30,
+                'forecast_90d': forecast_90,
+                'projected_days_to_full': days_to_full,
+                'backup_success_pct': backup_success,
+                'nas_health_score': health_score,
             })
         except Exception:
             pass
@@ -1593,15 +1708,30 @@ def build_executive_command_metrics(ticket_df, task_df, vendor_df, status_df, na
     t = add_priority_and_sla(ticket_df)
     total_open = int(t['status'].astype(str).isin(['Open','In Progress','On Hold - User Busy','On Hold']).sum()) if not t.empty else 0
     critical_breach = int((t.get('priority', pd.Series(dtype=str)).astype(str).eq('Critical') & t.get('sla_breach', pd.Series(dtype=bool)).fillna(False)).sum()) if not t.empty else 0
-    overdue_tasks = int((task_df['status'].astype(str).isin(['Open','In Progress','On Hold']) if not task_df.empty and 'status' in task_df.columns else pd.Series(dtype=bool)).sum())
-    open_vendor = int((vendor_df['followup_status'].astype(str).isin(['Pending from Vendor','Open','In Progress']) if not vendor_df.empty and 'followup_status' in vendor_df.columns else pd.Series(dtype=bool)).sum())
-    active_team = int((status_df['status'].astype(str).isin(['Available','Busy','In Meeting']) if not status_df.empty and 'status' in status_df.columns else pd.Series(dtype=bool)).sum())
+    overdue_tasks = int((task_df['status'].astype(str).isin(['Open','In Progress','On Hold']).sum()) if not task_df.empty and 'status' in task_df.columns else 0)
+    open_vendor = int((vendor_df['followup_status'].astype(str).isin(['Pending from Vendor','Open','In Progress']).sum()) if not vendor_df.empty and 'followup_status' in vendor_df.columns else 0)
+    active_team = int((status_df['status'].astype(str).isin(['Available','Busy','In Meeting']).sum()) if not status_df.empty and 'status' in status_df.columns else 0)
     sri = build_system_reliability_index(ticket_df)
     forecast = build_storage_forecast(nas_df)
-    nas_health = 100.0
-    if forecast is not None and not forecast.empty and 'latest_storage' in forecast.columns:
-        nas_health = round(max(0, 100 - forecast['latest_storage'].astype(float).mean()), 1)
+    nas_health = round(forecast['nas_health_score'].mean(), 1) if forecast is not None and not forecast.empty and 'nas_health_score' in forecast.columns else 100.0
     res_rate = build_ticket_exec_metrics(ticket_df).get('resolution_rate', 0.0)
+    mom = build_month_over_month_comparison(ticket_df)
+    backlog_growth = 0.0
+    critical_growth = 0.0
+    if mom is not None and not mom.empty:
+        bg = mom[mom['Metric'].eq('Backlog Growth Base')]
+        cg = mom[mom['Metric'].eq('Critical Ticket Growth Base')]
+        if not bg.empty:
+            backlog_growth = float(bg.iloc[0]['Variance_%']) if pd.notna(bg.iloc[0]['Variance_%']) else 0.0
+        if not cg.empty:
+            critical_growth = float(cg.iloc[0]['Variance_%']) if pd.notna(cg.iloc[0]['Variance_%']) else 0.0
+    repeat_incident_pct = 0.0
+    if t is not None and not t.empty and 'complaint' in t.columns:
+        norm = t['complaint'].fillna('').astype(str).str.strip().str.lower()
+        vc = norm[norm != ''].value_counts()
+        repeat_incident_pct = round((vc[vc > 1].sum() / max(len(t), 1)) * 100, 1) if not vc.empty else 0.0
+    vendor_risk = round((open_vendor * 10) + critical_breach * 5, 1)
+    capacity_risk = round(max(0, 100 - nas_health), 1)
     return {
         'Total Open Tickets': total_open,
         'Critical SLA Breaches': critical_breach,
@@ -1611,6 +1741,11 @@ def build_executive_command_metrics(ticket_df, task_df, vendor_df, status_df, na
         'System Reliability Index': sri,
         'NAS Health Score': nas_health,
         'Resolution Rate %': res_rate,
+        'Backlog Growth %': backlog_growth,
+        'Repeat Incident %': repeat_incident_pct,
+        'Critical Ticket Growth %': critical_growth,
+        'Vendor Risk Score': vendor_risk,
+        'Capacity Risk Score': capacity_risk,
     }
 
 def build_ticket_aging_analysis(df):
@@ -1639,72 +1774,122 @@ def build_technician_scorecard(df):
     perf = build_technician_performance(x)
     if perf.empty:
         return pd.DataFrame()
-    frt = x.groupby('attended_by', as_index=False).agg(Avg_FRT=('frt_min', lambda s: round(pd.Series(s).dropna().mean(),1) if pd.Series(s).dropna().shape[0] else 0), SLA_Compliance=('sla_breach', lambda s: round((1 - pd.Series(s).fillna(False).mean())*100,1)))
+    frt = x.groupby('attended_by', as_index=False).agg(
+        Avg_FRT=('frt_min', lambda s: round(pd.Series(s).dropna().mean(),1) if pd.Series(s).dropna().shape[0] else 0),
+        SLA_Compliance=('sla_breach', lambda s: round((1 - pd.Series(s).fillna(False).mean())*100,1)),
+        Critical_Handled=('priority', lambda s: int(pd.Series(s).astype(str).eq('Critical').sum())),
+        Ticket_Load=('id','size')
+    )
     out = perf.merge(frt, on='attended_by', how='left')
     max_mttr = max(out['Avg_Resolution_Min'].max(), 1)
     max_pending = max(out['Pending'].max(), 1)
+    max_frt = max(out['Avg_FRT'].max(), 1)
+    max_critical = max(out['Critical_Handled'].max(), 1)
+    out['Utilization_%'] = ((out['Assigned'] / max(out['Assigned'].sum(),1)) * 100).round(1)
     out['Score'] = (
-        out['Resolution_%'] * 0.40 +
-        out['SLA_Compliance'] * 0.30 +
-        ((1 - (out['Avg_Resolution_Min'] / max_mttr)) * 100).clip(lower=0) * 0.20 +
-        ((1 - (out['Pending'] / max_pending)) * 100).clip(lower=0) * 0.10
+        out['Resolution_%'] * 0.25 +
+        out['SLA_Compliance'] * 0.20 +
+        ((1 - (out['Avg_Resolution_Min'] / max_mttr)) * 100).clip(lower=0) * 0.15 +
+        ((1 - (out['Avg_FRT'] / max_frt)) * 100).clip(lower=0) * 0.10 +
+        ((1 - (out['Pending'] / max_pending)) * 100).clip(lower=0) * 0.10 +
+        ((out['Critical_Handled'] / max_critical) * 100).clip(lower=0) * 0.10 +
+        out['Utilization_%'] * 0.10
     ).round(1)
-    out['Rank_Band'] = pd.cut(out['Score'], bins=[-1,60,80,1000], labels=['Bronze','Silver','Gold'])
+    out['Rank_Band'] = pd.cut(out['Score'], bins=[-1,60,75,90,1000], labels=['Bronze','Silver','Gold','Platinum'])
     return out.sort_values('Score', ascending=False)
 
 def build_management_insights(ticket_df, nas_df, vendor_df):
     insights = []
     x = add_priority_and_sla(ticket_df)
     if x is not None and not x.empty:
-        d = pd.to_datetime(x['date'], errors='coerce')
-        x = x.assign(_month=d.dt.strftime('%Y-%m'))
-        months = sorted([m for m in x['_month'].dropna().unique().tolist()])
+        x = x.copy()
+        x['_date'] = pd.to_datetime(x['date'], errors='coerce')
+        x['_month'] = x['_date'].dt.to_period('M').astype(str)
+        months = sorted([m for m in x['_month'].dropna().unique().tolist() if m and m != 'NaT'])
+        pending_mask = x['status'].astype(str).isin(['Open','In Progress','On Hold - User Busy','On Hold'])
+        resolved_mask = x['status'].astype(str).eq('Resolved')
         if len(months) >= 2:
             prev_m, cur_m = months[-2], months[-1]
-            prev = x[x['_month']==prev_m]
-            cur = x[x['_month']==cur_m]
-            for cat in ['Network','Printer']:
-                p = len(prev[prev['category'].astype(str).str.contains(cat, case=False, na=False)])
-                c = len(cur[cur['category'].astype(str).str.contains(cat, case=False, na=False)])
-                if p > 0:
-                    change = round(((c-p)/p)*100,1)
-                    direction = 'increased' if change > 0 else 'reduced'
-                    insights.append({'Insight': f'{cat} incidents {direction} {abs(change)}% month-over-month'})
+            prev = x[x['_month'] == prev_m]
+            cur = x[x['_month'] == cur_m]
+            if len(prev) > 0:
+                vol_change = round(((len(cur) - len(prev)) / len(prev)) * 100, 1)
+                insights.append({'Insight': f'Ticket volume moved {vol_change}% month-over-month from {prev_m} to {cur_m}'})
+            prev_pending = int(prev['status'].astype(str).isin(['Open','In Progress','On Hold - User Busy','On Hold']).sum())
+            cur_pending = int(cur['status'].astype(str).isin(['Open','In Progress','On Hold - User Busy','On Hold']).sum())
+            if prev_pending > 0:
+                backlog_change = round(((cur_pending - prev_pending) / prev_pending) * 100, 1)
+                insights.append({'Insight': f'Backlog changed {backlog_change}% versus previous month'})
+            prev_sla = round((1 - prev['sla_breach'].fillna(False).mean()) * 100, 1) if len(prev) else 0
+            cur_sla = round((1 - cur['sla_breach'].fillna(False).mean()) * 100, 1) if len(cur) else 0
+            insights.append({'Insight': f'SLA compliance shifted from {prev_sla}% to {cur_sla}% month-over-month'})
         top_loc = x.groupby('location').size().sort_values(ascending=False)
         if not top_loc.empty:
-            insights.append({'Insight': f'{top_loc.index[0]} generated highest ticket load'})
-        top_tech = x[x['status'].astype(str)=='Resolved'].groupby('attended_by').size().sort_values(ascending=False)
+            insights.append({'Insight': f'{top_loc.index[0]} generated the highest ticket load with {int(top_loc.iloc[0])} tickets'})
+        top_dept = x.groupby('department').size().sort_values(ascending=False)
+        if not top_dept.empty:
+            insights.append({'Insight': f'{top_dept.index[0]} is the highest-demand department with {int(top_dept.iloc[0])} tickets'})
+        top_tech = x[resolved_mask].groupby('attended_by').size().sort_values(ascending=False)
         if not top_tech.empty:
-            share = round((top_tech.iloc[0] / max((x['status'].astype(str)=='Resolved').sum(),1))*100,1)
-            insights.append({'Insight': f'{top_tech.index[0]} resolved {share}% of tickets'})
+            share = round((top_tech.iloc[0] / max(int(resolved_mask.sum()),1))*100,1)
+            insights.append({'Insight': f'{top_tech.index[0]} resolved the largest share of tickets at {share}%'})
+        aged = x.loc[pending_mask, 'age_hours'].fillna(0)
+        if not aged.empty:
+            insights.append({'Insight': f'Average pending ticket age is {round((aged.mean()/24),1)} days'})
+        crit_breaches = int((x['priority'].astype(str).eq('Critical') & x['sla_breach'].fillna(False)).sum()) if 'priority' in x.columns else 0
+        insights.append({'Insight': f'Critical SLA breaches currently stand at {crit_breaches}'})
+        repeat = build_repeat_issue_summary(x)
+        if repeat is not None and not repeat.empty:
+            insights.append({'Insight': f'Repeat incidents are led by {repeat.iloc[0]["Complaint Pattern"][:60]} with {int(repeat.iloc[0]["Tickets"])} tickets'})
+        cat = x.groupby('category').size().sort_values(ascending=False)
+        if not cat.empty:
+            insights.append({'Insight': f'{cat.index[0]} is the top incident category with {int(cat.iloc[0])} tickets'})
     nf = build_storage_forecast(nas_df)
-    if nf is not None and not nf.empty and 'daily_growth_est' in nf.columns:
-        insights.append({'Insight': 'NAS growth trending upward'})
+    if nf is not None and not nf.empty:
+        risk_nf = nf.sort_values(['nas_health_score','projected_days_to_full'], ascending=[True, True], na_position='last').head(1)
+        if not risk_nf.empty:
+            row = risk_nf.iloc[0]
+            insights.append({'Insight': f'{row["server_name"]} has the highest capacity risk with NAS health {row["nas_health_score"]} and days-to-full {row["projected_days_to_full"]}'})
     if vendor_df is not None and not vendor_df.empty and 'vendor_name' in vendor_df.columns:
-        top_vendor = vendor_df.groupby('vendor_name').size().sort_values(ascending=False)
-        if not top_vendor.empty:
-            insights.append({'Insight': f'Vendor {top_vendor.index[0]} has highest pending cases'})
-    return pd.DataFrame(insights[:8])
+        vp = build_vendor_performance(vendor_df).get('table', pd.DataFrame())
+        if vp is not None and not vp.empty:
+            worst = vp.sort_values('Vendor_Score').head(1).iloc[0]
+            insights.append({'Insight': f'Vendor {worst["vendor_name"]} has the highest vendor risk with score {worst["Vendor_Score"]}'})
+    return pd.DataFrame(insights[:10])
 
 def build_vendor_performance(vendor_df):
     if vendor_df is None or vendor_df.empty:
         return {'table': pd.DataFrame(), 'heatmap': pd.DataFrame()}
     x = vendor_df.copy()
+    x['created_at'] = pd.to_datetime(x.get('created_at'), errors='coerce')
+    x['due_date'] = pd.to_datetime(x.get('due_date'), errors='coerce')
     x['resolved_flag'] = x['followup_status'].astype(str).isin(['Resolved','Closed'])
     x['open_flag'] = x['followup_status'].astype(str).isin(['Pending from Vendor','Open','In Progress'])
-    x['due_date'] = pd.to_datetime(x.get('due_date'), errors='coerce')
     today = pd.Timestamp.now().normalize()
     x['escalation_flag'] = x['open_flag'] & x['due_date'].notna() & (x['due_date'] < today)
+    x['response_time_days'] = (x['due_date'] - x['created_at']).dt.total_seconds() / 86400
     out = x.groupby('vendor_name', as_index=False).agg(
         Cases_Assigned=('id','size'),
         Open_Cases=('open_flag','sum'),
         Resolved_Cases=('resolved_flag','sum'),
-        Escalations=('escalation_flag','sum')
+        Escalations=('escalation_flag','sum'),
+        Avg_Response_Days=('response_time_days', lambda s: round(pd.to_numeric(s, errors='coerce').dropna().mean(),1) if pd.to_numeric(s, errors='coerce').dropna().shape[0] else 0)
     )
-    out['Average_Resolution_Days'] = ((out['Cases_Assigned'] - out['Open_Cases']).replace(0,1) * 2).round(1)
-    out['SLA_Compliance'] = ((1 - (out['Escalations'] / out['Cases_Assigned'].replace(0,1))) * 100).round(1)
+    out['Resolution_Rate_%'] = ((out['Resolved_Cases'] / out['Cases_Assigned'].replace(0,1)) * 100).round(1)
+    out['SLA_%'] = ((1 - (out['Escalations'] / out['Cases_Assigned'].replace(0,1))) * 100).round(1)
+    max_open = max(out['Open_Cases'].max(), 1)
+    max_esc = max(out['Escalations'].max(), 1)
+    max_resp = max(out['Avg_Response_Days'].max(), 1)
+    out['Vendor_Score'] = (
+        out['Resolution_Rate_%'] * 0.35 +
+        out['SLA_%'] * 0.35 +
+        ((1 - (out['Open_Cases'] / max_open)) * 100).clip(lower=0) * 0.15 +
+        ((1 - (out['Escalations'] / max_esc)) * 100).clip(lower=0) * 0.10 +
+        ((1 - (out['Avg_Response_Days'] / max_resp)) * 100).clip(lower=0) * 0.05
+    ).round(1)
+    out['Risk_Grade'] = pd.cut(out['Vendor_Score'], bins=[-1,59,69,79,89,1000], labels=['D','C','B','A','A+'])
     heat = x.groupby(['vendor_name','followup_status'], as_index=False).agg(Cases=('id','size'))
-    return {'table': out.sort_values('SLA_Compliance', ascending=False), 'heatmap': heat}
+    return {'table': out.sort_values('Vendor_Score', ascending=False), 'heatmap': heat}
 
 def build_department_health(df):
     x = add_priority_and_sla(df)
@@ -1715,45 +1900,109 @@ def build_department_health(df):
         Resolved=('status', lambda s: (s.astype(str)=='Resolved').sum()),
         Open=('status', lambda s: s.astype(str).isin(['Open','In Progress']).sum()),
         Pending=('status', lambda s: s.astype(str).isin(['Open','In Progress','On Hold - User Busy','On Hold']).sum()),
-        MTTR=('resolution_time', lambda s: round(pd.to_numeric(s, errors='coerce').replace(0,pd.NA).dropna().mean(),1) if pd.to_numeric(s, errors='coerce').replace(0,pd.NA).dropna().shape[0] else 0),
+        MTTR=('actual_resolution_min', lambda s: round(pd.to_numeric(s, errors='coerce').dropna().mean(),1) if pd.to_numeric(s, errors='coerce').dropna().shape[0] else 0),
         SLA_Breach=('sla_breach', lambda s: round(pd.Series(s).fillna(False).mean()*100,1))
     )
     total = max(out['Tickets'].sum(),1)
     out['SLA_%'] = (100 - out['SLA_Breach']).round(1)
     out['Load_%'] = ((out['Tickets']/total)*100).round(1)
-    out['Risk_Score'] = (out['Pending']*2 + out['SLA_Breach']*0.5 + out['MTTR']*0.05).round(1)
-    out['Department_Health'] = pd.cut(out['Risk_Score'], bins=[-1,20,45,100000], labels=['Healthy','Attention Needed','High Risk'])
-    return out.sort_values('Risk_Score')
+
+    repeat_map = {}
+    if 'complaint' in x.columns:
+        tmp = x.copy()
+        tmp['complaint_norm'] = tmp['complaint'].fillna('').astype(str).str.strip().str.lower()
+        grp = tmp[tmp['complaint_norm'] != ''].groupby(['department','complaint_norm']).size().reset_index(name='cnt')
+        repeat_map = grp.groupby('department')['cnt'].apply(lambda s: int(s[s > 1].sum())).to_dict() if not grp.empty else {}
+    out['Repeat_Incidents'] = out['department'].map(repeat_map).fillna(0)
+
+    max_pending = max(out['Pending'].max(), 1)
+    max_mttr = max(out['MTTR'].max(), 1)
+    max_repeat = max(out['Repeat_Incidents'].max(), 1)
+    out['Risk_Score'] = (
+        (out['SLA_Breach'].clip(lower=0, upper=100)) * 0.40 +
+        ((out['Pending'] / max_pending) * 100).clip(lower=0, upper=100) * 0.30 +
+        ((out['MTTR'] / max_mttr) * 100).clip(lower=0, upper=100) * 0.20 +
+        ((out['Repeat_Incidents'] / max_repeat) * 100).clip(lower=0, upper=100) * 0.10
+    ).round(1)
+    out['Department_Health'] = pd.cut(out['Risk_Score'], bins=[-1,24,49,74,1000], labels=['Healthy','Attention Needed','High Risk','Critical'])
+    return out.sort_values('Risk_Score', ascending=False)
 
 def build_month_over_month_comparison(df):
     x = add_priority_and_sla(df)
     if x.empty:
         return pd.DataFrame()
-    x['_month'] = pd.to_datetime(x['date'], errors='coerce').dt.strftime('%Y-%m')
-    months = sorted([m for m in x['_month'].dropna().unique().tolist()])
+    x['_month'] = pd.to_datetime(x['date'], errors='coerce').dt.to_period('M').astype(str)
+    months = sorted([m for m in x['_month'].dropna().unique().tolist() if m and m != 'NaT'])
     if len(months) < 2:
         return pd.DataFrame()
     prev_m, cur_m = months[-2], months[-1]
-    prev = x[x['_month']==prev_m]
-    cur = x[x['_month']==cur_m]
-    def m(df_):
+    prev = x[x['_month'] == prev_m].copy()
+    cur = x[x['_month'] == cur_m].copy()
+
+    def _safe_pct(num, den):
+        return round((num / den) * 100, 1) if den else 0.0
+
+    def _repeat_pct(df_):
+        if df_.empty or 'complaint' not in df_.columns:
+            return 0.0
+        s = df_['complaint'].fillna('').astype(str).str.strip().str.lower()
+        vc = s[s != ''].value_counts()
+        repeat_count = int(vc[vc > 1].sum()) if not vc.empty else 0
+        return _safe_pct(repeat_count, len(df_))
+
+    def _metrics(df_):
         total = len(df_)
-        resolved = (df_['status'].astype(str)=='Resolved').sum() if total else 0
-        mttr = round(pd.to_numeric(df_.get('resolution_time'), errors='coerce').replace(0,pd.NA).dropna().mean(),1) if total else 0
-        frt = round(pd.to_numeric(df_.get('frt_min'), errors='coerce').dropna().mean(),1) if total else 0
-        sla = round((1-df_['sla_breach'].fillna(False).mean())*100,1) if total else 0
-        return total, round((resolved/max(total,1))*100,1), mttr, frt, sla
-    p_total, p_res, p_mttr, p_frt, p_sla = m(prev)
-    c_total, c_res, c_mttr, c_frt, c_sla = m(cur)
-    cmp = pd.DataFrame([
-        ['Ticket Volume', p_total, c_total],
-        ['Resolution Rate', p_res, c_res],
-        ['MTTR', p_mttr, c_mttr],
-        ['FRT', p_frt, c_frt],
-        ['SLA %', p_sla, c_sla],
-    ], columns=['Metric','Previous_Month','Current_Month'])
-    cmp['Direction'] = cmp.apply(lambda r: '▲ Increase' if r['Current_Month'] > r['Previous_Month'] else ('▼ Decrease' if r['Current_Month'] < r['Previous_Month'] else '► No Change'), axis=1)
-    return cmp
+        resolved_mask = df_['status'].astype(str).eq('Resolved')
+        pending_mask = df_['status'].astype(str).isin(['Open','In Progress','On Hold - User Busy','On Hold'])
+        critical_mask = df_.get('priority', pd.Series(dtype=str)).astype(str).eq('Critical')
+        breach_mask = df_.get('sla_breach', pd.Series(dtype=bool)).fillna(False)
+        mttr = round(df_.loc[df_['resolution_available'].fillna(False), 'actual_resolution_min'].mean(), 1) if df_.get('resolution_available', pd.Series(dtype=bool)).fillna(False).any() else 0.0
+        frt = round(df_.loc[df_['response_available'].fillna(False), 'frt_min'].mean(), 1) if df_.get('response_available', pd.Series(dtype=bool)).fillna(False).any() else 0.0
+        dept_top = df_.groupby('department').size().max() if 'department' in df_.columns and total else 0
+        loc_top = df_.groupby('location').size().max() if 'location' in df_.columns and total else 0
+        tech_prod = round(df_.groupby('attended_by')['id'].count().mean(), 1) if 'attended_by' in df_.columns and total else 0.0
+        cat_top = df_.groupby('category').size().max() if 'category' in df_.columns and total else 0
+        return {
+            'Ticket Volume': total,
+            'Resolution Rate': _safe_pct(int(resolved_mask.sum()), total),
+            'MTTR': mttr,
+            'FRT': frt,
+            'SLA %': round((1 - breach_mask.mean()) * 100, 1) if total else 0.0,
+            'Backlog Growth Base': int(pending_mask.sum()),
+            'Open Ticket Growth Base': int(df_['status'].astype(str).eq('Open').sum()),
+            'Escalation Growth Base': int((pending_mask & breach_mask).sum()),
+            'Critical Ticket Growth Base': int(critical_mask.sum()),
+            'Department Load': int(dept_top),
+            'Location Load': int(loc_top),
+            'Technician Productivity': tech_prod,
+            'Category Trends': int(cat_top),
+            'Repeat Incident %': _repeat_pct(df_),
+        }
+
+    p = _metrics(prev)
+    c = _metrics(cur)
+    higher_better = {'Resolution Rate', 'SLA %', 'Technician Productivity'}
+    rows = []
+    for metric, prev_v in p.items():
+        cur_v = c.get(metric, 0)
+        var = round(cur_v - prev_v, 1)
+        var_pct = round((var / prev_v) * 100, 1) if prev_v not in [0, 0.0] else None
+        if cur_v == prev_v:
+            trend = 'No Change'
+        elif metric in higher_better:
+            trend = 'Increase' if cur_v > prev_v else 'Decrease'
+        else:
+            trend = 'Decrease' if cur_v > prev_v else 'Increase'
+        if metric in ['Backlog Growth Base', 'Open Ticket Growth Base', 'Escalation Growth Base', 'Critical Ticket Growth Base'] and cur_v > prev_v:
+            risk = 'High Risk'
+        elif metric in ['MTTR', 'FRT'] and cur_v > prev_v:
+            risk = 'Attention'
+        elif metric == 'SLA %' and cur_v < prev_v:
+            risk = 'High Risk'
+        else:
+            risk = 'Healthy'
+        rows.append([metric, prev_m, cur_m, prev_v, cur_v, var, var_pct, trend, risk])
+    return pd.DataFrame(rows, columns=['Metric','Previous_Month_Label','Current_Month_Label','Previous_Month','Current_Month','Variance','Variance_%','Direction','Risk_Assessment'])
 
 def load_assets_df(conn):
     try:
@@ -1802,35 +2051,28 @@ def build_capacity_planning_dashboard(nas_df):
     out = forecast.copy()
     out['Storage Growth Rate'] = out['daily_growth_est']
 
-    def _safe_future_date(days_value, subtract_days=0):
+    def _future(days_value):
         try:
             if pd.isna(days_value):
                 return None
-            d = float(days_value) - float(subtract_days)
-            d = max(d, 0)
-            if d > 3650:
-                return None
-            return (today + pd.Timedelta(days=d)).date().isoformat()
+            return (today + pd.Timedelta(days=float(days_value))).date().isoformat()
         except Exception:
             return None
 
-    def _safe_risk_level(days_value):
-        try:
-            if pd.isna(days_value):
-                return 'Healthy'
-            d = float(days_value)
-            if d <= 30:
-                return 'High'
-            if d <= 90:
-                return 'Attention'
-            return 'Healthy'
-        except Exception:
-            return 'Healthy'
+    def _risk(days_value, util, health):
+        if health <= 40 or util >= 90:
+            return 'Critical'
+        if pd.notna(days_value) and float(days_value) <= 30:
+            return 'High Risk'
+        if pd.notna(days_value) and float(days_value) <= 90:
+            return 'Attention'
+        return 'Healthy'
 
-    out['Forecasted Capacity Date'] = out['projected_days_to_100'].apply(_safe_future_date)
-    out['Recommended Upgrade Date'] = out['projected_days_to_100'].apply(lambda d: _safe_future_date(d, subtract_days=30))
-    out['Storage Risk Level'] = out['projected_days_to_100'].apply(_safe_risk_level)
-    out['Server Utilization %'] = out['latest_storage'].round(2)
+    out['Forecasted Capacity Date'] = out['projected_days_to_full'].apply(_future)
+    out['Recommended Upgrade Date'] = out['projected_days_to_full'].apply(lambda d: _future(max(float(d) - 30, 0)) if pd.notna(d) else None)
+    out['Storage Risk Level'] = out.apply(lambda r: _risk(r.get('projected_days_to_full'), r.get('utilization_pct', 0), r.get('nas_health_score', 100)), axis=1)
+    out['Server Utilization %'] = out['utilization_pct'].round(2)
+    out['NAS Health Score'] = out['nas_health_score']
     return out
 
 def build_executive_pdf_bytes(ticket_df, nas_df, vendor_df, dept_df, tech_df, insights_df):
@@ -1993,10 +2235,32 @@ def render_home_page(user, ticket_df, nas_df, conn):
     with k3: render_kpi_card('SLA %', round(100 - add_priority_and_sla(ticket_df).get('sla_breach', pd.Series(dtype=bool)).fillna(False).mean()*100,1) if not ticket_df.empty else 0, 'Compliance view', '🎯')
     with k4: render_kpi_card('MTTR', metrics.get('avg_resolution',0), 'Average minutes', '⏱')
     with k5: render_kpi_card('NAS Health', nas_health, 'Storage posture', '🖥', tone='success' if nas_health >= 70 else 'warning')
+    recent_tickets = prepare_ticket_view(ticket_df) if ticket_df is not None else pd.DataFrame()
+    if recent_tickets is not None and not recent_tickets.empty:
+        if 'date_parsed' not in recent_tickets.columns:
+            recent_tickets['date_parsed'] = pd.to_datetime(recent_tickets.get('date'), errors='coerce')
+        recent_tickets = recent_tickets.sort_values(['date_parsed', 'id'], ascending=[False, False], na_position='last').head(6)
+
+    recent_tasks = load_tasks_df(conn)
+    if recent_tasks is not None and not recent_tasks.empty:
+        recent_tasks = recent_tasks.copy()
+        recent_tasks['sort_due_date'] = pd.to_datetime(recent_tasks.get('due_date'), errors='coerce')
+        recent_tasks['sort_created_at'] = pd.to_datetime(recent_tasks.get('created_at'), errors='coerce')
+        task_sort_cols = [c for c in ['sort_due_date', 'sort_created_at', 'id'] if c in recent_tasks.columns]
+        recent_tasks = recent_tasks.sort_values(task_sort_cols, ascending=[False] * len(task_sort_cols), na_position='last').head(6)
+
+    recent_vendor = load_vendor_followups_df(conn)
+    if recent_vendor is not None and not recent_vendor.empty:
+        recent_vendor = recent_vendor.copy()
+        recent_vendor['sort_due_date'] = pd.to_datetime(recent_vendor.get('due_date'), errors='coerce')
+        recent_vendor['sort_created_at'] = pd.to_datetime(recent_vendor.get('created_at'), errors='coerce')
+        vendor_sort_cols = [c for c in ['sort_due_date', 'sort_created_at', 'id'] if c in recent_vendor.columns]
+        recent_vendor = recent_vendor.sort_values(vendor_sort_cols, ascending=[False] * len(vendor_sort_cols), na_position='last').head(6)
+
     left, mid, right = st.columns([1.1,1.1,1])
-    with left: render_info_feed('Recent Tickets', prepare_ticket_view(ticket_df).head(6) if ticket_df is not None else pd.DataFrame(), ['complaint','status','location','date'])
-    with mid: render_info_feed('Recent Tasks', load_tasks_df(conn).head(6), ['title','status','assigned_to','due_date'])
-    with right: render_info_feed('Recent Vendor Updates', load_vendor_followups_df(conn).head(6), ['vendor_name','followup_status','ticket_id','due_date'])
+    with left: render_info_feed('Recent Tickets', recent_tickets, ['complaint','status','location','date'])
+    with mid: render_info_feed('Recent Tasks', recent_tasks, ['title','status','assigned_to','due_date'])
+    with right: render_info_feed('Recent Vendor Updates', recent_vendor, ['vendor_name','followup_status','ticket_id','due_date'])
     st.markdown('<div class="panel"><div class="panel-title">Management Insights</div><div class="panel-sub">Auto-generated operational observations.</div></div>', unsafe_allow_html=True)
     insights = build_management_insights(ticket_df, nas_df, load_vendor_followups_df(conn))
     cols = st.columns(3)
@@ -2714,11 +2978,29 @@ def render_dashboard(conn):
         render_insight_cards(insights_df, columns_count=3)
         st.markdown("### Month-over-Month")
         if mom_df is not None and not mom_df.empty:
-            mcols = st.columns(len(mom_df))
-            for col, (_, row) in zip(mcols, mom_df.iterrows()):
+            preferred_order = ['Ticket Volume', 'Resolution Rate', 'MTTR', 'FRT', 'SLA %']
+            visible_mom = mom_df[mom_df['Metric'].isin(preferred_order)].copy()
+            if visible_mom.empty:
+                visible_mom = mom_df.head(5).copy()
+            metric_labels = {
+                'Ticket Volume': 'Ticket Volume',
+                'Resolution Rate': 'Resolution Rate',
+                'MTTR': 'MTTR',
+                'FRT': 'FRT',
+                'SLA %': 'SLA %'
+            }
+            mcols = st.columns(len(visible_mom))
+            for col, (_, row) in zip(mcols, visible_mom.iterrows()):
                 with col:
-                    tone = 'success' if 'Increase' in str(row['Direction']) and row['Metric'] in ['Resolution Rate', 'SLA %'] else ('danger' if 'Decrease' in str(row['Direction']) and row['Metric'] in ['Resolution Rate', 'SLA %'] else 'primary')
-                    render_kpi_card(str(row['Metric']), row['Current_Month'], f"Prev: {row['Previous_Month']}", '📈', str(row['Direction']), tone)
+                    metric_name = metric_labels.get(str(row['Metric']), str(row['Metric']))
+                    direction = str(row['Direction'])
+                    if metric_name in ['Resolution Rate', 'SLA %']:
+                        tone = 'success' if direction == 'Increase' else ('danger' if direction == 'Decrease' else 'primary')
+                    elif metric_name in ['MTTR', 'FRT']:
+                        tone = 'danger' if direction == 'Increase' else ('success' if direction == 'Decrease' else 'primary')
+                    else:
+                        tone = 'primary'
+                    render_kpi_card(metric_name, row['Current_Month'], f"Prev: {row['Previous_Month']}", '📈', direction, tone)
         with st.expander("Detailed executive tables", expanded=False):
             if aging_pack.get('most_aged', pd.DataFrame()) is not None and not aging_pack.get('most_aged', pd.DataFrame()).empty:
                 st.markdown("#### Most aged tickets")
@@ -2729,6 +3011,40 @@ def render_dashboard(conn):
             if mom_df is not None and not mom_df.empty:
                 st.markdown("#### Month-over-month table")
                 st.dataframe(mom_df, use_container_width=True)
+
+            st.markdown("#### Ticket reporting views")
+            reporting_views = build_ticket_reporting_views(df_ticket_filtered)
+            rpt_tabs = st.tabs(["Daily", "Weekly", "Monthly", "Technician Wise", "Site Wise", "Month Wise Technician"])
+            with rpt_tabs[0]:
+                if reporting_views['daily'].empty:
+                    st.info("No daily ticket data available.")
+                else:
+                    st.dataframe(reporting_views['daily'], use_container_width=True)
+            with rpt_tabs[1]:
+                if reporting_views['weekly'].empty:
+                    st.info("No weekly ticket data available.")
+                else:
+                    st.dataframe(reporting_views['weekly'], use_container_width=True)
+            with rpt_tabs[2]:
+                if reporting_views['monthly'].empty:
+                    st.info("No monthly ticket data available.")
+                else:
+                    st.dataframe(reporting_views['monthly'], use_container_width=True)
+            with rpt_tabs[3]:
+                if reporting_views['technician'].empty:
+                    st.info("No technician-wise ticket data available.")
+                else:
+                    st.dataframe(reporting_views['technician'], use_container_width=True)
+            with rpt_tabs[4]:
+                if reporting_views['site'].empty:
+                    st.info("No site-wise ticket data available.")
+                else:
+                    st.dataframe(reporting_views['site'], use_container_width=True)
+            with rpt_tabs[5]:
+                if reporting_views['monthwise_technician'].empty:
+                    st.info("No month-wise technician data available.")
+                else:
+                    st.dataframe(reporting_views['monthwise_technician'], use_container_width=True)
 
     elif page == "Vendor Dashboard":
         st.subheader("Vendor Performance Analytics")
