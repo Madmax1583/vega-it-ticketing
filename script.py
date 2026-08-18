@@ -916,14 +916,14 @@ def build_excel_report(tickets_df, nas_df):
             if frame is not None and not frame.empty:
                 frame.to_excel(writer, sheet_name=name[:31], index=False)
         vendor_perf = build_vendor_performance(load_vendor_followups_df(conn_global_for_pdf) if 'conn_global_for_pdf' in globals() and conn_global_for_pdf is not None else pd.DataFrame())
-        dept_health = build_department_health(tickets_df)
+        dept_health = build_department_health(complaint_reporting_df(tickets_df))
         tech_score = build_technician_scorecard(tickets_df)
         aging = build_ticket_aging_analysis(tickets_df)
-        insights = build_management_insights(tickets_df, nas_df, load_vendor_followups_df(conn_global_for_pdf) if 'conn_global_for_pdf' in globals() and conn_global_for_pdf is not None else pd.DataFrame())
+        insights = build_management_insights(complaint_reporting_df(tickets_df), nas_df, load_vendor_followups_df(conn_global_for_pdf) if 'conn_global_for_pdf' in globals() and conn_global_for_pdf is not None else pd.DataFrame())
         capacity = build_capacity_planning_dashboard(nas_df)
         assets = build_asset_health(load_assets_df(conn_global_for_pdf) if 'conn_global_for_pdf' in globals() and conn_global_for_pdf is not None else pd.DataFrame(), tickets_df)
         extra_frames = {
-            'Executive Summary': build_month_over_month_comparison(tickets_df),
+            'Executive Summary': build_month_over_month_comparison(complaint_reporting_df(tickets_df)),
             'Ticket Aging Report': aging.get('aging_table', pd.DataFrame()),
             'SLA Compliance Report': build_mttr_sla_summary(prepare_ticket_view(tickets_df), 'location'),
             'Vendor Performance Report': vendor_perf.get('table', pd.DataFrame()),
@@ -937,6 +937,15 @@ def build_excel_report(tickets_df, nas_df):
             if frame is not None and not frame.empty:
                 frame.to_excel(writer, sheet_name=name[:31], index=False)
     return output.getvalue()
+
+def complaint_reporting_df(df):
+    if df is None or getattr(df, 'empty', True):
+        return pd.DataFrame() if df is None else df.copy()
+    x = df.copy()
+    if 'department' not in x.columns:
+        return x
+    dept = x['department'].fillna('').astype(str).str.strip().str.lower()
+    return x[dept != 'it'].copy()
 
 def build_ticket_exec_metrics(df):
     if df is None or df.empty:
