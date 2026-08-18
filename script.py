@@ -1724,7 +1724,7 @@ def build_executive_command_metrics(ticket_df, task_df, vendor_df, status_df, na
     forecast = build_storage_forecast(nas_df)
     nas_health = round(forecast['nas_health_score'].mean(), 1) if forecast is not None and not forecast.empty and 'nas_health_score' in forecast.columns else 100.0
     res_rate = build_ticket_exec_metrics(ticket_df).get('resolution_rate', 0.0)
-    mom = build_month_over_month_comparison(ticket_df)
+    mom = build_month_over_month_comparison(complaint_reporting_df(ticket_df))
     backlog_growth = 0.0
     critical_growth = 0.0
     if mom is not None and not mom.empty:
@@ -2519,6 +2519,7 @@ def render_dashboard(conn):
                 target_row = queue_df[queue_df["id"] == target_id].iloc[0]
                 st.markdown(f"<div class='summary-card'><div class='summary-grid'><div><div class='sum-label'>User</div><div class='sum-value'>{target_row['user_name']}</div></div><div><div class='sum-label'>Department</div><div class='sum-value'>{target_row['department']}</div></div><div><div class='sum-label'>Location</div><div class='sum-value'>{target_row['location']}</div></div><div><div class='sum-label'>Status</div><div class='sum-value'>{target_row['status']}</div></div><div class='span-2'><div class='sum-label'>Complaint</div><div class='sum-value'>{target_row['complaint']}</div></div></div></div>", unsafe_allow_html=True)
                 with st.form(f"update_ticket_form_{target_id}"):
+                    manager_mode = str(role) == "IT Manager"
                     u1, u2 = st.columns(2)
                     current_status_idx = STATUS_OPTIONS.index(target_row["status"]) if target_row["status"] in STATUS_OPTIONS else 0
                     tech_list = list(TECH_MAP.keys())
@@ -2526,13 +2527,49 @@ def render_dashboard(conn):
                     new_status = u1.selectbox("Modify Status", STATUS_OPTIONS, index=current_status_idx)
                     new_tech = u2.selectbox("Reassign Technician", tech_list, index=current_tech_idx)
                     new_duration = st.number_input("Resolution Duration (minutes)", min_value=0, value=int(target_row["resolution_time"]) if pd.notna(target_row["resolution_time"]) else 0)
+                    if manager_mode:
+                        e1, e2 = st.columns(2)
+                        new_user_name = e1.text_input("User Name", value=str(target_row.get("user_name", "")))
+                        new_department = e2.text_input("Department", value=str(target_row.get("department", "")))
+                        e3, e4 = st.columns(2)
+                        location_options = OFFICIAL_LOCATIONS if OFFICIAL_LOCATIONS else [str(target_row.get("location", ""))]
+                        current_loc = str(target_row.get("location", ""))
+                        loc_index = location_options.index(current_loc) if current_loc in location_options else 0
+                        new_location = e3.selectbox("Location", location_options, index=loc_index)
+                        category_options = list(CATEGORY_MASTER.keys())
+                        current_category = normalize_category(target_row.get("category", "Other"))
+                        cat_index = category_options.index(current_category) if current_category in category_options else category_options.index("Other")
+                        new_category = e4.selectbox("Category", category_options, index=cat_index)
+                        new_complaint = st.text_area("Complaint Description", value=str(target_row.get("complaint", "")), height=100)
+                    else:
+                        new_user_name = str(target_row.get("user_name", ""))
+                        new_department = str(target_row.get("department", ""))
+                        new_location = str(target_row.get("location", ""))
+                        new_category = normalize_category(target_row.get("category", "Other"))
+                        new_complaint = str(target_row.get("complaint", ""))
                     new_remarks = st.text_area("Update Remarks", value=str(target_row.get("remarks", "")), height=90)
                     if st.form_submit_button("Save Changes"):
                         final_remarks = new_remarks.strip()
                         if new_status == "On Hold - User Busy" and not final_remarks:
                             final_remarks = "Technician reached user, but action postponed due to business activity."
                         payload = {"status": new_status, "attended_by": new_tech, "resolution_time": int(new_duration), "remarks": final_remarks}
-                        if new_status == "Resolved" and not target_row.get("close_time"): payload["close_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        if manager_mode:
+                            payload.update({
+                                "user_name": new_user_name.strip(),
+                                "department": new_department.strip(),
+                                "location": new_location,
+                                "category": normalize_category(new_category),
+                                "complaint": new_complaint.strip(),
+                            })
+                        if new_status == "Resolved":
+                            if not target_row.get("close_time"):
+                                payload["close_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        else:
+                            payload["close_time"] = None
+                        if new_status == "In Progress" and not target_row.get("start_time"):
+                            payload["start_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        if new_status in ["Open", "On Hold - User Busy"] and manager_mode:
+                            payload["start_time"] = None if new_status == "Open" else target_row.get("start_time")
                         try:
                             update_ticket(target_id, payload)
                             add_notification(conn, new_tech.lower(), f"Ticket updated: {format_ticket_number(target_id, target_row['location'])}")
@@ -2736,11 +2773,11 @@ def render_dashboard(conn):
         aging_pack = build_ticket_aging_analysis(df_ticket_filtered)
         vendor_perf = build_vendor_performance(load_vendor_followups_df(conn))
         tech_score = build_technician_scorecard(df_ticket_filtered)
-        dept_health = build_department_health(df_ticket_filtered)
+        dept_health = build_department_health(complaint_reporting_df(df_ticket_filtered))
         capacity = build_capacity_planning_dashboard(df_nas_filtered)
         assets = build_asset_health(load_assets_df(conn), df_ticket_filtered)
         insights = build_management_insights(df_ticket_filtered, df_nas_filtered, load_vendor_followups_df(conn))
-        mom = build_month_over_month_comparison(df_ticket_filtered)
+        mom = build_month_over_month_comparison(complaint_reporting_df(df_ticket_filtered))
         adv_frames = [
             mom,
             aging_pack.get('aging_table', pd.DataFrame()),
@@ -2967,7 +3004,7 @@ def render_dashboard(conn):
             with col:
                 render_kpi_card(*item)
         aging_pack = build_ticket_aging_analysis(df_ticket_filtered)
-        dept_health = build_department_health(df_ticket_filtered)
+        dept_health = build_department_health(complaint_reporting_df(df_ticket_filtered))
         insights_df = build_management_insights(df_ticket_filtered, df_nas_filtered, vendor_df)
         mom_df = build_month_over_month_comparison(df_ticket_filtered)
         mid1, mid2 = st.columns([1.1, 1])
@@ -3070,7 +3107,7 @@ def render_dashboard(conn):
 
     elif page == "Department Health":
         st.subheader("Department Health Dashboard")
-        dept = build_department_health(df_ticket_filtered)
+        dept = build_department_health(complaint_reporting_df(df_ticket_filtered))
         if dept.empty:
             st.info("No department analytics available.")
         else:
