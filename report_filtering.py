@@ -1,124 +1,126 @@
-# report_filtering.py
-"""
-Small reusable module for ticket reporting scope filtering.
-Provides case-insensitive IT department detection and safe DataFrame filters.
-"""
-from typing import Optional
 import pandas as pd
 
-# Recognized IT department labels (after trimming and lowercasing)
-_IT_NAMES = {
-    "it",
-    "information technology",
-    "it department",
-    "information technology department",
-}
+
+IT_NORMALIZED_SET = {"it", "information technology", "it department", "information technology department"}
 
 
-def normalize_department(value: Optional[str]) -> str:
-    """Return a normalized department string (trimmed, lowercased).
+def normalize_department(value):
+    """Return a normalized string for department matching.
 
-    Handles None, NaN, and non-string values safely.
+    Safe for None/NaN/empty. Trims and lowercases the input.
     """
+    if value is None:
+        return ""
     try:
-        if value is None:
-            return ""
         # pandas NA handling
         if pd.isna(value):
             return ""
     except Exception:
         pass
     try:
-        s = str(value).strip()
+        s = str(value).strip().lower()
         return s
     except Exception:
         return ""
 
 
-def is_it_department(value: Optional[str]) -> bool:
-    """Return True if the given department value identifies an IT department.
+def is_it_department(value):
+    """Return True if the given department value corresponds to IT (case-insensitive).
 
-    Matching is case-insensitive and tolerant of leading/trailing whitespace.
+    Recognizes: IT, it, Information Technology, IT Department, Information Technology Department
+    after trimming and lowercasing.
     """
     s = normalize_department(value)
-    if not s:
-        return False
-    return s.lower() in _IT_NAMES or s.lower() == "it"
+    return s in IT_NORMALIZED_SET
 
 
-def _ensure_dataframe(df: Optional[pd.DataFrame]) -> pd.DataFrame:
-    """Return an empty DataFrame if df is None, otherwise return df as-is.
-    This helper does NOT return a copy; callers should copy when needed.
+def _find_department_column(df: pd.DataFrame):
+    """Heuristically find the department column name in the dataframe.
+
+    Returns the column name or None if not found.
+    """
+    if df is None or df.empty:
+        return None
+    candidates = [
+        "department",
+        "dept",
+        "assigned_department",
+        "assigned_dept",
+        "user_department",
+        "team",
+    ]
+    cols = [c.lower() for c in df.columns]
+    for cand in candidates:
+        if cand in cols:
+            # return the actual column name with original casing
+            return df.columns[cols.index(cand)]
+    # fallback: if there's a column literally named like 'department' but with spaces
+    for c in df.columns:
+        if c.strip().lower() == "department":
+            return c
+    return None
+
+
+def filter_user_complaints(df: pd.DataFrame) -> pd.DataFrame:
+    """Return a copy of df with IT department rows excluded.
+
+    Handles missing department column, None/NaN/blank values, and empty DataFrames safely.
+    Always returns a copy and does not mutate the input.
     """
     if df is None:
         return pd.DataFrame()
     if not isinstance(df, pd.DataFrame):
-        return pd.DataFrame(df)
-    return df
+        raise TypeError("df must be a pandas DataFrame")
+    if df.empty:
+        return df.copy()
+    dep_col = _find_department_column(df)
+    if not dep_col:
+        # No department column -> nothing to exclude
+        return df.copy()
+    mask_it = df[dep_col].apply(is_it_department)
+    # Keep rows where NOT IT
+    return df.loc[~mask_it].copy()
 
 
-def filter_user_complaints(df: Optional[pd.DataFrame]) -> pd.DataFrame:
-    """Return a copy of df excluding rows where department is an IT department.
+def filter_it_operations(df: pd.DataFrame) -> pd.DataFrame:
+    """Return a copy of df containing only IT department rows.
 
-    Safe for None, empty DataFrames, missing department column, and NaNs.
-    Always returns a copy and does not mutate the original DataFrame.
+    Safe for missing column/empty DataFrame.
     """
-    orig = _ensure_dataframe(df)
-    out = orig.copy()
-    if out.empty:
-        return out
-    if "department" not in out.columns:
-        # No department column -> assume all are user complaints
-        return out.copy()
-    # create normalized flag without mutating original
-    dept_series = out["department"].apply(lambda v: normalize_department(v))
-    mask_it = dept_series.apply(lambda v: is_it_department(v))
-    result = out.loc[~mask_it].copy()
-    return result
+    if df is None:
+        return pd.DataFrame()
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError("df must be a pandas DataFrame")
+    if df.empty:
+        return df.copy()
+    dep_col = _find_department_column(df)
+    if not dep_col:
+        # No department column -> nothing to include
+        return df.iloc[0:0].copy()
+    mask_it = df[dep_col].apply(is_it_department)
+    return df.loc[mask_it].copy()
 
 
-def filter_it_operations(df: Optional[pd.DataFrame]) -> pd.DataFrame:
-    """Return a copy of df including only rows where department is an IT department.
-
-    Safe for None, empty DataFrames, missing department column, and NaNs.
-    Always returns a copy and does not mutate the original DataFrame.
-    """
-    orig = _ensure_dataframe(df)
-    out = orig.copy()
-    if out.empty:
-        return out
-    if "department" not in out.columns:
-        # No department column -> cannot identify IT rows, return empty
-        return out.iloc[0:0].copy()
-    dept_series = out["department"].apply(lambda v: normalize_department(v))
-    mask_it = dept_series.apply(lambda v: is_it_department(v))
-    result = out.loc[mask_it].copy()
-    return result
-
-
-def filter_tickets_by_scope(df: Optional[pd.DataFrame], scope: str) -> pd.DataFrame:
-    """Filter tickets by scope.
+def filter_tickets_by_scope(df: pd.DataFrame, scope: str) -> pd.DataFrame:
+    """Filter tickets DataFrame by scope.
 
     scope values:
-      - "user_complaints" -> exclude IT department tickets
-      - "it_operations" -> include only IT department tickets
-      - "all" -> return a copy of the original DataFrame
+      - 'user_complaints'
+      - 'it_operations'
+      - 'all'
 
-    Always returns a copy and never mutates the input.
+    Always returns a copy and does not mutate the input.
     """
-    key = (scope or "").strip().lower()
-    if key not in {"user_complaints", "it_operations", "all"}:
-        # tolerate UI labels passed through
-        if key == "user complaints":
-            key = "user_complaints"
-        elif key == "it operations":
-            key = "it_operations"
-        elif key in {"all tickets", "all"}:
-            key = "all"
-    if key == "user_complaints":
+    if scope is None:
+        scope = "user_complaints"
+    scope = str(scope).strip().lower()
+    if scope == "user_complaints":
         return filter_user_complaints(df)
-    if key == "it_operations":
+    if scope == "it_operations":
         return filter_it_operations(df)
-    # default: all
-    orig = _ensure_dataframe(df)
-    return orig.copy()
+    # 'all' or any other -> return copy of original
+    if df is None:
+        return pd.DataFrame()
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError("df must be a pandas DataFrame")
+    return df.copy()
