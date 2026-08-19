@@ -1,6 +1,23 @@
-streamlit>=1.35.0
-supabase>=2.6.0
-pandas
-openpyxl
-bcrypt
-plotly
+# Core Framework
+streamlit==1.38.0
+pandas==2.2.2
+altair==5.4.1
+
+# Database & API
+supabase==2.5.0
+
+# Authentication
+bcrypt==4.2.0
+
+# Excel Export
+openpyxl==3.1.5
+
+# Utilities
+python-dateutil==2.9.0.post0
+
+# Testing
+pytest==8.3.2
+pytest-cov==5.0.0
+
+# Type Checking (optional)
+mypy==1.11.2
