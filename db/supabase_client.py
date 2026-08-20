@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 import streamlit as st
 
@@ -12,14 +12,35 @@ except Exception:  # pragma: no cover
     create_client = None  # type: ignore
 
 
+def _secrets_available() -> bool:
+    """Return True if Streamlit secrets can be read (file may be missing)."""
+    try:
+        _ = st.secrets
+        return True
+    except Exception:
+        return False
+
+
+def _get_supabase_credentials() -> tuple[str, str]:
+    """Read url/key from secrets; empty strings if missing."""
+    if not _secrets_available():
+        return "", ""
+    try:
+        if "supabase" not in st.secrets:
+            return "", ""
+        block = st.secrets["supabase"]
+        url = str(block.get("url", "") or "").strip()
+        key = str(block.get("key", "") or "").strip()
+        return url, key
+    except Exception:
+        return "", ""
+
+
 @st.cache_resource
 def init_supabase() -> Any:
     if create_client is None:
         return None
-    if "supabase" not in st.secrets:
-        return None
-    url = st.secrets["supabase"].get("url", "")
-    key = st.secrets["supabase"].get("key", "")
+    url, key = _get_supabase_credentials()
     if not url or not key:
         return None
     try:
@@ -33,7 +54,10 @@ def get_supabase_client() -> Any:
 
 
 def is_db_connected() -> bool:
-    return get_supabase_client() is not None
+    try:
+        return get_supabase_client() is not None
+    except Exception:
+        return False
 
 
 def table_exists(name: str) -> bool:

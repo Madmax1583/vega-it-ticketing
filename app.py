@@ -24,14 +24,27 @@ def main() -> None:
         "Production remains on `script.py` until Phase 5 cutover."
     )
 
-    conn = get_db_connection()
-    init_support_data(conn)
+    try:
+        conn = get_db_connection()
+        init_support_data(conn)
+        sqlite_status = "Ready"
+    except Exception as e:
+        sqlite_status = f"Error: {e}"
+
+    try:
+        supabase_status = "Connected" if is_db_connected() else "Not configured / local mode"
+    except Exception:
+        supabase_status = "Not configured / local mode"
 
     c1, c2 = st.columns(2)
-    c1.metric("SQLite support DB", "Ready")
-    c2.metric("Supabase", "Connected" if is_db_connected() else "Not configured / local mode")
+    c1.metric("SQLite support DB", sqlite_status)
+    c2.metric("Supabase", supabase_status)
 
-    st.success("config/ and db/ packages imported successfully.")
+    if sqlite_status == "Ready":
+        st.success("config/ and db/ packages imported successfully.")
+    else:
+        st.error("SQLite init failed — see status above.")
+
     st.markdown(
         """
 ### Next steps
@@ -39,6 +52,17 @@ def main() -> None:
 2. Phase 3 — extract `ui/`
 3. Phase 4 — extract `pages/`
 4. Phase 5 — point Streamlit Cloud main file to `app.py` (or thin `script.py` shim)
+
+### Optional: local Supabase secrets
+Create `.streamlit/secrets.toml` in this project (or `%USERPROFILE%\.streamlit\secrets.toml`):
+
+```toml
+[supabase]
+url = "https://YOUR_PROJECT.supabase.co"
+key = "your-anon-key"
+```
+
+Without secrets, the scaffold runs in **local mode** (SQLite only).
 """
     )
 
