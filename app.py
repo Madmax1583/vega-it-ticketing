@@ -54,7 +54,7 @@ def main() -> None:
 4. Phase 5 — point Streamlit Cloud main file to `app.py` (or thin `script.py` shim)
 
 ### Optional: local Supabase secrets
-Create `.streamlit/secrets.toml` in this project (or `%USERPROFILE%\.streamlit\secrets.toml`):
+Create a file at `.streamlit/secrets.toml` in this project folder:
 
 ```toml
 [supabase]

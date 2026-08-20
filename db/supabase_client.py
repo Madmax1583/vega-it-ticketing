@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import streamlit as st
@@ -12,18 +13,24 @@ except Exception:  # pragma: no cover
     create_client = None  # type: ignore
 
 
-def _secrets_available() -> bool:
-    """Return True if Streamlit secrets can be read (file may be missing)."""
+def _secrets_file_exists() -> bool:
+    """True only if a secrets.toml is present (do not call st.secrets first)."""
+    candidates = [
+        Path.cwd() / ".streamlit" / "secrets.toml",
+        Path.home() / ".streamlit" / "secrets.toml",
+    ]
+    # Also check project-relative when cwd differs
     try:
-        _ = st.secrets
-        return True
+        here = Path(__file__).resolve().parent.parent
+        candidates.append(here / ".streamlit" / "secrets.toml")
     except Exception:
-        return False
+        pass
+    return any(p.is_file() for p in candidates)
 
 
 def _get_supabase_credentials() -> tuple[str, str]:
-    """Read url/key from secrets; empty strings if missing."""
-    if not _secrets_available():
+    """Read url/key from secrets; empty if no file or keys missing."""
+    if not _secrets_file_exists():
         return "", ""
     try:
         if "supabase" not in st.secrets:
