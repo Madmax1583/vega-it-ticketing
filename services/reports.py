@@ -163,15 +163,21 @@ def build_ticket_aging_analysis(df: pd.DataFrame) -> dict:
     p = x[x["status"].astype(str).isin(["Open", "In Progress", "On Hold - User Busy", "On Hold"])].copy()
     if p.empty:
         return empty
-    p["age_days"] = (p["age_hours"] / 24).fillna(0)
+    p["age_days"] = (pd.to_numeric(p["age_hours"], errors="coerce").fillna(0) / 24)
     bins = [-1, 1, 3, 7, 15, 100000]
     labels = ["0-1 Days", "2-3 Days", "4-7 Days", "8-15 Days", "15+ Days"]
     p["aging_bucket"] = pd.cut(p["age_days"], bins=bins, labels=labels)
-    aging = p.groupby("aging_bucket", as_index=False).agg(Tickets=("id", "size")).fillna(0)
+    # Avoid Categorical fillna issues: count with observed=True and cast to object
+    aging = (
+        p.groupby("aging_bucket", as_index=False, observed=True)
+        .agg(Tickets=("id", "size"))
+    )
+    aging["aging_bucket"] = aging["aging_bucket"].astype(str)
+    aging["Tickets"] = pd.to_numeric(aging["Tickets"], errors="coerce").fillna(0).astype(int)
     return {
         "aging_table": aging,
         "most_aged": p.sort_values("age_days", ascending=False).head(20),
-        "avg_pending_age": round(p["age_days"].mean(), 1),
+        "avg_pending_age": round(float(p["age_days"].mean()), 1),
         "oldest_ticket": p.sort_values("age_days", ascending=False).head(1),
         "trend": pd.DataFrame(),
     }
@@ -189,20 +195,28 @@ def build_technician_scorecard(df: pd.DataFrame) -> pd.DataFrame:
         Ticket_Load=("id", "size"),
     )
     out = perf.merge(frt, on="attended_by", how="left")
-    max_mttr = max(out["Avg_Resolution_Min"].max(), 1)
-    max_pending = max(out["Pending"].max(), 1)
-    max_frt = max(out["Avg_FRT"].max(), 1)
-    max_critical = max(out["Critical_Handled"].max(), 1)
-    out["Utilization_%"] = ((out["Assigned"] / max(out["Assigned"].sum(), 1)) * 100).round(1)
-    out["Score"] = (
+    for col in ["Avg_FRT", "SLA_Compliance", "Critical_Handled", "Ticket_Load", "Avg_Resolution_Min", "Pending", "Resolution_%", "Assigned"]:
+        if col in out.columns:
+            out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0)
+
+    max_mttr = max(float(out["Avg_Resolution_Min"].max() or 0), 1.0)
+    max_pending = max(float(out["Pending"].max() or 0), 1.0)
+    max_frt = max(float(out["Avg_FRT"].max() or 0), 1.0)
+    max_critical = max(float(out["Critical_Handled"].max() or 0), 1.0)
+    assigned_sum = max(float(out["Assigned"].sum() or 0), 1.0)
+
+    out["Utilization_%"] = ((out["Assigned"] / assigned_sum) * 100).round(1)
+    score = (
         out["Resolution_%"] * 0.25
         + out["SLA_Compliance"] * 0.20
-        + ((1 - (out["Avg_Resolution_Min"] / max_mttr)) * 100).clip(lower=0) * 0.15
+        + ((1 - (out["Avg_Resolution_Min"] / max_mttr)) * 100).clip(lower=0)
+        * 0.15
         + ((1 - (out["Avg_FRT"] / max_frt)) * 100).clip(lower=0) * 0.10
         + ((1 - (out["Pending"] / max_pending)) * 100).clip(lower=0) * 0.10
         + ((out["Critical_Handled"] / max_critical) * 100).clip(lower=0) * 0.10
         + out["Utilization_%"] * 0.10
-    ).round(1)
+    )
+    out["Score"] = pd.to_numeric(score, errors="coerce").fillna(0).round(1)
     return out.sort_values("Score", ascending=False)
 
 
@@ -313,7 +327,7 @@ def build_excel_report(tickets_df: pd.DataFrame, nas_df: pd.DataFrame) -> bytes:
                 frame.to_excel(writer, sheet_name=name[:31], index=False)
         nas_delta = compute_nas_changes(nas_df)
         nas_forecast = build_storage_forecast(nas_df)
-        master, monthly, serverwise = build_nas_reports(nas_df)
+        _master, monthly, serverwise = build_nas_reports(nas_df)
         for name, frame in {
             "NAS Raw Logs": normalize_nas_df(nas_df),
             "NAS Deltas": nas_delta,
@@ -323,10 +337,16 @@ def build_excel_report(tickets_df: pd.DataFrame, nas_df: pd.DataFrame) -> bytes:
         }.items():
             if frame is not None and not frame.empty:
                 frame.to_excel(writer, sheet_name=name[:31], index=False)
-        tech = build_technician_scorecard(tickets_df)
-        if tech is not None and not tech.empty:
-            tech.to_excel(writer, sheet_name="Technician Scorecard", index=False)
-        aging = build_ticket_aging_analysis(tickets_df).get("aging_table", pd.DataFrame())
-        if aging is not None and not aging.empty:
-            aging.to_excel(writer, sheet_name="Ticket Aging", index=False)
+        try:
+            tech = build_technician_scorecard(tickets_df)
+            if tech is not None and not tech.empty:
+                tech.to_excel(writer, sheet_name="Technician Scorecard", index=False)
+        except Exception:
+            pass
+        try:
+            aging = build_ticket_aging_analysis(tickets_df).get("aging_table", pd.DataFrame())
+            if aging is not None and not aging.empty:
+                aging.to_excel(writer, sheet_name="Ticket Aging", index=False)
+        except Exception:
+            pass
     return output.getvalue()
