@@ -1,12 +1,12 @@
 # Version 2 Architecture Plan
 
-**Status:** In progress (scaffold branch only)  
+**Status:** Phase 2 in progress  
 **Production:** Remains on `main` + `script.py` until Phase 5 cutover  
 **Branch:** `feature/v2-scaffold`
 
 ## Goal
 
-Split the monolith `script.py` (~193 KB) into packages without changing behavior.
+Split the monolith `script.py` (~193 KB) into packages without changing production behavior.
 
 ## Hybrid data model (unchanged)
 
@@ -20,10 +20,12 @@ Split the monolith `script.py` (~193 KB) into packages without changing behavior
 ```
 config/          App constants, categories, AI suggestions
 db/              SQLite connection/schema + Supabase client
-services/        Business logic (auth, tickets, nas, reports, ...)
-ui/              CSS, components, navigation, search
-pages/           One renderer per major screen
-app.py           Entrypoint (Phase 5)
+services/        Business logic
+  tickets.py     Ticket CRUD, normalize, categorize, SLA
+  nas.py         NAS CRUD, deltas, forecast
+ui/              CSS, components, navigation, search (Phase 3)
+pages/           One renderer per major screen (Phase 4)
+app.py           Entrypoint / smoke tests
 script.py        Production monolith until cutover
 ```
 
@@ -32,8 +34,9 @@ script.py        Production monolith until cutover
 | Phase | Work | Status |
 |-------|------|--------|
 | 0 | Tag baseline on main | Manual |
-| 1 | config + db packages | This branch |
-| 2 | services/* extract | Next |
+| 1 | config + db packages | Done |
+| 2 | services/tickets + services/nas | Done |
+| 2b | services/auth + services/reports | Next |
 | 3 | ui/* extract | Pending |
 | 4 | pages/* extract | Pending |
 | 5 | app.py cutover + Streamlit Cloud path | Pending |
@@ -45,11 +48,12 @@ script.py        Production monolith until cutover
 3. Prefer import-and-reuse over copy-paste when thinning `script.py`.
 4. Smoke-test after each phase: login, ticket list, NAS, one report export.
 
-## Smoke checklist (every phase)
+## Local test
 
-- [ ] Login / first password setup
-- [ ] Home loads KPIs
-- [ ] Create or view ticket
-- [ ] NAS health tab
-- [ ] Reports Excel or CSV download
-- [ ] Logout
+```bash
+git checkout feature/v2-scaffold
+python -m streamlit run app.py
+```
+
+Expect: SQLite Ready, services smoke metrics for tickets/NAS counts.
+"""
