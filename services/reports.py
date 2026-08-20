@@ -320,14 +320,20 @@ def build_detailed_ticket_exports(df: pd.DataFrame) -> dict:
 
 def build_excel_report(tickets_df: pd.DataFrame, nas_df: pd.DataFrame) -> bytes:
     output = io.BytesIO()
+    sheets_written = 0
+
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         detailed = build_detailed_ticket_exports(tickets_df)
+
         for name, frame in detailed.items():
             if frame is not None and not frame.empty:
                 frame.to_excel(writer, sheet_name=name[:31], index=False)
+                sheets_written += 1
+
         nas_delta = compute_nas_changes(nas_df)
         nas_forecast = build_storage_forecast(nas_df)
         _master, monthly, serverwise = build_nas_reports(nas_df)
+
         for name, frame in {
             "NAS Raw Logs": normalize_nas_df(nas_df),
             "NAS Deltas": nas_delta,
@@ -337,16 +343,27 @@ def build_excel_report(tickets_df: pd.DataFrame, nas_df: pd.DataFrame) -> bytes:
         }.items():
             if frame is not None and not frame.empty:
                 frame.to_excel(writer, sheet_name=name[:31], index=False)
-        try:
-            tech = build_technician_scorecard(tickets_df)
-            if tech is not None and not tech.empty:
-                tech.to_excel(writer, sheet_name="Technician Scorecard", index=False)
-        except Exception:
-            pass
-        try:
-            aging = build_ticket_aging_analysis(tickets_df).get("aging_table", pd.DataFrame())
-            if aging is not None and not aging.empty:
-                aging.to_excel(writer, sheet_name="Ticket Aging", index=False)
-        except Exception:
-            pass
+                sheets_written += 1
+
+        tech = build_technician_scorecard(tickets_df)
+        if tech is not None and not tech.empty:
+            tech.to_excel(writer, sheet_name="Technician Scorecard", index=False)
+            sheets_written += 1
+
+        aging = build_ticket_aging_analysis(tickets_df).get(
+            "aging_table", pd.DataFrame()
+        )
+        if aging is not None and not aging.empty:
+            aging.to_excel(writer, sheet_name="Ticket Aging", index=False)
+            sheets_written += 1
+
+        if sheets_written == 0:
+            pd.DataFrame(
+                {
+                    "Message": [
+                        "No ticket or NAS data was available for this export."
+                    ]
+                }
+            ).to_excel(writer, sheet_name="Export Notes", index=False)
+
     return output.getvalue()
