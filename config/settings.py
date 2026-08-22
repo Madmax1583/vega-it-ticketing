@@ -1,14 +1,25 @@
-"""
-Central application settings for Vega IT Operations (V2).
+"""Application settings and constants (V2)."""
 
-Extracted from script.py — values must stay in sync with production until cutover.
-"""
+from __future__ import annotations
 
+# ---------------------------------------------------------------------------
+# Identity
+# ---------------------------------------------------------------------------
 APP_NAME = "Vega & Knitpro IT Operations Dashboard"
 APP_VERSION = "2.0.0-dev"
-BUILD_DATE = "2026-08-20"
+BUILD_DATE = "2026-08-22"
 COMPANY_NAME = "Vega Industries Pvt. Ltd."
 
+# ---------------------------------------------------------------------------
+# Safety (Phase 0)
+# ---------------------------------------------------------------------------
+# When False, Ticket/NAS forms in V2 must not insert/update/delete.
+# Set True only for explicit UAT or approved live write tests.
+V2_WRITE_ENABLED = False
+
+# ---------------------------------------------------------------------------
+# Domain lists (aligned with production script.py)
+# ---------------------------------------------------------------------------
 TECH_MAP = {
     "Satish": "TECH-01",
     "Priyanshu": "TECH-02",
@@ -29,95 +40,13 @@ OFFICIAL_LOCATIONS = [
     "Vega Sector 80",
 ]
 
-STATUS_OPTIONS = [
-    "Open",
-    "In Progress",
-    "On Hold - User Busy",
-    "Resolved",
-]
+STATUS_OPTIONS = ["Open", "In Progress", "On Hold - User Busy", "Resolved"]
 
 SERVER_NAMES = ["HRI", "Vega", "Sery", "Rise"]
 
-SERVER_SHEET_MAP = {
-    "HRI": "Sheet 1",
-    "Vega": "Sheet 2",
-    "Sery": "Sheet 3",
-    "Rise": "Sheet 4",
-}
-
-# NAS capacity assumptions used by forecast helpers (GB)
 NAS_CAPACITY_MAP = {
     "HRI": 1000.0,
     "Vega": 500.0,
     "Sery": 100.0,
     "Rise": 100.0,
-}
-
-DEFAULT_USERS = [
-    ("amit", "Amit", "IT Manager"),
-    ("satish", "Satish", "IT AM"),
-    ("ranjan", "Ranjan", "Sr. Executive"),
-    ("priyanshu", "Priyanshu", "IT Executive"),
-    ("manish", "Manish", "IT Executive"),
-    ("satender", "Mr. Satender Vashisht", "AVP"),
-]
-
-# Role -> allowed page labels (must match production get_role_pages)
-ROLE_PAGES = {
-    "IT Manager": [
-        "Home",
-        "Executive Command Center",
-        "Overview",
-        "Ticket Operations",
-        "NAS Monitoring",
-        "Reports",
-        "Task Center",
-        "Admin Tools",
-        "AVP Dashboard",
-        "Team Chat",
-        "Vendor Dashboard",
-        "Department Health",
-        "Asset Health",
-    ],
-    "IT AM": [
-        "Home",
-        "Executive Command Center",
-        "Overview",
-        "Ticket Operations",
-        "NAS Monitoring",
-        "Reports",
-        "Task Center",
-        "Team Chat",
-        "Vendor Dashboard",
-        "Department Health",
-        "Asset Health",
-    ],
-    "AVP": [
-        "Home",
-        "Executive Command Center",
-        "Overview",
-        "AVP Dashboard",
-        "Reports",
-        "Task Center",
-        "Team Chat",
-        "Vendor Dashboard",
-        "Department Health",
-        "Asset Health",
-    ],
-    "default": [
-        "Home",
-        "Overview",
-        "Ticket Operations",
-        "NAS Monitoring",
-        "Task Center",
-        "Team Chat",
-    ],
-}
-
-NAVIGATION_GROUPS = {
-    "📊 Dashboard": ["Home", "Executive Command Center", "Overview"],
-    "🎫 Operations": ["Ticket Operations", "Task Center", "Team Chat"],
-    "📈 Analytics": ["Reports", "AVP Dashboard", "Department Health", "Vendor Dashboard"],
-    "🖥 Infrastructure": ["NAS Monitoring", "Asset Health"],
-    "⚙ Administration": ["Admin Tools"],
 }
