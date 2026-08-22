@@ -1,4 +1,4 @@
-"""Reusable UI components (V2 Phase 3)."""
+"""Reusable UI components (V2)."""
 
 from __future__ import annotations
 
@@ -56,46 +56,29 @@ def render_kpi_card(
     trend: Optional[str] = None,
     tone: str = "primary",
 ) -> None:
-    trend_cls = (
-        "trend-up"
-        if tone == "success"
-        else ("trend-warn" if tone == "warning" else ("trend-down" if tone == "danger" else ""))
-    )
-    trend_html = f'<div class="kpi-sub {trend_cls}">{trend}</div>' if trend else ""
-    st.markdown(
-        f"""<div class="kpi-card">
-        <div class="kpi-top">
-            <div>
-                <div class="kpi-title">{title}</div>
-                <div class="kpi-value">{value}</div>
-            </div>
-            <div class="kpi-icon">{icon}</div>
-        </div>
-        <div class="kpi-sub">{subtitle}</div>
-        {trend_html}
-        </div>""",
-        unsafe_allow_html=True,
-    )
+    """KPI card using Streamlit native widgets (avoids HTML leakage)."""
+    with st.container(border=True):
+        top = st.columns([4, 1])
+        top[0].caption(f"{icon}  {title}")
+        top[0].markdown(f"### {value}")
+        if subtitle:
+            st.caption(subtitle)
+        if trend:
+            st.caption(trend)
 
 
 def render_info_feed(title: str, rows: Optional[pd.DataFrame], fields: list) -> None:
-    st.markdown(
-        f'<div class="panel"><div class="panel-title">{title}</div>',
-        unsafe_allow_html=True,
-    )
+    st.subheader(title)
     if rows is None or len(rows) == 0:
         st.info("No recent activity available.")
-    else:
-        for _, row in rows.iterrows():
-            primary = " · ".join(
-                [str(row.get(f, "")) for f in fields[:2] if str(row.get(f, "")) not in ["", "nan"]]
-            )
-            meta = " · ".join(
-                [str(row.get(f, "")) for f in fields[2:] if str(row.get(f, "")) not in ["", "nan"]]
-            )
-            st.markdown(
-                f'<div class="feed-item"><div class="feed-title">{primary}</div>'
-                f'<div class="feed-meta">{meta}</div></div>',
-                unsafe_allow_html=True,
-            )
-    st.markdown("</div>", unsafe_allow_html=True)
+        return
+    for _, row in rows.iterrows():
+        primary = " · ".join(
+            [str(row.get(f, "")) for f in fields[:2] if str(row.get(f, "")) not in ["", "nan"]]
+        )
+        meta = " · ".join(
+            [str(row.get(f, "")) for f in fields[2:] if str(row.get(f, "")) not in ["", "nan"]]
+        )
+        st.markdown(f"**{primary}**")
+        if meta:
+            st.caption(meta)
