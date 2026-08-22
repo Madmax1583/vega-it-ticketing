@@ -49,7 +49,7 @@ st.markdown(
         --panel-muted: #131d34;
         --border: #273449;
         --text: #f8fafc;
-        --muted: #94a3b8;
+        --muted: #cbd5e1;
         --accent: #ef4444;
         --accent-soft: rgba(239, 68, 68, 0.12);
         --success: #22c55e;
@@ -214,7 +214,21 @@ st.markdown(
     .login-h1 {font-size: 2.2rem; font-weight: 750; color:#ffffff; margin-bottom: 0.35rem;}    
     .login-subcopy {color:#d1d5db; font-size:1rem; line-height:1.6; margin-bottom: 1.7rem; max-width:34ch;}    
     .login-support {margin-top:14px; color:#cbd5e1; font-size:0.92rem;}    
-    .login-support .linkish, .login-footer .linkish {color:#7dd3fc; font-weight:600;}    
+    .login-support .linkish, .login-footer .linkish {color:#7dd3fc; font-weight:600;}
+    /* Global heading/label contrast (first stylesheet) */
+    h1, h2, h3, h4, [data-testid="stMarkdownContainer"] h1,
+    [data-testid="stMarkdownContainer"] h2,
+    [data-testid="stMarkdownContainer"] h3,
+    [data-testid="stMarkdownContainer"] h4,
+    [data-testid="stHeadingWithActionElements"] * {
+        color: #f8fafc !important;
+        opacity: 1 !important;
+    }
+    label p, [data-testid="stWidgetLabel"] p {
+        color: #e5eefc !important;
+        font-weight: 600 !important;
+    }
+    
     .login-footer {margin-top: 1.4rem; display:flex; gap:14px; flex-wrap:wrap; font-size:0.84rem; color:#94a3b8;}    
     div[data-testid="stTextInput"] {margin-bottom: 1rem;}    
     div[data-testid="stTextInput"] label p {color:#e5eefc !important; font-weight:600; font-size:0.95rem;}    
@@ -2167,7 +2181,7 @@ def page_breadcrumb(page):
 def inject_enterprise_ui_css():
     css = """
     <style>
-    :root { --bg:#020617; --surface:#0F172A; --surface-2:#111827; --border:rgba(148,163,184,0.16); --text:#E5EEF9; --muted:#94A3B8; --primary:#3B82F6; --success:#10B981; --warning:#F59E0B; --danger:#EF4444; --shadow:0 14px 40px rgba(2,6,23,.28); --shadow-soft:0 8px 24px rgba(15,23,42,.22); --radius:18px; }
+    :root { --bg:#020617; --surface:#0F172A; --surface-2:#111827; --border:rgba(148,163,184,0.16); --text:#F8FAFC; --muted:#CBD5E1; --primary:#3B82F6; --success:#10B981; --warning:#F59E0B; --danger:#EF4444; --shadow:0 14px 40px rgba(2,6,23,.28); --shadow-soft:0 8px 24px rgba(15,23,42,.22); --radius:18px; }
     .stApp, [data-testid='stAppViewContainer'], [data-testid='stHeader'] { background: radial-gradient(circle at top right, rgba(59,130,246,0.10), transparent 25%), linear-gradient(180deg, #020617 0%, #071122 100%); }
     [data-testid='stSidebar'] { background: linear-gradient(180deg, #0b1220 0%, #111827 100%) !important; border-right:1px solid var(--border); }
     [data-testid='stSidebarNav'] { display:none; }
@@ -2196,6 +2210,57 @@ def inject_enterprise_ui_css():
     .feed-item { padding: 12px 0; border-bottom:1px solid rgba(148,163,184,.12); }
     .feed-item:last-child { border-bottom:none; }
     .insight-card { background: linear-gradient(180deg, rgba(30,41,59,.92), rgba(15,23,42,.96)); border:1px solid rgba(96,165,250,.16); border-radius:16px; padding:14px; min-height:100px; }
+    /* High-contrast text — fix faint headers/labels on dark theme */
+    :root { --muted: #CBD5E1; --text: #F8FAFC; }
+    .stApp, .stApp p, .stApp span, .stApp label, .stApp div { color: #E5EEF9; }
+    h1, h2, h3, h4, h5, h6,
+    [data-testid="stMarkdownContainer"] h1,
+    [data-testid="stMarkdownContainer"] h2,
+    [data-testid="stMarkdownContainer"] h3,
+    [data-testid="stMarkdownContainer"] h4,
+    [data-testid="stHeadingWithActionElements"] h1,
+    [data-testid="stHeadingWithActionElements"] h2,
+    [data-testid="stHeadingWithActionElements"] h3,
+    [data-testid="stHeadingWithActionElements"] h4,
+    .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4 {
+        color: #F8FAFC !important;
+        font-weight: 700 !important;
+        opacity: 1 !important;
+    }
+    [data-testid="stMarkdownContainer"] p,
+    [data-testid="stCaptionContainer"],
+    [data-testid="stCaptionContainer"] p,
+    .stCaption, small {
+        color: #CBD5E1 !important;
+        opacity: 1 !important;
+    }
+    label, [data-testid="stWidgetLabel"] p, [data-testid="stWidgetLabel"] label,
+    div[data-testid="stTextInput"] label p,
+    div[data-testid="stSelectbox"] label p,
+    div[data-testid="stMultiSelect"] label p,
+    div[data-testid="stNumberInput"] label p,
+    div[data-testid="stDateInput"] label p,
+    div[data-testid="stTextArea"] label p {
+        color: #E5EEF9 !important;
+        font-weight: 600 !important;
+        opacity: 1 !important;
+    }
+    [data-testid="stSidebar"] label p,
+    [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {
+        color: #E5EEF9 !important;
+        font-weight: 600 !important;
+    }
+    [data-testid="stMetricLabel"] p, [data-testid="stMetricValue"] {
+        color: #F8FAFC !important;
+        opacity: 1 !important;
+    }
+    [data-testid="stMetricDelta"] { opacity: 1 !important; }
+    .stAlert p, [data-testid="stAlert"] p { color: #E5EEF9 !important; }
+    /* Keep intentional muted accents readable but secondary */
+    .hero-sub, .crumb, .last-updated, .feed-meta, .panel-sub, .kpi-sub, .kpi-title {
+        color: #CBD5E1 !important;
+        opacity: 1 !important;
+    }
     @media (max-width: 900px) { .hero-title { font-size:24px; } .block-container { padding-left: .9rem !important; padding-right: .9rem !important; } }
     @media (max-width: 640px) { .kpi-card { min-height:auto; } }
     </style>
