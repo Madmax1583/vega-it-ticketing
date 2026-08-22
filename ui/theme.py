@@ -9,9 +9,9 @@ ENTERPRISE_CSS = """
 :root {
     --bg: #020617;
     --surface: #0F172A;
-    --border: rgba(148,163,184,0.16);
-    --text: #E5EEF9;
-    --muted: #94A3B8;
+    --border: rgba(148,163,184,0.22);
+    --text: #F1F5F9;
+    --muted: #CBD5E1;
     --primary: #3B82F6;
     --success: #10B981;
     --warning: #F59E0B;
@@ -22,12 +22,36 @@ ENTERPRISE_CSS = """
 .stApp, [data-testid='stAppViewContainer'], [data-testid='stHeader'] {
     background: radial-gradient(circle at top right, rgba(59,130,246,0.10), transparent 25%),
                 linear-gradient(180deg, #020617 0%, #071122 100%);
+    color: var(--text);
 }
 [data-testid='stSidebar'] {
     background: linear-gradient(180deg, #0b1220 0%, #111827 100%) !important;
     border-right: 1px solid var(--border);
 }
 .block-container { padding-top: 1rem !important; max-width: 1500px; }
+
+/* High-contrast text for headings, labels, captions */
+h1, h2, h3, h4, .stMarkdown, .stMarkdown p, .stCaption, label,
+[data-testid='stWidgetLabel'] p, [data-testid='stMarkdownContainer'] p {
+    color: #F1F5F9 !important;
+}
+[data-testid='stCaption'], .stCaption, small {
+    color: #E2E8F0 !important;
+    opacity: 1 !important;
+}
+[data-testid='stWidgetLabel'] {
+    color: #F8FAFC !important;
+}
+[data-testid='stWidgetLabel'] p {
+    font-weight: 600 !important;
+    color: #F8FAFC !important;
+}
+
+/* Inputs readable on dark bg */
+.stTextInput input, .stTextArea textarea, .stSelectbox [data-baseweb='select'] {
+    color: #0F172A !important;
+}
+
 .sticky-topbar {
     position: sticky; top: .25rem; z-index: 30;
     backdrop-filter: blur(12px);
@@ -39,7 +63,7 @@ ENTERPRISE_CSS = """
     box-shadow: var(--shadow-soft);
 }
 .hero-title { font-size: 30px; font-weight: 800; color: white; margin: 4px 0 8px 0; }
-.crumb, .kpi-title, .kpi-sub, .feed-meta, .panel-sub { color: var(--muted); font-size: 12px; }
+.crumb, .kpi-title, .kpi-sub, .feed-meta, .panel-sub { color: #CBD5E1; font-size: 12px; }
 .kpi-card {
     background: linear-gradient(180deg, rgba(15,23,42,.98), rgba(18,32,51,.96));
     border: 1px solid var(--border);
@@ -80,7 +104,7 @@ ENTERPRISE_CSS = """
 .table-scroll table { width: 100%; min-width: 640px; border-collapse: collapse; }
 .table-scroll th, .table-scroll td {
     padding: 10px 12px; border-bottom: 1px solid rgba(39, 52, 73, 0.8);
-    text-align: left; font-size: 0.86rem; vertical-align: top;
+    text-align: left; font-size: 0.86rem; vertical-align: top; color: #E2E8F0;
 }
 .table-scroll th { background: #162033; color: #e5eefc; font-size: 0.78rem; text-transform: uppercase; }
 .feed-item { padding: 12px 0; border-bottom:1px solid rgba(148,163,184,.12); }
