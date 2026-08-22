@@ -1,4 +1,7 @@
-"""Data Quality page (V2) — read-only."""
+"""Data Quality page (V2) — read-only.
+
+Uses services.data_quality.profile_tickets / profile_nas / build_data_quality_report.
+"""
 
 from __future__ import annotations
 
@@ -7,13 +10,8 @@ from typing import Any, Optional
 import pandas as pd
 import streamlit as st
 
-from services.data_quality import (
-    compute_data_quality_metrics,
-    compute_department_fragmentation,
-    compute_resolution_time_anomalies,
-    load_ticket_data_for_quality,
-)
-from ui.components import render_kpi_card, render_status_table
+from services.data_quality import build_data_quality_report
+from ui.components import render_kpi_card
 from ui.navigation import page_breadcrumb
 
 
@@ -25,47 +23,76 @@ def render_data_quality_page(
     **kwargs: Any,
 ) -> None:
     ticket_df = ticket_df if ticket_df is not None else pd.DataFrame()
+    nas_df = nas_df if nas_df is not None else pd.DataFrame()
 
     st.markdown(
         f'<div class="sticky-topbar"><div class="crumb">{page_breadcrumb("Data Quality")}</div></div>',
         unsafe_allow_html=True,
     )
     st.subheader("Data Quality")
+    st.caption("Read-only profiling. No writes to Supabase or SQLite.")
 
-    if ticket_df.empty:
-        st.info("No ticket data loaded.")
-        return
+    report = build_data_quality_report(ticket_df, nas_df)
+    tickets = report.get("tickets", {})
+    nas = report.get("nas", {})
+    warnings = report.get("warnings", [])
 
-    metrics = compute_data_quality_metrics(ticket_df)
-    dept_frag = compute_department_fragmentation(ticket_df)
-    time_anomalies = compute_resolution_time_anomalies(ticket_df)
+    t_sum = tickets.get("summary", {})
+    n_sum = nas.get("summary", {})
 
     k1, k2, k3, k4 = st.columns(4)
     with k1:
-        render_kpi_card("Total tickets", len(ticket_df), "All records", "🎫")
+        render_kpi_card("Tickets", t_sum.get("ticket_count", 0), "All records", "🎫")
     with k2:
-        render_kpi_card("Resolved %", metrics.get("resolved_pct", 0), "All tickets", "✅", tone="success")
+        render_kpi_card("Statuses", t_sum.get("status_count", 0), "Distinct status values", "📋")
     with k3:
-        render_kpi_card("Dept fragmentation", dept_frag.get("fragmentation_score", 0), "Lower is better", "🧩", tone="warning" if dept_frag.get("fragmentation_score", 0) > 50 else "success")
+        render_kpi_card("Departments", t_sum.get("department_count", 0), "Distinct departments", "🧩")
     with k4:
-        render_kpi_card("Time anomalies", len(time_anomalies), "Needs review", "⏱", tone="danger" if len(time_anomalies) else "success")
+        render_kpi_card(
+            "NAS freshness",
+            n_sum.get("freshness", "n/a"),
+            f"Latest: {n_sum.get('latest_log_date') or '—'}",
+            "🖥",
+            tone="warning" if n_sum.get("freshness") == "stale" else "success",
+        )
 
-    st.markdown("#### Department fragmentation")
-    if dept_frag.get("departments"):
-        frag_df = pd.DataFrame(dept_frag["departments"])
-        st.dataframe(frag_df.sort_values("ticket_count", ascending=False), use_container_width=True, hide_index=True)
-    else:
-        st.caption("No department fragmentation detected.")
+    if warnings:
+        st.markdown("#### Warnings")
+        for w in warnings:
+            st.warning(w)
 
-    st.markdown("#### Resolution time anomalies")
-    if time_anomalies:
-        anomaly_df = pd.DataFrame(time_anomalies)
-        cols = [c for c in ["id", "user_name", "status", "resolution_time", "flag_reason"] if c in anomaly_df.columns]
-        render_status_table(anomaly_df[cols].head(20), cols, compact=True)
-    else:
-        st.caption("No resolution-time anomalies detected.")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("#### Ticket completeness")
+        comp = tickets.get("completeness")
+        if isinstance(comp, pd.DataFrame) and not comp.empty:
+            st.dataframe(comp, use_container_width=True, hide_index=True)
+        else:
+            st.info("No completeness metrics (empty ticket set).")
+
+        st.markdown("#### Status profile")
+        status_df = tickets.get("status_profile")
+        if isinstance(status_df, pd.DataFrame) and not status_df.empty:
+            st.dataframe(status_df, use_container_width=True, hide_index=True)
+        else:
+            st.caption("No status profile.")
+
+    with c2:
+        st.markdown("#### Department profile")
+        dept_df = tickets.get("department_profile")
+        if isinstance(dept_df, pd.DataFrame) and not dept_df.empty:
+            st.dataframe(dept_df, use_container_width=True, hide_index=True)
+        else:
+            st.caption("No department profile.")
+
+        st.markdown("#### NAS server profile")
+        server_df = nas.get("server_profile")
+        if isinstance(server_df, pd.DataFrame) and not server_df.empty:
+            st.dataframe(server_df, use_container_width=True, hide_index=True)
+        else:
+            st.caption("No NAS server profile.")
 
     st.caption(
-        "Data Quality is read-only. Use this view to identify tickets that need cleanup "
-        "before cutover to V2."
+        "Use this view to flag lifecycle, department, timestamp, and NAS freshness issues "
+        "before operational cutover."
     )
