@@ -1759,7 +1759,13 @@ def build_ticket_aging_analysis(df):
     bins = [-1,1,3,7,15,100000]
     labels = ['0-1 Days','2-3 Days','4-7 Days','8-15 Days','15+ Days']
     p['aging_bucket'] = pd.cut(p['age_days'], bins=bins, labels=labels)
-    aging = p.groupby('aging_bucket', as_index=False).agg(Tickets=('id','size')).fillna(0)
+    # Avoid Categorical fillna TypeError: fillna(0) on whole frame tries to
+    # put 0 into the aging_bucket category column. Convert to object and
+    # fill only the numeric Tickets column. observed=False keeps empty buckets.
+    aging = p.groupby('aging_bucket', observed=False, as_index=False).agg(Tickets=('id', 'size'))
+    if 'aging_bucket' in aging.columns:
+        aging['aging_bucket'] = aging['aging_bucket'].astype(object)
+    aging['Tickets'] = pd.to_numeric(aging['Tickets'], errors='coerce').fillna(0).astype(int)
     trend = p.groupby(pd.to_datetime(p['date'], errors='coerce').dt.strftime('%Y-%m-%d'), as_index=False).agg(Avg_Age_Days=('age_days','mean'), Pending=('id','size')).rename(columns={'date':'bucket'})
     return {
         'aging_table': aging,
