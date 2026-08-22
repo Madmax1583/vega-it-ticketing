@@ -2,24 +2,17 @@
 
 from __future__ import annotations
 
-# ---------------------------------------------------------------------------
-# Identity
-# ---------------------------------------------------------------------------
 APP_NAME = "Vega & Knitpro IT Operations Dashboard"
 APP_VERSION = "2.0.0-dev"
 BUILD_DATE = "2026-08-22"
 COMPANY_NAME = "Vega Industries Pvt. Ltd."
 
-# ---------------------------------------------------------------------------
-# Safety (Phase 0)
-# ---------------------------------------------------------------------------
-# When False, Ticket/NAS forms in V2 must not insert/update/delete.
-# Set True only for explicit UAT or approved live write tests.
+# Phase 0 safety: block live Ticket/NAS writes until explicitly enabled
 V2_WRITE_ENABLED = False
 
-# ---------------------------------------------------------------------------
-# Domain lists (aligned with production script.py)
-# ---------------------------------------------------------------------------
+# Session lifetime (hours) for auth_sessions table
+SESSION_HOURS = 12
+
 TECH_MAP = {
     "Satish": "TECH-01",
     "Priyanshu": "TECH-02",
@@ -49,4 +42,67 @@ NAS_CAPACITY_MAP = {
     "Vega": 500.0,
     "Sery": 100.0,
     "Rise": 100.0,
+}
+
+# Seed users for SQLite support DB (must_change_password on first login)
+DEFAULT_USERS = [
+    {"username": "amit", "display_name": "Amit", "role": "IT Manager", "password": "ChangeMe123!"},
+    {"username": "satish", "display_name": "Satish", "role": "IT AM", "password": "ChangeMe123!"},
+    {"username": "priyanshu", "display_name": "Priyanshu", "role": "IT Executive", "password": "ChangeMe123!"},
+    {"username": "ranjan", "display_name": "Ranjan", "role": "IT Executive", "password": "ChangeMe123!"},
+    {"username": "manish", "display_name": "Manish", "role": "IT Executive", "password": "ChangeMe123!"},
+    {"username": "executive", "display_name": "Executive Viewer", "role": "Executive", "password": "ChangeMe123!"},
+]
+
+# Role → allowed page labels (must match PAGE_RENDERERS keys where applicable)
+ROLE_PAGES = {
+    "IT Manager": [
+        "Home",
+        "Ticket Operations",
+        "NAS Monitoring",
+        "Reports",
+        "Data Quality",
+        "Task Center",
+        "Admin Tools",
+        "Team Chat",
+        "Executive Command Center",
+        "Overview",
+        "AVP Dashboard",
+        "Department Health",
+        "Vendor Dashboard",
+        "Asset Health",
+    ],
+    "IT AM": [
+        "Home",
+        "Ticket Operations",
+        "NAS Monitoring",
+        "Reports",
+        "Data Quality",
+        "Task Center",
+        "Team Chat",
+        "Overview",
+    ],
+    "IT Executive": [
+        "Home",
+        "Ticket Operations",
+        "NAS Monitoring",
+        "Task Center",
+        "Team Chat",
+    ],
+    "Executive": [
+        "Home",
+        "Executive Command Center",
+        "Overview",
+        "Reports",
+        "AVP Dashboard",
+        "Department Health",
+    ],
+    "AVP": [
+        "Home",
+        "AVP Dashboard",
+        "Reports",
+        "Department Health",
+        "Vendor Dashboard",
+    ],
+    "User": ["Home"],
 }

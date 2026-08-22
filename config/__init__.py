@@ -1,4 +1,4 @@
-"""Application configuration package (V2)."""
+"""Config package exports."""
 
 from config.settings import (
     APP_NAME,
@@ -6,13 +6,15 @@ from config.settings import (
     BUILD_DATE,
     COMPANY_NAME,
     DEFAULT_USERS,
+    NAS_CAPACITY_MAP,
     OFFICIAL_LOCATIONS,
+    ROLE_PAGES,
     SERVER_NAMES,
-    SERVER_SHEET_MAP,
+    SESSION_HOURS,
     STATUS_OPTIONS,
     TECH_MAP,
+    V2_WRITE_ENABLED,
 )
-from config.categories import AI_SUGGESTIONS, CATEGORY_MASTER
 
 __all__ = [
     "APP_NAME",
@@ -20,11 +22,12 @@ __all__ = [
     "BUILD_DATE",
     "COMPANY_NAME",
     "DEFAULT_USERS",
+    "NAS_CAPACITY_MAP",
     "OFFICIAL_LOCATIONS",
+    "ROLE_PAGES",
     "SERVER_NAMES",
-    "SERVER_SHEET_MAP",
+    "SESSION_HOURS",
     "STATUS_OPTIONS",
     "TECH_MAP",
-    "CATEGORY_MASTER",
-    "AI_SUGGESTIONS",
+    "V2_WRITE_ENABLED",
 ]
