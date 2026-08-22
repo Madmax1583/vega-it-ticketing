@@ -1,4 +1,4 @@
-"""Ticket Operations page (V2) — writes gated by V2_WRITE_ENABLED."""
+"""Ticket Operations (V2 Phase 2) — validation + write guard."""
 
 from __future__ import annotations
 
@@ -20,6 +20,18 @@ from ui.components import render_status_table
 from ui.navigation import page_breadcrumb
 
 
+def _write_banner() -> None:
+    if V2_WRITE_ENABLED:
+        st.error(
+            "**LIVE WRITE MODE** — Ticket create/update will write to the configured database."
+        )
+    else:
+        st.warning(
+            "**Safe mode** — Create / update / delete are disabled (`V2_WRITE_ENABLED = False`). "
+            "Forms are available for review only."
+        )
+
+
 def render_tickets_page(
     user: Optional[dict] = None,
     ticket_df: Optional[pd.DataFrame] = None,
@@ -35,12 +47,7 @@ def render_tickets_page(
         unsafe_allow_html=True,
     )
     st.subheader("Ticket Operations")
-
-    if not V2_WRITE_ENABLED:
-        st.warning(
-            "**V2 write guard is ON** (`V2_WRITE_ENABLED = False`). "
-            "Create / update / delete are disabled so live Supabase data stays safe."
-        )
+    _write_banner()
 
     left, right = st.columns([1.05, 1.2], gap="large")
 
@@ -48,32 +55,63 @@ def render_tickets_page(
         st.markdown("### Log new ticket")
         with st.form("v2_new_ticket_form", clear_on_submit=True):
             a1, a2 = st.columns(2)
-            user_name = a1.text_input("User name")
+            user_name = a1.text_input("User name *")
             tech_keys = list(TECH_MAP.keys()) if TECH_MAP else ["Satish", "Priyanshu", "Amit"]
-            attended_by = a2.selectbox("Technician", tech_keys)
+            attended_by = a2.selectbox("Technician *", tech_keys)
             b1, b2 = st.columns(2)
-            department = b1.text_input("Department")
+            department = b1.text_input("Department *")
             status = b2.selectbox(
                 "Initial status",
                 STATUS_OPTIONS if STATUS_OPTIONS else ["Open", "In Progress", "Resolved"],
             )
             locations = OFFICIAL_LOCATIONS or ["Sector - 136 Vega", "Knitpro 28-29"]
-            location = st.selectbox("Location", locations)
+            location = st.selectbox("Location *", locations)
             ticket_date = st.date_input("Ticket date", value=datetime.now().date())
-            complaint = st.text_area("Complaint description", height=100)
-            suggested = auto_categorize(complaint) if complaint.strip() else "Other"
+            c1, c2 = st.columns(2)
+            start_t = c1.time_input("Start time", value=datetime.now().time().replace(second=0, microsecond=0))
+            close_t = c2.time_input("Close time (if Resolved)", value=None)
+            complaint = st.text_area("Complaint description *", height=100)
+            suggested = auto_categorize(complaint) if complaint and complaint.strip() else "Other"
             st.caption(f"Suggested category: **{suggested}**")
             remarks = st.text_area("Technician remarks", height=80)
             submitted = st.form_submit_button(
-                "Submit ticket",
+                "Submit ticket" if V2_WRITE_ENABLED else "Submit ticket (disabled)",
                 use_container_width=True,
                 disabled=not V2_WRITE_ENABLED,
             )
             if submitted and V2_WRITE_ENABLED:
-                if not user_name.strip() or not department.strip() or not complaint.strip():
-                    st.error("Please fill user name, department, and complaint.")
+                errors = []
+                if not (user_name or "").strip():
+                    errors.append("User name is required.")
+                if not (department or "").strip():
+                    errors.append("Department is required.")
+                if not (complaint or "").strip():
+                    errors.append("Complaint is required.")
+                if status == "Resolved" and close_t is None:
+                    errors.append("Close time is required when status is Resolved.")
+                if errors:
+                    for e in errors:
+                        st.error(e)
                 else:
                     date_str = ticket_date.strftime("%Y-%m-%d")
+                    start_val = f"{date_str} {start_t.strftime('%H:%M:%S')}"
+                    close_val = None
+                    duration_mins = 0
+                    if status == "Resolved" and close_t is not None:
+                        close_val = f"{date_str} {close_t.strftime('%H:%M:%S')}"
+                        try:
+                            duration_mins = max(
+                                1,
+                                int(
+                                    (
+                                        datetime.combine(ticket_date, close_t)
+                                        - datetime.combine(ticket_date, start_t)
+                                    ).total_seconds()
+                                    / 60
+                                ),
+                            )
+                        except Exception:
+                            duration_mins = 1
                     row = {
                         "date": date_str,
                         "user_name": user_name.strip(),
@@ -83,10 +121,10 @@ def render_tickets_page(
                         "attended_by": attended_by,
                         "status": status,
                         "category": suggested,
-                        "remarks": remarks.strip(),
-                        "start_time": None,
-                        "close_time": None,
-                        "resolution_time": 0,
+                        "remarks": (remarks or "").strip(),
+                        "start_time": start_val,
+                        "close_time": close_val,
+                        "resolution_time": duration_mins,
                     }
                     try:
                         new_id = save_ticket(row)
@@ -114,29 +152,47 @@ def render_tickets_page(
                 ]
                 if c in view.columns
             ]
-            render_status_table(view.sort_values("id", ascending=False).head(15), cols, compact=True)
+            render_status_table(
+                view.sort_values("id", ascending=False).head(20), cols, compact=True
+            )
 
             st.markdown("### Update ticket")
             options = {
-                f"{r['System Ticket ID']} | {r['user_name']} | {r['status']}": int(r["id"])
+                f"{r.get('System Ticket ID', r.get('id'))} | {r.get('user_name')} | {r.get('status')}": int(
+                    r["id"]
+                )
                 for _, r in view.iterrows()
+                if pd.notna(r.get("id"))
             }
             if options:
                 label = st.selectbox("Select ticket", list(options.keys()))
                 tid = options[label]
                 row = view[view["id"] == tid].iloc[0]
-                statuses = STATUS_OPTIONS or ["Open", "In Progress", "Resolved"]
+                statuses = STATUS_OPTIONS or [
+                    "Open",
+                    "In Progress",
+                    "On Hold - User Busy",
+                    "Resolved",
+                ]
                 idx = statuses.index(row["status"]) if row["status"] in statuses else 0
                 new_status = st.selectbox("New status", statuses, index=idx)
-                new_remarks = st.text_area("Remarks", value=str(row.get("remarks", "")))
-                if st.button("Save changes", disabled=not V2_WRITE_ENABLED):
+                new_remarks = st.text_area("Remarks", value=str(row.get("remarks", "") or ""))
+                if st.button(
+                    "Save changes" if V2_WRITE_ENABLED else "Save changes (disabled)",
+                    disabled=not V2_WRITE_ENABLED,
+                ):
                     if not V2_WRITE_ENABLED:
                         st.warning("Writes disabled.")
                     else:
                         try:
-                            payload = {"status": new_status, "remarks": new_remarks.strip()}
+                            payload = {
+                                "status": new_status,
+                                "remarks": new_remarks.strip(),
+                            }
                             if new_status == "Resolved" and not row.get("close_time"):
-                                payload["close_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                payload["close_time"] = datetime.now().strftime(
+                                    "%Y-%m-%d %H:%M:%S"
+                                )
                             update_ticket(tid, payload)
                             st.success("Ticket updated.")
                             st.rerun()
