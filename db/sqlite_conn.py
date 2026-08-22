@@ -52,16 +52,42 @@ def ensure_enterprise_extension_tables(conn: sqlite3.Connection) -> None:
         pass
 
 
+def _normalize_seed_user(entry) -> tuple:
+    """Accept dict or (username, display_name, role[, password]) tuple."""
+    if isinstance(entry, dict):
+        username = str(entry.get("username", "")).strip()
+        display_name = str(entry.get("display_name") or username).strip()
+        role = str(entry.get("role") or "User").strip()
+        password = entry.get("password") or "ChangeMe123!"
+        return username, display_name, role, password
+    if isinstance(entry, (list, tuple)):
+        if len(entry) >= 4:
+            return str(entry[0]), str(entry[1]), str(entry[2]), str(entry[3])
+        if len(entry) == 3:
+            return str(entry[0]), str(entry[1]), str(entry[2]), "ChangeMe123!"
+    raise ValueError(f"Invalid DEFAULT_USERS entry: {entry!r}")
+
+
 def seed_default_users(conn: sqlite3.Connection) -> None:
+    from services.auth import hash_password
+
     cur = conn.cursor()
-    for username, display_name, role in DEFAULT_USERS:
+    for entry in DEFAULT_USERS:
+        username, display_name, role, password = _normalize_seed_user(entry)
+        if not username:
+            continue
         cur.execute("SELECT id FROM users WHERE lower(username)=lower(?)", (username,))
         if cur.fetchone() is None:
+            pw_hash = hash_password(password)
             cur.execute(
-                "INSERT INTO users (username, display_name, role, password_hash, active, must_change_password) VALUES (?, ?, ?, ?, 1, 1)",
-                (username, display_name, role, None),
+                "INSERT INTO users (username, display_name, role, password_hash, active, must_change_password) "
+                "VALUES (?, ?, ?, ?, 1, 1)",
+                (username, display_name, role, pw_hash),
             )
-        cur.execute("SELECT username FROM user_status WHERE lower(username)=lower(?)", (username,))
+        cur.execute(
+            "SELECT username FROM user_status WHERE lower(username)=lower(?)",
+            (username,),
+        )
         if cur.fetchone() is None:
             cur.execute(
                 "INSERT INTO user_status (username, display_name, status) VALUES (?, ?, ?)",
