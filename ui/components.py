@@ -1,85 +1,101 @@
-"""Reusable Streamlit display components for V2 pages."""
+"""Reusable UI components (V2 Phase 3)."""
 
 from __future__ import annotations
 
-from html import escape
-from typing import Iterable
+from typing import Iterable, Optional
 
+import pandas as pd
 import streamlit as st
 
 
-BADGE_CLASSES = {
-    "success": "v2-badge-success",
-    "warning": "v2-badge-warning",
-    "danger": "v2-badge-danger",
-    "neutral": "v2-badge-neutral",
-}
+def status_badge_html(status: object) -> str:
+    s = str(status).strip().lower()
+    if s == "resolved":
+        return '<span class="status-chip status-resolved">Resolved</span>'
+    if s == "in progress":
+        return '<span class="status-chip status-progress">In Progress</span>'
+    if s in {"on hold - user busy", "on hold"}:
+        return '<span class="status-chip status-hold">On Hold</span>'
+    return '<span class="status-chip status-open">Open</span>'
 
 
-def badge_class(tone: str) -> str:
-    """Return a safe CSS class for a semantic badge tone."""
-    return BADGE_CLASSES.get(str(tone).lower(), BADGE_CLASSES["neutral"])
+def render_nas_status(status: object) -> str:
+    if str(status).strip() == "Success":
+        return '<span class="status-chip status-resolved">Success</span>'
+    return '<span class="status-chip status-open">Failed</span>'
 
 
-def status_tone(value: object) -> str:
-    """Classify common status values for consistent presentation."""
-    text = str(value or "").strip().lower()
-    if text in {"resolved", "closed", "completed", "success", "active", "fresh", "ok"}:
-        return "success"
-    if text in {"failed", "error", "breach", "overdue", "inactive", "stale"}:
-        return "danger"
-    if text in {"open", "in progress", "on hold", "warning", "medium", "low"}:
-        return "warning"
-    return "neutral"
+def render_status_table(
+    df: pd.DataFrame,
+    columns: Iterable[str],
+    compact: bool = False,
+    nas_mode: bool = False,
+) -> None:
+    if df is None or df.empty:
+        st.info("No records found.")
+        return
+    show_df = df.copy()
+    if "status" in show_df.columns:
+        show_df["status"] = show_df["status"].apply(
+            render_nas_status if nas_mode else status_badge_html
+        )
+    safe_columns = [c for c in columns if c in show_df.columns]
+    if not safe_columns:
+        st.warning("No matching columns to display.")
+        return
+    styled = show_df[safe_columns].to_html(escape=False, index=False)
+    css_class = "table-scroll compact-table" if compact else "table-scroll"
+    st.markdown(f'<div class="{css_class}">{styled}</div>', unsafe_allow_html=True)
 
 
-def format_metric(value: object, suffix: str = "") -> str:
-    """Format a dashboard metric while preserving missing values explicitly."""
-    if value is None:
-        return "—"
-    if isinstance(value, float):
-        return f"{value:,.1f}{suffix}"
-    if isinstance(value, int):
-        return f"{value:,}{suffix}"
-    text = str(value).strip()
-    return f"{text}{suffix}" if text else "—"
-
-
-def render_kpi(label: str, value: object, suffix: str = "") -> None:
-    """Render a compact KPI card."""
+def render_kpi_card(
+    title: str,
+    value: object,
+    subtitle: str = "",
+    icon: str = "📊",
+    trend: Optional[str] = None,
+    tone: str = "primary",
+) -> None:
+    trend_cls = (
+        "trend-up"
+        if tone == "success"
+        else ("trend-warn" if tone == "warning" else ("trend-down" if tone == "danger" else ""))
+    )
+    trend_html = f'<div class="kpi-sub {trend_cls}">{trend}</div>' if trend else ""
     st.markdown(
-        "<div class='v2-kpi-card'>"
-        f"<div class='v2-kpi-label'>{escape(str(label))}</div>"
-        f"<div class='v2-kpi-value'>{escape(format_metric(value, suffix))}</div>"
-        "</div>",
+        f"""<div class="kpi-card">
+        <div class="kpi-top">
+            <div>
+                <div class="kpi-title">{title}</div>
+                <div class="kpi-value">{value}</div>
+            </div>
+            <div class="kpi-icon">{icon}</div>
+        </div>
+        <div class="kpi-sub">{subtitle}</div>
+        {trend_html}
+        </div>""",
         unsafe_allow_html=True,
     )
 
 
-def render_status_badge(value: object, tone: str | None = None) -> None:
-    """Render a semantic badge without exposing unescaped input to HTML."""
-    label = str(value or "Not available")
-    resolved_tone = tone or status_tone(label)
+def render_info_feed(title: str, rows: Optional[pd.DataFrame], fields: list) -> None:
     st.markdown(
-        f"<span class='v2-badge {badge_class(resolved_tone)}'>{escape(label)}</span>",
+        f'<div class="panel"><div class="panel-title">{title}</div>',
         unsafe_allow_html=True,
     )
-
-
-def render_warnings(warnings: Iterable[object]) -> None:
-    """Render zero or more data-quality warnings."""
-    for warning in warnings:
-        text = str(warning or "").strip()
-        if text:
+    if rows is None or len(rows) == 0:
+        st.info("No recent activity available.")
+    else:
+        for _, row in rows.iterrows():
+            primary = " · ".join(
+                [str(row.get(f, "")) for f in fields[:2] if str(row.get(f, "")) not in ["", "nan"]]
+            )
+            meta = " · ".join(
+                [str(row.get(f, "")) for f in fields[2:] if str(row.get(f, "")) not in ["", "nan"]]
+            )
             st.markdown(
-                f"<div class='v2-warning-panel'>{escape(text)}</div>",
+                f'<div class="feed-item"><div class="feed-title">{primary}</div>'
+                f'<div class="feed-meta">{meta}</div></div>',
                 unsafe_allow_html=True,
             )
-
-
-def render_empty_state(message: str = "No data available.") -> None:
-    """Render a consistent empty-state panel."""
-    st.markdown(
-        f"<div class='v2-empty-state'>{escape(str(message))}</div>",
-        unsafe_allow_html=True,
-    )
+    st.markdown("</div>", unsafe_allow_html=True)
