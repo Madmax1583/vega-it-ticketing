@@ -1,4 +1,4 @@
-"""NAS Monitoring page (V2) — writes gated by V2_WRITE_ENABLED."""
+"""NAS Monitoring (V2 Phase 2) — validation + write guard."""
 
 from __future__ import annotations
 
@@ -29,50 +29,93 @@ def render_nas_page(
     )
     st.subheader("NAS Monitoring")
 
-    if not V2_WRITE_ENABLED:
-        st.warning("**V2 write guard is ON.** NAS create disabled until V2_WRITE_ENABLED = True.")
+    if V2_WRITE_ENABLED:
+        st.error("**LIVE WRITE MODE** — NAS log create will write to the configured database.")
+    else:
+        st.warning(
+            "**Safe mode** — NAS create is disabled (`V2_WRITE_ENABLED = False`). Review only."
+        )
 
     servers = list(SERVER_NAMES) if SERVER_NAMES else ["HRI", "Vega", "Sery", "Rise"]
     total = len(nas_df)
-    fails = int((nas_df["status"].astype(str) == "Failed").sum()) if not nas_df.empty and "status" in nas_df.columns else 0
+    fails = (
+        int((nas_df["status"].astype(str) == "Failed").sum())
+        if not nas_df.empty and "status" in nas_df.columns
+        else 0
+    )
 
     k1, k2, k3 = st.columns(3)
     with k1:
         render_kpi_card("Total logs", total, "All servers", "🖥")
     with k2:
-        render_kpi_card("Success", total - fails, "Completed", "✅", tone="success")
+        render_kpi_card("Success", total - fails, "Completed backups", "✅", tone="success")
     with k3:
-        render_kpi_card("Failed", fails, "Needs attention", "⚠", tone="danger" if fails else "success")
+        render_kpi_card(
+            "Failed", fails, "Needs attention", "⚠", tone="danger" if fails else "success"
+        )
 
     t1, t2 = st.tabs(["Log entry", "Health / deltas"])
+
     with t1:
         with st.form("v2_nas_form", clear_on_submit=True):
             n1, n2 = st.columns(2)
-            log_date = n1.date_input("Backup date", value=datetime.now().date())
-            server_name = n2.selectbox("Server", servers)
+            log_date = n1.date_input("Backup date *", value=datetime.now().date())
+            server_name = n2.selectbox("Server *", servers)
             n3, n4 = st.columns(2)
-            log_status = n3.selectbox("Status", ["Success", "Failed"])
-            storage_gb = n4.number_input("Storage used (GB)", min_value=0.0, step=0.0001, format="%.4f")
+            log_status = n3.selectbox("Status *", ["Success", "Failed"])
+            storage_gb = n4.number_input(
+                "Storage used (GB) *", min_value=0.0, step=0.0001, format="%.4f"
+            )
             remarks = st.text_area("Remarks", height=80)
-            submitted = st.form_submit_button("Submit backup log", use_container_width=True, disabled=not V2_WRITE_ENABLED)
+            submitted = st.form_submit_button(
+                "Submit backup log" if V2_WRITE_ENABLED else "Submit backup log (disabled)",
+                use_container_width=True,
+                disabled=not V2_WRITE_ENABLED,
+            )
             if submitted and V2_WRITE_ENABLED:
-                try:
-                    new_id = save_nas_log({
-                        "date": log_date.strftime("%Y-%m-%d"),
-                        "server_name": server_name,
-                        "status": log_status,
-                        "storage_used": float(storage_gb),
-                        "remarks": remarks.strip(),
-                    })
-                    st.success(f"NAS log saved. ID: {new_id}")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Save failed: {e}")
+                if storage_gb < 0:
+                    st.error("Storage used cannot be negative.")
+                else:
+                    try:
+                        new_id = save_nas_log(
+                            {
+                                "date": log_date.strftime("%Y-%m-%d"),
+                                "server_name": server_name,
+                                "status": log_status,
+                                "storage_used": float(storage_gb),
+                                "remarks": (remarks or "").strip(),
+                            }
+                        )
+                        st.success(f"NAS log saved. ID: {new_id}")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Save failed: {e}")
+
     with t2:
         if nas_df.empty:
             st.info("No NAS logs loaded.")
         else:
             deltas = compute_nas_changes(nas_df)
             show = deltas if not deltas.empty else nas_df
-            cols = [c for c in ["id", "date", "server_name", "status", "storage_used", "delta_gb", "change_type", "remarks"] if c in show.columns]
-            render_status_table(show.head(20), cols, compact=True, nas_mode=True)
+            cols = [
+                c
+                for c in [
+                    "id",
+                    "date",
+                    "server_name",
+                    "status",
+                    "storage_used",
+                    "delta_gb",
+                    "change_type",
+                    "remarks",
+                ]
+                if c in show.columns
+            ]
+            render_status_table(
+                show.sort_values("date", ascending=False).head(25)
+                if "date" in show.columns
+                else show.head(25),
+                cols,
+                compact=True,
+                nas_mode=True,
+            )
