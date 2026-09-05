@@ -1339,9 +1339,9 @@ def bootstrap_auth_gate(conn):
         st.stop()
 
 def get_role_pages(role):
-    if role == "IT Manager": return ["Home", "Executive Command Center", "Overview", "Ticket Operations", "NAS Monitoring", "Reports", "Task Center", "Admin Tools", "AVP Dashboard", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health", "Repairs & Maintenance", "Expense Register", "License Inventory", "Preventive Maintenance"]
-    if role == "IT AM": return ["Home", "Executive Command Center", "Overview", "Ticket Operations", "NAS Monitoring", "Reports", "Task Center", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health", "Repairs & Maintenance", "Expense Register", "License Inventory", "Preventive Maintenance"]
-    if role == "AVP": return ["Home", "Executive Command Center", "Overview", "AVP Dashboard", "Reports", "Task Center", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health", "Repairs & Maintenance", "Expense Register", "License Inventory", "Preventive Maintenance"]
+    if role == "IT Manager": return ["Home", "Executive Command Center", "Overview", "Ticket Operations", "NAS Monitoring", "Reports", "Task Center", "Admin Tools", "AVP Dashboard", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health", "Repairs & Maintenance", "Expense Register", "License Inventory", "Preventive Maintenance", "Excel Import Center"]
+    if role == "IT AM": return ["Home", "Executive Command Center", "Overview", "Ticket Operations", "NAS Monitoring", "Reports", "Task Center", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health", "Repairs & Maintenance", "Expense Register", "License Inventory", "Preventive Maintenance", "Excel Import Center"]
+    if role == "AVP": return ["Home", "Executive Command Center", "Overview", "AVP Dashboard", "Reports", "Task Center", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health", "Repairs & Maintenance", "Expense Register", "License Inventory", "Preventive Maintenance", "Excel Import Center"]
     return ["Home", "Overview", "Ticket Operations", "NAS Monitoring", "Task Center", "Team Chat"]
 
 def create_task(conn, payload):
@@ -2821,6 +2821,372 @@ def render_pmp_page(conn, username):
         g["Compliance_%"] = g.apply(lambda r: round((r["Done"] / r["Due"]) * 100, 1) if r["Due"] else 0.0, axis=1)
         st.dataframe(g.sort_values("Compliance_%"), use_container_width=True, hide_index=True)
 
+
+def _norm_col(c):
+    return str(c).strip().lower().replace("\n", " ")
+
+
+def detect_import_kind(sheet_name, df_preview):
+    name = str(sheet_name).lower()
+    cols = " ".join(_norm_col(c) for c in list(df_preview.columns)[:20])
+    if "pmp" in name or "maintenance" in name or ("hostname" in cols and "due date" in cols):
+        return "pmp"
+    if "nas" in name or ("server name" in cols and "size" in cols):
+        return "nas"
+    if "offline" in name or "external hdd" in name or "management backup" in name:
+        return "offline_backup"
+    if "host name" in cols or "laptop model" in cols or "ms office" in cols:
+        return "inventory"
+    if "user complaints" in cols or "complaint attended" in cols or "user name" in cols and "department" in cols:
+        return "tickets"
+    return "unknown"
+
+
+def parse_tickets_from_tech_sheet(df_raw, attended_fallback=None):
+    """Normalize technician monthly sheets into ticket rows."""
+    df = df_raw.copy()
+    # promote header if needed
+    if df.shape[1] >= 5:
+        first = " ".join(str(x).lower() for x in df.iloc[0].tolist()[:8])
+        if "user" in first and "complaint" in first:
+            df.columns = df.iloc[0]
+            df = df.iloc[1:].reset_index(drop=True)
+    colmap = {}
+    for c in df.columns:
+        n = _norm_col(c)
+        if "date" == n or n.startswith("date"):
+            colmap[c] = "date"
+        elif "user name" in n or n == "user":
+            colmap[c] = "user_name"
+        elif "department" in n:
+            colmap[c] = "department"
+        elif "complaint" in n and "attended" not in n and "time" not in n:
+            colmap[c] = "complaint"
+        elif "location" in n:
+            colmap[c] = "location"
+        elif "attended" in n:
+            colmap[c] = "attended_by"
+        elif "complaints time" in n or n in ("start time", "start"):
+            colmap[c] = "start_time"
+        elif "resolve time" in n or "close" in n:
+            colmap[c] = "close_time"
+        elif "remark" in n:
+            colmap[c] = "remarks"
+        elif n == "status":
+            colmap[c] = "status"
+    out = df.rename(columns=colmap)
+    keep = [c for c in ["date", "user_name", "department", "complaint", "location", "attended_by", "start_time", "close_time", "remarks", "status"] if c in out.columns]
+    out = out[keep].copy()
+    if out.empty:
+        return out
+    out = out.dropna(how="all")
+    if "complaint" in out.columns:
+        out = out[out["complaint"].notna()]
+        out = out[~out["complaint"].astype(str).str.strip().str.lower().isin(["", "nan", "user complaints"])]
+    if "attended_by" not in out.columns or out["attended_by"].isna().all():
+        if attended_fallback:
+            out["attended_by"] = attended_fallback
+    if "status" not in out.columns:
+        out["status"] = "Resolved"
+    else:
+        out["status"] = out["status"].fillna("Resolved").astype(str)
+        out.loc[out["status"].str.lower().isin(["nan", "none", ""]), "status"] = "Resolved"
+    # combine date + time strings into start/close if needed
+    def _combine(d, t):
+        ds = str(d).strip() if pd.notna(d) else ""
+        ts = str(t).strip() if pd.notna(t) else ""
+        if not ds or ds.lower() == "nan":
+            return None
+        try:
+            base = pd.to_datetime(ds, errors="coerce")
+            if pd.isna(base):
+                return ds
+            if ts and ts.lower() != "nan":
+                # try parse time like 10:30AM
+                tt = pd.to_datetime(ts, errors="coerce")
+                if pd.notna(tt):
+                    return str(pd.Timestamp.combine(base.date(), tt.time()))
+                return f"{base.date()} {ts}"
+            return str(base.date())
+        except Exception:
+            return ds
+    if "date" in out.columns:
+        if "start_time" in out.columns:
+            out["start_time"] = [ _combine(d, t) for d, t in zip(out["date"], out["start_time"]) ]
+        if "close_time" in out.columns:
+            out["close_time"] = [ _combine(d, t) for d, t in zip(out["date"], out["close_time"]) ]
+        out["date"] = pd.to_datetime(out["date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    out["entity"] = [
+        infer_entity(None, loc, default="Vega") for loc in (out["location"] if "location" in out.columns else [None] * len(out))
+    ]
+    if "category" not in out.columns:
+        out["category"] = out["complaint"].astype(str).str[:40] if "complaint" in out.columns else "General"
+    return out.reset_index(drop=True)
+
+
+def parse_nas_from_sheet(df_raw):
+    df = df_raw.copy()
+    if df.shape[0] and "server" in str(df.iloc[0].astype(str).str.lower().tolist()).lower():
+        # already has header
+        pass
+    colmap = {}
+    for c in df.columns:
+        n = _norm_col(c)
+        if n in ("date", "data") or n.startswith("date"):
+            colmap[c] = "date"
+        elif "server" in n:
+            colmap[c] = "server_name"
+        elif "size (gb)" in n or n == "size(gb)" or "size gb" in n:
+            colmap[c] = "storage_used"
+        elif "size(kb)" in n or "size (kb)" in n:
+            colmap[c] = "size_kb"
+        elif n == "status":
+            colmap[c] = "status"
+        elif "method" in n:
+            colmap[c] = "method"
+        elif "duration" in n:
+            colmap[c] = "duration"
+    out = df.rename(columns=colmap)
+    if "storage_used" not in out.columns and "size_kb" in out.columns:
+        out["storage_used"] = pd.to_numeric(out["size_kb"], errors="coerce") / (1024 * 1024)
+    keep = [c for c in ["date", "server_name", "storage_used", "status", "method", "duration"] if c in out.columns]
+    out = out[keep].copy().dropna(how="all")
+    if "server_name" in out.columns:
+        out = out[out["server_name"].notna()]
+        out = out[~out["server_name"].astype(str).str.lower().isin(["server name", "nan"])]
+    if "date" in out.columns:
+        # excel serials
+        def _d(v):
+            if pd.isna(v):
+                return None
+            if isinstance(v, (int, float)) and float(v) > 40000:
+                try:
+                    return str(pd.to_datetime(float(v), unit="D", origin="1899-12-30").date())
+                except Exception:
+                    pass
+            dt = pd.to_datetime(v, errors="coerce")
+            return str(dt.date()) if pd.notna(dt) else str(v)
+        out["date"] = out["date"].apply(_d)
+    if "status" in out.columns:
+        out["status"] = out["status"].astype(str).str.replace("Successful", "Success", case=False)
+        out["status"] = out["status"].replace({"Successful": "Success", "successful": "Success"})
+    return out.reset_index(drop=True)
+
+
+def parse_offline_backup_sheet(df_raw):
+    df = df_raw.copy()
+    colmap = {}
+    for c in df.columns:
+        n = _norm_col(c)
+        if "date" in n:
+            colmap[c] = "date"
+        elif "server" in n:
+            colmap[c] = "server_name"
+        elif "size" in n:
+            colmap[c] = "size_text"
+        elif "status" in n:
+            colmap[c] = "status"
+    out = df.rename(columns=colmap)
+    keep = [c for c in ["date", "server_name", "size_text", "status"] if c in out.columns]
+    out = out[keep].copy().dropna(how="all")
+    if "server_name" in out.columns:
+        out = out[out["server_name"].notna()]
+    if "date" in out.columns:
+        out["date"] = pd.to_datetime(out["date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    out["backup_type"] = "offline"
+    return out.reset_index(drop=True)
+
+
+def import_tickets_rows(rows_df):
+    inserted = 0
+    skipped = 0
+    if rows_df is None or rows_df.empty:
+        return {"inserted": 0, "skipped": 0}
+    existing = load_tickets()
+    for _, row in rows_df.iterrows():
+        payload = {
+            "date": row.get("date"),
+            "user_name": row.get("user_name"),
+            "department": row.get("department"),
+            "complaint": row.get("complaint"),
+            "location": row.get("location"),
+            "attended_by": row.get("attended_by"),
+            "start_time": row.get("start_time"),
+            "close_time": row.get("close_time"),
+            "remarks": row.get("remarks"),
+            "status": row.get("status") or "Resolved",
+            "category": row.get("category") or "General",
+        }
+        # light dedupe: same date+user+complaint
+        if existing is not None and not existing.empty:
+            mask = True
+            for k in ("date", "user_name", "complaint"):
+                if k in existing.columns and payload.get(k):
+                    mask = mask & (existing[k].astype(str) == str(payload[k]))
+            if isinstance(mask, pd.Series) and mask.any():
+                skipped += 1
+                continue
+        try:
+            # drop Nones
+            clean = {k: v for k, v in payload.items() if v is not None and str(v).lower() != "nan"}
+            save_ticket(clean)
+            inserted += 1
+        except Exception:
+            skipped += 1
+    return {"inserted": inserted, "skipped": skipped}
+
+
+def import_nas_rows(rows_df):
+    inserted = skipped = 0
+    if rows_df is None or rows_df.empty:
+        return {"inserted": 0, "skipped": 0}
+    for _, row in rows_df.iterrows():
+        payload = {
+            "date": row.get("date"),
+            "server_name": row.get("server_name"),
+            "storage_used": float(row.get("storage_used") or 0) if pd.notna(row.get("storage_used")) else None,
+            "status": row.get("status") or "Success",
+        }
+        if not payload.get("server_name") or not payload.get("date"):
+            skipped += 1
+            continue
+        try:
+            clean = {k: v for k, v in payload.items() if v is not None}
+            save_nas_log(clean)
+            inserted += 1
+        except Exception:
+            skipped += 1
+    return {"inserted": inserted, "skipped": skipped}
+
+
+def render_excel_import_center(conn, role, username):
+    ensure_enterprise_extension_tables(conn)
+    st.markdown(
+        """<div class="panel"><div class="panel-title">Excel Import Center</div>
+        <div class="panel-sub">One place to import Inventory, PMP, Tickets, NAS and Offline backups. Entity tags apply automatically (Vega / Knitpro).</div></div>""",
+        unsafe_allow_html=True,
+    )
+    st.caption(f"Current entity filter: **{st.session_state.get('entity_filter', 'All')}** (sidebar). Imports still tag each row by hostname/location.")
+
+    kind = st.selectbox(
+        "Import type",
+        [
+            "Auto-detect from file",
+            "Inventory / Licenses",
+            "Preventive Maintenance (PMP)",
+            "Tickets (technician sheets)",
+            "NAS daily backup",
+            "Offline / External backup",
+        ],
+        key="import_kind",
+    )
+    up = st.file_uploader("Excel file (.xlsx / .xls / .xlsb)", type=["xlsx", "xls", "xlsb"], key="import_center_file")
+    if up is None:
+        st.info("Upload a workbook to preview sheets and import.")
+        return
+
+    # load all sheets
+    try:
+        raw = up.read()
+        import io
+        engine = None
+        name = (up.name or "").lower()
+        if name.endswith(".xlsb"):
+            engine = "pyxlsb"
+        xl = pd.ExcelFile(io.BytesIO(raw), engine=engine) if engine else pd.ExcelFile(io.BytesIO(raw))
+        sheet_names = xl.sheet_names
+    except Exception as e:
+        st.error(f"Could not open workbook: {e}")
+        return
+
+    st.write(f"Sheets found: **{len(sheet_names)}**")
+    selected_sheets = st.multiselect("Sheets to process", sheet_names, default=sheet_names[: min(5, len(sheet_names))], key="import_sheets")
+    if not selected_sheets:
+        return
+
+    results = []
+    for sname in selected_sheets:
+        try:
+            df_s = pd.read_excel(io.BytesIO(raw), sheet_name=sname, engine=engine)
+        except Exception:
+            df_s = pd.read_excel(io.BytesIO(raw), sheet_name=sname, header=None, engine=engine)
+        detected = detect_import_kind(sname, df_s if not df_s.empty else pd.DataFrame())
+        forced = {
+            "Inventory / Licenses": "inventory",
+            "Preventive Maintenance (PMP)": "pmp",
+            "Tickets (technician sheets)": "tickets",
+            "NAS daily backup": "nas",
+            "Offline / External backup": "offline_backup",
+        }.get(kind, detected)
+        use_kind = detected if kind == "Auto-detect from file" else forced
+        results.append((sname, use_kind, df_s))
+
+    for sname, use_kind, df_s in results:
+        with st.expander(f"📄 {sname} → **{use_kind}**", expanded=True):
+            st.dataframe(df_s.head(8), use_container_width=True, hide_index=True)
+            if use_kind == "inventory":
+                try:
+                    # re-parse from full file bytes for multi-section inventory
+                    parsed = parse_inventory_excel(io.BytesIO(raw))
+                    st.caption(f"Normalized inventory rows: {len(parsed)}")
+                    st.dataframe(parsed.head(10), use_container_width=True, hide_index=True)
+                    if st.button(f"Import inventory from {sname}", key=f"imp_inv_{sname}"):
+                        stats = upsert_inventory_rows(conn, parsed)
+                        st.success(f"Inventory — inserted {stats['inserted']}, updated {stats['updated']}, skipped {stats['skipped']}")
+                except Exception as e:
+                    st.error(f"Inventory parse error: {e}")
+            elif use_kind == "pmp":
+                try:
+                    assets_df, checks_df = parse_pmp_excel(io.BytesIO(raw))
+                    st.caption(f"Assets {len(assets_df)}, checks {len(checks_df)}, in scope {int(assets_df['in_pm_scope'].sum()) if not assets_df.empty else 0}")
+                    st.dataframe(assets_df.head(10), use_container_width=True, hide_index=True)
+                    if st.button(f"Import PMP from {sname}", key=f"imp_pmp_{sname}"):
+                        stats = upsert_pmp_from_frames(conn, assets_df, checks_df)
+                        st.success(f"PMP — assets +{stats['assets_inserted']} / upd {stats['assets_updated']}, checks {stats['checks']}")
+                except Exception as e:
+                    st.error(f"PMP parse error: {e}")
+            elif use_kind == "tickets":
+                try:
+                    fallback = None
+                    for token in ("satish", "priyanshu", "amit"):
+                        if token in sname.lower():
+                            fallback = token.title()
+                            break
+                    parsed = parse_tickets_from_tech_sheet(df_s, attended_fallback=fallback)
+                    st.caption(f"Ticket rows: {len(parsed)}")
+                    st.dataframe(parsed.head(12), use_container_width=True, hide_index=True)
+                    if st.button(f"Import tickets from {sname}", key=f"imp_tix_{sname}"):
+                        stats = import_tickets_rows(parsed)
+                        st.success(f"Tickets — inserted {stats['inserted']}, skipped(dedup) {stats['skipped']}")
+                except Exception as e:
+                    st.error(f"Ticket parse error: {e}")
+            elif use_kind == "nas":
+                try:
+                    parsed = parse_nas_from_sheet(df_s)
+                    st.caption(f"NAS rows: {len(parsed)}")
+                    st.dataframe(parsed.head(12), use_container_width=True, hide_index=True)
+                    if st.button(f"Import NAS from {sname}", key=f"imp_nas_{sname}"):
+                        stats = import_nas_rows(parsed)
+                        st.success(f"NAS — inserted {stats['inserted']}, skipped {stats['skipped']}")
+                except Exception as e:
+                    st.error(f"NAS parse error: {e}")
+            elif use_kind == "offline_backup":
+                try:
+                    parsed = parse_offline_backup_sheet(df_s)
+                    st.caption(f"Offline backup rows: {len(parsed)} (stored as NAS logs with method=Offline where possible)")
+                    st.dataframe(parsed.head(12), use_container_width=True, hide_index=True)
+                    if st.button(f"Import offline backups from {sname}", key=f"imp_off_{sname}"):
+                        # map to nas-like rows
+                        nas_like = parsed.rename(columns={})
+                        nas_like["storage_used"] = None
+                        nas_like["status"] = nas_like.get("status", "Success")
+                        stats = import_nas_rows(nas_like)
+                        st.success(f"Offline → NAS log — inserted {stats['inserted']}, skipped {stats['skipped']}")
+                except Exception as e:
+                    st.error(f"Offline parse error: {e}")
+            else:
+                st.warning("Could not auto-detect type. Choose a specific Import type above and re-upload.")
+
 def render_license_inventory_page(conn, role, username):
     ensure_enterprise_extension_tables(conn)
     reveal_keys = role in ("IT Manager", "Admin", "admin")
@@ -3518,7 +3884,7 @@ def get_navigation_groups(role):
         '📊 Dashboard': ['Home', 'Executive Command Center', 'Overview'],
         '🎫 Operations': ['Ticket Operations', 'Task Center', 'Team Chat'],
         '📈 Analytics': ['Reports', 'AVP Dashboard', 'Department Health', 'Vendor Dashboard'],
-        '🖥 Infrastructure': ['NAS Monitoring', 'Asset Health', 'Repairs & Maintenance', 'Expense Register', 'License Inventory', 'Preventive Maintenance'],
+        '🖥 Infrastructure': ['NAS Monitoring', 'Asset Health', 'Repairs & Maintenance', 'Expense Register', 'License Inventory', 'Preventive Maintenance', 'Excel Import Center'],
         '⚙ Administration': ['Admin Tools'],
     }
     return {g: [p for p in plist if p in pages] for g, plist in groups.items() if any(p in pages for p in plist)}
@@ -3528,7 +3894,7 @@ def page_breadcrumb(page):
         'Home': 'Home', 'Executive Command Center': 'Home > Dashboard > Executive Command Center', 'Overview': 'Home > Dashboard > Overview',
         'Ticket Operations': 'Home > Operations > Ticket Operations', 'Task Center': 'Home > Operations > Task Center', 'Team Chat': 'Home > Operations > Team Chat',
         'Reports': 'Home > Analytics > Reports', 'AVP Dashboard': 'Home > Analytics > AVP Dashboard', 'Department Health': 'Home > Analytics > Department Health',
-        'Vendor Dashboard': 'Home > Analytics > Vendor Dashboard', 'NAS Monitoring': 'Home > Infrastructure > NAS Monitoring', 'Asset Health': 'Home > Infrastructure > Asset Health', 'Repairs & Maintenance': 'Home > Infrastructure > Repairs & Maintenance', 'Expense Register': 'Home > Infrastructure > Expense Register', 'License Inventory': 'Home > Infrastructure > License Inventory', 'Preventive Maintenance': 'Home > Infrastructure > Preventive Maintenance',
+        'Vendor Dashboard': 'Home > Analytics > Vendor Dashboard', 'NAS Monitoring': 'Home > Infrastructure > NAS Monitoring', 'Asset Health': 'Home > Infrastructure > Asset Health', 'Repairs & Maintenance': 'Home > Infrastructure > Repairs & Maintenance', 'Expense Register': 'Home > Infrastructure > Expense Register', 'License Inventory': 'Home > Infrastructure > License Inventory', 'Preventive Maintenance': 'Home > Infrastructure > Preventive Maintenance', 'Excel Import Center': 'Home > Infrastructure > Excel Import Center',
         'Admin Tools': 'Home > Administration > Admin Tools',
     }
     return mapping.get(page, f'Home > {page}')
@@ -4591,6 +4957,9 @@ def render_dashboard(conn):
 
     elif page == "Preventive Maintenance":
         render_pmp_page(conn, st.session_state.get('username', 'system'))
+
+    elif page == "Excel Import Center":
+        render_excel_import_center(conn, role, st.session_state.get('username', 'system'))
 
     elif page == "Team Chat":
         st.markdown('''<div class="panel"><div class="panel-title">Team Chat</div><div class="panel-sub">Unread badges, presence indicators, mentions, and ticket-linked collaboration stay functionally unchanged while using a cleaner shell.</div></div>''', unsafe_allow_html=True)
