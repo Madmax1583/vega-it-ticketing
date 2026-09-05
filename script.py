@@ -1339,9 +1339,9 @@ def bootstrap_auth_gate(conn):
         st.stop()
 
 def get_role_pages(role):
-    if role == "IT Manager": return ["Home", "Executive Command Center", "Overview", "Ticket Operations", "NAS Monitoring", "Reports", "Task Center", "Admin Tools", "AVP Dashboard", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health", "Repairs & Maintenance", "Expense Register"]
-    if role == "IT AM": return ["Home", "Executive Command Center", "Overview", "Ticket Operations", "NAS Monitoring", "Reports", "Task Center", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health", "Repairs & Maintenance", "Expense Register"]
-    if role == "AVP": return ["Home", "Executive Command Center", "Overview", "AVP Dashboard", "Reports", "Task Center", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health", "Repairs & Maintenance", "Expense Register"]
+    if role == "IT Manager": return ["Home", "Executive Command Center", "Overview", "Ticket Operations", "NAS Monitoring", "Reports", "Task Center", "Admin Tools", "AVP Dashboard", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health", "Repairs & Maintenance", "Expense Register", "License Inventory"]
+    if role == "IT AM": return ["Home", "Executive Command Center", "Overview", "Ticket Operations", "NAS Monitoring", "Reports", "Task Center", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health", "Repairs & Maintenance", "Expense Register", "License Inventory"]
+    if role == "AVP": return ["Home", "Executive Command Center", "Overview", "AVP Dashboard", "Reports", "Task Center", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health", "Repairs & Maintenance", "Expense Register", "License Inventory"]
     return ["Home", "Overview", "Ticket Operations", "NAS Monitoring", "Task Center", "Team Chat"]
 
 def create_task(conn, payload):
@@ -1776,6 +1776,14 @@ def ensure_enterprise_extension_tables(conn):
             ("purchase_value", "REAL"),
             ("make_model", "TEXT"),
             ("notes", "TEXT"),
+            ("domain_name", "TEXT"),
+            ("windows_edition", "TEXT"),
+            ("windows_key", "TEXT"),
+            ("office_edition", "TEXT"),
+            ("office_key", "TEXT"),
+            ("o365_status", "TEXT"),
+            ("warranty_text", "TEXT"),
+            ("asset_source", "TEXT"),
         ]:
             if col not in existing:
                 try:
@@ -2113,15 +2121,16 @@ def build_month_over_month_comparison(df):
 
 def load_assets_df(conn):
     try:
-        return pd.read_sql_query('SELECT id, asset_id, asset_type, location, vendor, purchase_date, warranty_end, status, hostname, serial_no, user_name, purchase_value, make_model, notes FROM asset_registry ORDER BY id DESC', conn)
+        return pd.read_sql_query('SELECT id, asset_id, asset_type, location, vendor, purchase_date, warranty_end, status, hostname, serial_no, user_name, purchase_value, make_model, notes, domain_name, windows_edition, windows_key, office_edition, office_key, o365_status, warranty_text, asset_source FROM asset_registry ORDER BY id DESC', conn)
     except Exception:
-        return pd.DataFrame(columns=['id','asset_id','asset_type','location','vendor','purchase_date','warranty_end','status','hostname','serial_no','user_name','purchase_value','make_model','notes'])
+        return pd.DataFrame(columns=['id','asset_id','asset_type','location','vendor','purchase_date','warranty_end','status','hostname','serial_no','user_name','purchase_value','make_model','notes','domain_name','windows_edition','windows_key','office_edition','office_key','o365_status','warranty_text','asset_source'])
 
 def create_asset(conn, payload):
     conn.execute(
         """INSERT INTO asset_registry
-        (asset_id, asset_type, location, vendor, purchase_date, warranty_end, status, hostname, serial_no, user_name, purchase_value, make_model, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (asset_id, asset_type, location, vendor, purchase_date, warranty_end, status, hostname, serial_no, user_name, purchase_value, make_model, notes,
+         domain_name, windows_edition, windows_key, office_edition, office_key, o365_status, warranty_text, asset_source)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             payload.get("asset_id"),
             payload.get("asset_type"),
@@ -2136,9 +2145,371 @@ def create_asset(conn, payload):
             payload.get("purchase_value"),
             payload.get("make_model"),
             payload.get("notes"),
+            payload.get("domain_name"),
+            payload.get("windows_edition"),
+            payload.get("windows_key"),
+            payload.get("office_edition"),
+            payload.get("office_key"),
+            payload.get("o365_status"),
+            payload.get("warranty_text"),
+            payload.get("asset_source"),
         ),
     )
     conn.commit()
+
+
+def mask_license_key(key, reveal=False):
+    if key is None or (isinstance(key, float) and pd.isna(key)):
+        return ""
+    s = str(key).strip()
+    if not s or s.lower() in ("nan", "none", "n/a", "√", "mac"):
+        return s if s.lower() in ("√", "mac") else ""
+    if reveal:
+        return s
+    if len(s) <= 5:
+        return "•••••"
+    return ("•" * max(8, len(s) - 5)) + s[-5:]
+
+
+def parse_inventory_excel(file_bytes_or_path):
+    """Parse multi-section inventory workbook into normalized asset rows."""
+    import io
+    if hasattr(file_bytes_or_path, "read"):
+        raw = file_bytes_or_path.read()
+        bio = io.BytesIO(raw)
+    elif isinstance(file_bytes_or_path, (bytes, bytearray)):
+        bio = io.BytesIO(file_bytes_or_path)
+    else:
+        bio = file_bytes_or_path
+    df = pd.read_excel(bio, sheet_name=0, header=None)
+    header_idx = []
+    for i, row in df.iterrows():
+        vals = [str(v).strip().upper() if pd.notna(v) else "" for v in row.tolist()]
+        joined = " ".join(vals)
+        if "HOST" in joined and ("S.NO" in joined or "S.N" in joined or "USER" in joined):
+            header_idx.append(i)
+    header_idx.append(len(df))
+    rows_out = []
+
+    def _clean(v):
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            return None
+        s = str(v).strip()
+        if s.lower() in ("", "nan", "none", "nat"):
+            return None
+        return s
+
+    def _asset_type_from_header(hdr_vals, model):
+        h = " ".join(hdr_vals).upper()
+        m = (model or "").upper()
+        if "SERVER" in h or "SERVER" in m:
+            return "Server"
+        if "PC HOST" in h or "PC MODEL" in h or h.startswith("PC"):
+            return "Desktop"
+        if "MAC" in m:
+            return "Laptop"
+        return "Laptop"
+
+    for hi in range(len(header_idx) - 1):
+        hrow = header_idx[hi]
+        erow = header_idx[hi + 1]
+        hdr = [str(v).strip().lower() if pd.notna(v) else "" for v in df.iloc[hrow].tolist()]
+        hdr_raw = [str(v).strip() if pd.notna(v) else "" for v in df.iloc[hrow].tolist()]
+
+        def col_idx(*needles):
+            for j, h in enumerate(hdr):
+                for n in needles:
+                    if n in h:
+                        return j
+            return None
+
+        i_host = col_idx("host name", "hostname", "host")
+        i_domain = col_idx("domain")
+        i_user = col_idx("user name", "user")
+        i_loc = col_idx("location")
+        i_model = col_idx("model", "laptop", "pc model")
+        i_purchase = col_idx("purchase")
+        i_serial = col_idx("serial")
+        i_warranty = col_idx("warranty")
+        i_win = col_idx("windows")
+        # windows key often after windows
+        i_winkey = None
+        i_office = None
+        i_o365 = None
+        i_officekey = None
+        for j, h in enumerate(hdr):
+            if "windows key" in h or h == "windows key":
+                i_winkey = j
+            elif h in ("windows",) or (h.startswith("window") and "key" not in h):
+                if i_win is None:
+                    i_win = j
+            elif "o365" in h or "office 365" in h:
+                i_o365 = j
+            elif "ms office key" in h or "office key" in h:
+                i_officekey = j
+            elif "ms office" in h or "office" in h:
+                if "key" not in h and i_office is None:
+                    i_office = j
+        # fallback positional for standard 14-col layout
+        if i_host is None:
+            i_host = 1
+        if i_domain is None:
+            i_domain = 2
+        if i_user is None:
+            i_user = 3
+        if i_loc is None:
+            i_loc = 4
+        if i_model is None:
+            i_model = 5
+        if i_purchase is None:
+            i_purchase = 6
+        if i_serial is None:
+            i_serial = 7
+        if i_warranty is None:
+            i_warranty = 8
+        if i_win is None:
+            i_win = 9
+        if i_winkey is None:
+            i_winkey = 10
+        if i_office is None:
+            i_office = 11
+        if i_o365 is None:
+            i_o365 = 12
+        if i_officekey is None:
+            i_officekey = 13
+
+        for ridx in range(hrow + 1, erow):
+            row = df.iloc[ridx]
+            def get(i):
+                if i is None or i >= len(row):
+                    return None
+                return _clean(row.iloc[i])
+
+            host = get(i_host)
+            user = get(i_user)
+            serial = get(i_serial)
+            model = get(i_model)
+            # skip empty / nested header
+            if not host and not user and not serial:
+                continue
+            if host and "HOST NAME" in str(host).upper():
+                continue
+            # skip pure serial-number-only header noise
+            sno = get(0)
+            if sno is not None and str(sno).upper().startswith("S.N"):
+                continue
+            purchase = get(i_purchase)
+            # normalize purchase date
+            purchase_str = None
+            if purchase:
+                try:
+                    dt = pd.to_datetime(purchase, errors="coerce")
+                    if pd.notna(dt):
+                        purchase_str = str(dt.date())
+                    else:
+                        purchase_str = str(purchase)
+                except Exception:
+                    purchase_str = str(purchase)
+            atype = _asset_type_from_header(hdr_raw, model)
+            rows_out.append({
+                "hostname": host,
+                "domain_name": get(i_domain),
+                "user_name": user,
+                "location": get(i_loc),
+                "make_model": model,
+                "purchase_date": purchase_str,
+                "serial_no": serial,
+                "warranty_text": get(i_warranty),
+                "windows_edition": get(i_win),
+                "windows_key": get(i_winkey),
+                "office_edition": get(i_office),
+                "office_key": get(i_officekey),
+                "o365_status": get(i_o365),
+                "asset_type": atype,
+                "asset_id": host or serial or user,
+                "status": "Active",
+                "asset_source": "inventory_excel",
+            })
+    return pd.DataFrame(rows_out)
+
+
+def upsert_inventory_rows(conn, rows_df):
+    """Insert new assets; update license fields if hostname or serial already exists."""
+    if rows_df is None or rows_df.empty:
+        return {"inserted": 0, "updated": 0, "skipped": 0}
+    ensure_enterprise_extension_tables(conn)
+    existing = load_assets_df(conn)
+    by_host = {}
+    by_serial = {}
+    if not existing.empty:
+        for _, r in existing.iterrows():
+            h = str(r.get("hostname") or "").strip().lower()
+            s = str(r.get("serial_no") or "").strip().lower()
+            if h:
+                by_host[h] = int(r["id"])
+            if s:
+                by_serial[s] = int(r["id"])
+    inserted = updated = skipped = 0
+    for _, row in rows_df.iterrows():
+        host = str(row.get("hostname") or "").strip()
+        serial = str(row.get("serial_no") or "").strip()
+        if not host and not serial and not row.get("user_name"):
+            skipped += 1
+            continue
+        match_id = None
+        if host and host.lower() in by_host:
+            match_id = by_host[host.lower()]
+        elif serial and serial.lower() in by_serial:
+            match_id = by_serial[serial.lower()]
+        payload = {
+            "asset_id": row.get("asset_id") or host or serial,
+            "asset_type": row.get("asset_type") or "Laptop",
+            "location": row.get("location"),
+            "vendor": None,
+            "purchase_date": row.get("purchase_date"),
+            "warranty_end": None,
+            "status": row.get("status") or "Active",
+            "hostname": host or None,
+            "serial_no": serial or None,
+            "user_name": row.get("user_name"),
+            "purchase_value": None,
+            "make_model": row.get("make_model"),
+            "notes": None,
+            "domain_name": row.get("domain_name"),
+            "windows_edition": row.get("windows_edition"),
+            "windows_key": row.get("windows_key"),
+            "office_edition": row.get("office_edition"),
+            "office_key": row.get("office_key"),
+            "o365_status": row.get("o365_status"),
+            "warranty_text": row.get("warranty_text"),
+            "asset_source": row.get("asset_source") or "inventory_excel",
+        }
+        if match_id:
+            conn.execute(
+                """UPDATE asset_registry SET
+                    user_name=COALESCE(?, user_name),
+                    location=COALESCE(?, location),
+                    make_model=COALESCE(?, make_model),
+                    serial_no=COALESCE(?, serial_no),
+                    hostname=COALESCE(?, hostname),
+                    domain_name=COALESCE(?, domain_name),
+                    windows_edition=COALESCE(?, windows_edition),
+                    windows_key=COALESCE(?, windows_key),
+                    office_edition=COALESCE(?, office_edition),
+                    office_key=COALESCE(?, office_key),
+                    o365_status=COALESCE(?, o365_status),
+                    warranty_text=COALESCE(?, warranty_text),
+                    purchase_date=COALESCE(?, purchase_date),
+                    asset_type=COALESCE(?, asset_type),
+                    asset_source=COALESCE(?, asset_source)
+                WHERE id=?""",
+                (
+                    payload["user_name"], payload["location"], payload["make_model"], payload["serial_no"],
+                    payload["hostname"], payload["domain_name"], payload["windows_edition"], payload["windows_key"],
+                    payload["office_edition"], payload["office_key"], payload["o365_status"], payload["warranty_text"],
+                    payload["purchase_date"], payload["asset_type"], payload["asset_source"], match_id,
+                ),
+            )
+            updated += 1
+        else:
+            create_asset(conn, payload)
+            inserted += 1
+            # refresh maps
+            if host:
+                by_host[host.lower()] = -1
+            if serial:
+                by_serial[serial.lower()] = -1
+    conn.commit()
+    return {"inserted": inserted, "updated": updated, "skipped": skipped}
+
+
+def render_license_inventory_page(conn, role, username):
+    ensure_enterprise_extension_tables(conn)
+    reveal_keys = role in ("IT Manager", "Admin", "admin")
+    st.markdown(
+        """<div class="panel"><div class="panel-title">License Inventory</div>
+        <div class="panel-sub">Asset register with Windows / Office / O365 status. Product keys are masked unless you are Admin / IT Manager.</div></div>""",
+        unsafe_allow_html=True,
+    )
+    if not reveal_keys:
+        st.caption("🔒 License keys are masked for your role.")
+
+    with st.expander("Import inventory Excel", expanded=True):
+        st.caption("Upload **All user inventory with License information** (.xlsx). Multi-section sheets (Vega / Sery / Rise / Sales) are supported.")
+        up = st.file_uploader("Inventory workbook", type=["xlsx", "xls"], key="inv_upload")
+        if up is not None:
+            try:
+                parsed = parse_inventory_excel(up)
+                st.write(f"Parsed **{len(parsed)}** rows from Excel.")
+                preview = parsed.head(15).copy()
+                if not reveal_keys:
+                    for col in ("windows_key", "office_key"):
+                        if col in preview.columns:
+                            preview[col] = preview[col].apply(lambda x: mask_license_key(x, reveal=False))
+                st.dataframe(preview, use_container_width=True, hide_index=True)
+                if st.button("Import / upsert into Asset Register", type="primary", key="inv_import_btn"):
+                    stats = upsert_inventory_rows(conn, parsed)
+                    st.success(f"Import done — inserted: {stats['inserted']}, updated: {stats['updated']}, skipped: {stats['skipped']}")
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Could not parse file: {e}")
+
+    assets = load_assets_df(conn)
+    if assets.empty:
+        st.info("No assets yet. Import the inventory Excel above.")
+        return
+
+    # KPIs
+    o365_pending = assets["o365_status"].fillna("").astype(str).str.contains("pending", case=False, na=False).sum() if "o365_status" in assets.columns else 0
+    with_office_key = assets["office_key"].fillna("").astype(str).str.len().gt(4).sum() if "office_key" in assets.columns else 0
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Assets", len(assets))
+    k2.metric("O365 Pending", int(o365_pending))
+    k3.metric("Office keys on file", int(with_office_key))
+    k4.metric("Locations", int(assets["location"].nunique()) if "location" in assets.columns else 0)
+
+    f1, f2, f3, f4 = st.columns(4)
+    loc = f1.text_input("Location contains", key="lic_loc")
+    q = f2.text_input("Search user / hostname / serial", key="lic_q")
+    o365_f = f3.selectbox("O365 filter", ["All", "Pending only", "Installed / other"], key="lic_o365")
+    type_f = f4.selectbox("Asset type", ["All"] + sorted([str(x) for x in assets["asset_type"].dropna().unique().tolist()]) if "asset_type" in assets.columns else ["All"], key="lic_type")
+
+    view = assets.copy()
+    if loc.strip() and "location" in view.columns:
+        view = view[view["location"].fillna("").astype(str).str.contains(loc, case=False, na=False)]
+    if q.strip():
+        mask = False
+        for col in ("user_name", "hostname", "serial_no", "domain_name"):
+            if col in view.columns:
+                mask = mask | view[col].fillna("").astype(str).str.contains(q, case=False, na=False)
+        view = view[mask]
+    if o365_f == "Pending only" and "o365_status" in view.columns:
+        view = view[view["o365_status"].fillna("").astype(str).str.contains("pending", case=False, na=False)]
+    elif o365_f == "Installed / other" and "o365_status" in view.columns:
+        view = view[~view["o365_status"].fillna("").astype(str).str.contains("pending", case=False, na=False)]
+    if type_f != "All" and "asset_type" in view.columns:
+        view = view[view["asset_type"].astype(str) == type_f]
+
+    display = view.copy()
+    if "windows_key" in display.columns:
+        display["windows_key"] = display["windows_key"].apply(lambda x: mask_license_key(x, reveal=reveal_keys))
+    if "office_key" in display.columns:
+        display["office_key"] = display["office_key"].apply(lambda x: mask_license_key(x, reveal=reveal_keys))
+    show_cols = [c for c in [
+        "hostname", "user_name", "location", "asset_type", "make_model", "serial_no",
+        "purchase_date", "warranty_text", "windows_edition", "windows_key",
+        "office_edition", "office_key", "o365_status", "domain_name",
+    ] if c in display.columns]
+    st.dataframe(display[show_cols] if show_cols else display, use_container_width=True, hide_index=True)
+
+    st.markdown("### O365 Pending list")
+    if "o365_status" in assets.columns:
+        pending = assets[assets["o365_status"].fillna("").astype(str).str.contains("pending", case=False, na=False)]
+        pcols = [c for c in ["hostname", "user_name", "location", "make_model", "o365_status"] if c in pending.columns]
+        st.dataframe(pending[pcols] if pcols else pending, use_container_width=True, hide_index=True)
+    st.markdown("### Warranty notes")
+    wcols = [c for c in ["hostname", "user_name", "location", "warranty_text", "purchase_date"] if c in assets.columns]
+    st.dataframe(assets[wcols].dropna(subset=["warranty_text"]) if "warranty_text" in assets.columns else assets[wcols], use_container_width=True, hide_index=True)
 
 
 # ---------- Phase 1: Repairs & Expense helpers ----------
@@ -2742,7 +3113,7 @@ def get_navigation_groups(role):
         '📊 Dashboard': ['Home', 'Executive Command Center', 'Overview'],
         '🎫 Operations': ['Ticket Operations', 'Task Center', 'Team Chat'],
         '📈 Analytics': ['Reports', 'AVP Dashboard', 'Department Health', 'Vendor Dashboard'],
-        '🖥 Infrastructure': ['NAS Monitoring', 'Asset Health', 'Repairs & Maintenance', 'Expense Register'],
+        '🖥 Infrastructure': ['NAS Monitoring', 'Asset Health', 'Repairs & Maintenance', 'Expense Register', 'License Inventory'],
         '⚙ Administration': ['Admin Tools'],
     }
     return {g: [p for p in plist if p in pages] for g, plist in groups.items() if any(p in pages for p in plist)}
@@ -2752,7 +3123,7 @@ def page_breadcrumb(page):
         'Home': 'Home', 'Executive Command Center': 'Home > Dashboard > Executive Command Center', 'Overview': 'Home > Dashboard > Overview',
         'Ticket Operations': 'Home > Operations > Ticket Operations', 'Task Center': 'Home > Operations > Task Center', 'Team Chat': 'Home > Operations > Team Chat',
         'Reports': 'Home > Analytics > Reports', 'AVP Dashboard': 'Home > Analytics > AVP Dashboard', 'Department Health': 'Home > Analytics > Department Health',
-        'Vendor Dashboard': 'Home > Analytics > Vendor Dashboard', 'NAS Monitoring': 'Home > Infrastructure > NAS Monitoring', 'Asset Health': 'Home > Infrastructure > Asset Health', 'Repairs & Maintenance': 'Home > Infrastructure > Repairs & Maintenance', 'Expense Register': 'Home > Infrastructure > Expense Register',
+        'Vendor Dashboard': 'Home > Analytics > Vendor Dashboard', 'NAS Monitoring': 'Home > Infrastructure > NAS Monitoring', 'Asset Health': 'Home > Infrastructure > Asset Health', 'Repairs & Maintenance': 'Home > Infrastructure > Repairs & Maintenance', 'Expense Register': 'Home > Infrastructure > Expense Register', 'License Inventory': 'Home > Infrastructure > License Inventory',
         'Admin Tools': 'Home > Administration > Admin Tools',
     }
     return mapping.get(page, f'Home > {page}')
@@ -3786,6 +4157,9 @@ def render_dashboard(conn):
 
     elif page == "Expense Register":
         render_expenses_page(conn, st.session_state.get('username', 'system'))
+
+    elif page == "License Inventory":
+        render_license_inventory_page(conn, role, st.session_state.get('username', 'system'))
 
     elif page == "Team Chat":
         st.markdown('''<div class="panel"><div class="panel-title">Team Chat</div><div class="panel-sub">Unread badges, presence indicators, mentions, and ticket-linked collaboration stay functionally unchanged while using a cleaner shell.</div></div>''', unsafe_allow_html=True)
