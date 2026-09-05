@@ -1339,9 +1339,9 @@ def bootstrap_auth_gate(conn):
         st.stop()
 
 def get_role_pages(role):
-    if role == "IT Manager": return ["Home", "Executive Command Center", "Overview", "Ticket Operations", "NAS Monitoring", "Reports", "Task Center", "Admin Tools", "AVP Dashboard", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health"]
-    if role == "IT AM": return ["Home", "Executive Command Center", "Overview", "Ticket Operations", "NAS Monitoring", "Reports", "Task Center", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health"]
-    if role == "AVP": return ["Home", "Executive Command Center", "Overview", "AVP Dashboard", "Reports", "Task Center", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health"]
+    if role == "IT Manager": return ["Home", "Executive Command Center", "Overview", "Ticket Operations", "NAS Monitoring", "Reports", "Task Center", "Admin Tools", "AVP Dashboard", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health", "Repairs & Maintenance", "Expense Register"]
+    if role == "IT AM": return ["Home", "Executive Command Center", "Overview", "Ticket Operations", "NAS Monitoring", "Reports", "Task Center", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health", "Repairs & Maintenance", "Expense Register"]
+    if role == "AVP": return ["Home", "Executive Command Center", "Overview", "AVP Dashboard", "Reports", "Task Center", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health", "Repairs & Maintenance", "Expense Register"]
     return ["Home", "Overview", "Ticket Operations", "NAS Monitoring", "Task Center", "Team Chat"]
 
 def create_task(conn, payload):
@@ -2118,8 +2118,500 @@ def load_assets_df(conn):
         return pd.DataFrame(columns=['id','asset_id','asset_type','location','vendor','purchase_date','warranty_end','status','hostname','serial_no','user_name','purchase_value','make_model','notes'])
 
 def create_asset(conn, payload):
-    conn.execute('INSERT INTO asset_registry (asset_id, asset_type, location, vendor, purchase_date, warranty_end, status) VALUES (?, ?, ?, ?, ?, ?, ?)', (payload.get('asset_id'), payload.get('asset_type'), payload.get('location'), payload.get('vendor'), payload.get('purchase_date'), payload.get('warranty_end'), payload.get('status','Active')))
+    conn.execute(
+        """INSERT INTO asset_registry
+        (asset_id, asset_type, location, vendor, purchase_date, warranty_end, status, hostname, serial_no, user_name, purchase_value, make_model, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            payload.get("asset_id"),
+            payload.get("asset_type"),
+            payload.get("location"),
+            payload.get("vendor"),
+            payload.get("purchase_date"),
+            payload.get("warranty_end"),
+            payload.get("status", "Active"),
+            payload.get("hostname"),
+            payload.get("serial_no"),
+            payload.get("user_name"),
+            payload.get("purchase_value"),
+            payload.get("make_model"),
+            payload.get("notes"),
+        ),
+    )
     conn.commit()
+
+
+# ---------- Phase 1: Repairs & Expense helpers ----------
+
+def load_repair_vendors_df(conn):
+    try:
+        return pd.read_sql_query(
+            "SELECT id, name, contact_person, phone, email, address, is_active FROM repair_vendors ORDER BY name",
+            conn,
+        )
+    except Exception:
+        return pd.DataFrame(columns=["id", "name", "contact_person", "phone", "email", "address", "is_active"])
+
+
+def seed_default_repair_vendors(conn):
+    try:
+        cur = conn.execute("SELECT COUNT(*) FROM repair_vendors").fetchone()[0]
+        if cur and int(cur) > 0:
+            return
+        defaults = [
+            ("In-House IT", "IT Team", "", "", "", 1),
+            ("Local Hardware Vendor", "", "", "", "", 1),
+            ("OEM / Brand Service", "", "", "", "", 1),
+        ]
+        conn.executemany(
+            "INSERT INTO repair_vendors (name, contact_person, phone, email, address, is_active) VALUES (?, ?, ?, ?, ?, ?)",
+            defaults,
+        )
+        conn.commit()
+    except Exception:
+        pass
+
+
+def create_repair_vendor(conn, payload):
+    conn.execute(
+        "INSERT INTO repair_vendors (name, contact_person, phone, email, address, is_active) VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            payload.get("name"),
+            payload.get("contact_person"),
+            payload.get("phone"),
+            payload.get("email"),
+            payload.get("address"),
+            int(payload.get("is_active", 1)),
+        ),
+    )
+    conn.commit()
+
+
+def load_asset_repairs_df(conn):
+    try:
+        return pd.read_sql_query(
+            """
+            SELECT r.id, r.asset_id, r.hostname, r.repair_date, r.problem_description, r.diagnosis,
+                   r.repair_type, r.vendor_id, v.name AS vendor_name, r.cost_amount, r.currency,
+                   r.warranty_claimed, r.warranty_details, r.status, r.related_ticket_id, r.remarks,
+                   r.created_by, r.created_at,
+                   a.asset_id AS registry_asset_id, a.location AS asset_location, a.purchase_value
+            FROM asset_repairs r
+            LEFT JOIN repair_vendors v ON v.id = r.vendor_id
+            LEFT JOIN asset_registry a ON a.id = r.asset_id
+            ORDER BY r.repair_date DESC, r.id DESC
+            """,
+            conn,
+        )
+    except Exception:
+        return pd.DataFrame(
+            columns=[
+                "id", "asset_id", "hostname", "repair_date", "problem_description", "diagnosis",
+                "repair_type", "vendor_id", "vendor_name", "cost_amount", "currency",
+                "warranty_claimed", "warranty_details", "status", "related_ticket_id", "remarks",
+                "created_by", "created_at", "registry_asset_id", "asset_location", "purchase_value",
+            ]
+        )
+
+
+def create_asset_repair(conn, payload):
+    conn.execute(
+        """INSERT INTO asset_repairs
+        (asset_id, hostname, repair_date, problem_description, diagnosis, repair_type, vendor_id,
+         cost_amount, currency, warranty_claimed, warranty_details, status, related_ticket_id, remarks, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            payload.get("asset_id"),
+            payload.get("hostname"),
+            payload.get("repair_date"),
+            payload.get("problem_description"),
+            payload.get("diagnosis"),
+            payload.get("repair_type"),
+            payload.get("vendor_id"),
+            float(payload.get("cost_amount") or 0),
+            payload.get("currency", "INR"),
+            int(payload.get("warranty_claimed", 0)),
+            payload.get("warranty_details"),
+            payload.get("status", "completed"),
+            payload.get("related_ticket_id"),
+            payload.get("remarks"),
+            payload.get("created_by"),
+        ),
+    )
+    conn.commit()
+    # Optional mirror expense row for repair cost
+    cost = float(payload.get("cost_amount") or 0)
+    if cost > 0:
+        try:
+            rid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            conn.execute(
+                """INSERT INTO it_expenses
+                (expense_date, category, description, amount, currency, related_asset_id, related_repair_id, vendor_id, payment_mode, bill_number, created_by)
+                VALUES (?, 'repairs', ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    payload.get("repair_date"),
+                    payload.get("problem_description") or "Asset repair",
+                    cost,
+                    payload.get("currency", "INR"),
+                    payload.get("asset_id"),
+                    rid,
+                    payload.get("vendor_id"),
+                    payload.get("payment_mode"),
+                    payload.get("bill_number"),
+                    payload.get("created_by"),
+                ),
+            )
+            conn.commit()
+        except Exception:
+            pass
+
+
+def load_it_expenses_df(conn):
+    try:
+        return pd.read_sql_query(
+            """
+            SELECT e.id, e.expense_date, e.category, e.description, e.amount, e.currency,
+                   e.related_asset_id, e.related_repair_id, e.vendor_id, v.name AS vendor_name,
+                   e.payment_mode, e.bill_number, e.bill_attached, e.created_by, e.created_at,
+                   a.hostname AS asset_hostname, a.location AS asset_location
+            FROM it_expenses e
+            LEFT JOIN repair_vendors v ON v.id = e.vendor_id
+            LEFT JOIN asset_registry a ON a.id = e.related_asset_id
+            ORDER BY e.expense_date DESC, e.id DESC
+            """,
+            conn,
+        )
+    except Exception:
+        return pd.DataFrame(
+            columns=[
+                "id", "expense_date", "category", "description", "amount", "currency",
+                "related_asset_id", "related_repair_id", "vendor_id", "vendor_name",
+                "payment_mode", "bill_number", "bill_attached", "created_by", "created_at",
+                "asset_hostname", "asset_location",
+            ]
+        )
+
+
+def create_it_expense(conn, payload):
+    conn.execute(
+        """INSERT INTO it_expenses
+        (expense_date, category, description, amount, currency, related_asset_id, related_repair_id,
+         vendor_id, payment_mode, bill_number, bill_attached, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            payload.get("expense_date"),
+            payload.get("category", "other"),
+            payload.get("description"),
+            float(payload.get("amount") or 0),
+            payload.get("currency", "INR"),
+            payload.get("related_asset_id"),
+            payload.get("related_repair_id"),
+            payload.get("vendor_id"),
+            payload.get("payment_mode"),
+            payload.get("bill_number"),
+            int(payload.get("bill_attached", 0)),
+            payload.get("created_by"),
+        ),
+    )
+    conn.commit()
+
+
+def build_repair_cost_analytics(repairs_df, expenses_df):
+    """Basic Phase 1 analytics: totals by asset, location, vendor, month."""
+    out = {
+        "total_repair_spend": 0.0,
+        "total_expense_spend": 0.0,
+        "by_asset": pd.DataFrame(),
+        "by_location": pd.DataFrame(),
+        "by_vendor": pd.DataFrame(),
+        "by_month": pd.DataFrame(),
+        "top_costly_assets": pd.DataFrame(),
+    }
+    if repairs_df is not None and not repairs_df.empty:
+        r = repairs_df.copy()
+        r["cost_amount"] = pd.to_numeric(r.get("cost_amount"), errors="coerce").fillna(0)
+        out["total_repair_spend"] = float(r["cost_amount"].sum())
+        by_host = (
+            r.groupby(r["hostname"].fillna("Unknown").astype(str), as_index=False)
+            .agg(Repairs=("id", "size"), Total_Spend=("cost_amount", "sum"), Last_Repair=("repair_date", "max"))
+            .sort_values("Total_Spend", ascending=False)
+        )
+        by_host["Total_Spend"] = by_host["Total_Spend"].round(2)
+        out["by_asset"] = by_host
+        out["top_costly_assets"] = by_host.head(10)
+        if "asset_location" in r.columns:
+            by_loc = (
+                r.groupby(r["asset_location"].fillna("Unknown").astype(str), as_index=False)
+                .agg(Repairs=("id", "size"), Total_Spend=("cost_amount", "sum"))
+                .sort_values("Total_Spend", ascending=False)
+            )
+            by_loc["Total_Spend"] = by_loc["Total_Spend"].round(2)
+            out["by_location"] = by_loc
+        by_vendor = (
+            r.groupby(r.get("vendor_name", pd.Series(dtype=str)).fillna("In-House / Unknown").astype(str), as_index=False)
+            .agg(Repairs=("id", "size"), Total_Spend=("cost_amount", "sum"))
+            .sort_values("Total_Spend", ascending=False)
+        )
+        by_vendor["Total_Spend"] = by_vendor["Total_Spend"].round(2)
+        out["by_vendor"] = by_vendor
+        r["_month"] = pd.to_datetime(r["repair_date"], errors="coerce").dt.to_period("M").astype(str)
+        by_month = (
+            r.dropna(subset=["_month"])
+            .groupby("_month", as_index=False)
+            .agg(Repairs=("id", "size"), Total_Spend=("cost_amount", "sum"))
+            .sort_values("_month")
+        )
+        by_month["Total_Spend"] = by_month["Total_Spend"].round(2)
+        by_month = by_month.rename(columns={"_month": "Month"})
+        out["by_month"] = by_month
+    if expenses_df is not None and not expenses_df.empty:
+        e = expenses_df.copy()
+        e["amount"] = pd.to_numeric(e.get("amount"), errors="coerce").fillna(0)
+        out["total_expense_spend"] = float(e["amount"].sum())
+    return out
+
+
+def render_repairs_page(conn, username):
+    ensure_enterprise_extension_tables(conn)
+    seed_default_repair_vendors(conn)
+    st.markdown(
+        """<div class="panel"><div class="panel-title">Repairs & Maintenance</div>
+        <div class="panel-sub">Log laptop/PC repairs, cost, vendor, and track spend per asset.</div></div>""",
+        unsafe_allow_html=True,
+    )
+    assets_df = load_assets_df(conn)
+    vendors_df = load_repair_vendors_df(conn)
+    repairs_df = load_asset_repairs_df(conn)
+
+    k1, k2, k3, k4 = st.columns(4)
+    total_spend = float(pd.to_numeric(repairs_df.get("cost_amount"), errors="coerce").fillna(0).sum()) if not repairs_df.empty else 0.0
+    k1.metric("Repair records", int(len(repairs_df)))
+    k2.metric("Total repair spend (INR)", f"{total_spend:,.0f}")
+    k3.metric("Assets registered", int(len(assets_df)))
+    k4.metric("Active vendors", int(vendors_df[vendors_df.get("is_active", 1) == 1].shape[0]) if not vendors_df.empty else 0)
+
+    tab_log, tab_list, tab_vendors, tab_analytics = st.tabs(
+        ["Log repair", "Repair history", "Vendors", "Cost analytics"]
+    )
+
+    with tab_log:
+        st.caption("Link a repair to a registered asset when possible.")
+        c1, c2 = st.columns(2)
+        asset_options = ["— None —"]
+        asset_map = {}
+        if not assets_df.empty:
+            for _, row in assets_df.iterrows():
+                label = f"{row.get('hostname') or row.get('asset_id') or row.get('id')} | {row.get('asset_type','')} | {row.get('location','')}"
+                asset_options.append(label)
+                asset_map[label] = int(row["id"])
+        chosen_asset = c1.selectbox("Asset", asset_options, key="repair_asset_sel")
+        hostname = c2.text_input("Hostname (auto or manual)", value="" if chosen_asset == "— None —" else chosen_asset.split(" | ")[0], key="repair_hostname")
+        asset_id = asset_map.get(chosen_asset)
+
+        c3, c4, c5 = st.columns(3)
+        repair_date = c3.date_input("Repair date", key="repair_date")
+        repair_type = c4.selectbox(
+            "Repair type",
+            ["hardware", "software", "battery", "display", "keyboard", "motherboard", "other"],
+            key="repair_type",
+        )
+        status = c5.selectbox("Status", ["reported", "in progress", "completed", "scrapped"], index=2, key="repair_status")
+
+        problem = st.text_area("Problem description", key="repair_problem")
+        diagnosis = st.text_input("Diagnosis", key="repair_diagnosis")
+
+        c6, c7, c8 = st.columns(3)
+        vendor_options = ["— In-house / None —"]
+        vendor_map = {}
+        if not vendors_df.empty:
+            for _, row in vendors_df.iterrows():
+                if int(row.get("is_active", 1) or 0) != 1:
+                    continue
+                vendor_options.append(str(row["name"]))
+                vendor_map[str(row["name"])] = int(row["id"])
+        vendor_name = c6.selectbox("Vendor", vendor_options, key="repair_vendor")
+        cost = c7.number_input("Cost amount (INR)", min_value=0.0, step=100.0, key="repair_cost")
+        warranty = c8.checkbox("Warranty claimed", key="repair_warranty")
+        warranty_details = st.text_input("Warranty details", key="repair_warranty_details") if warranty else ""
+        remarks = st.text_input("Remarks", key="repair_remarks")
+
+        if st.button("Save repair", type="primary", key="repair_save_btn"):
+            if not problem.strip() and not hostname.strip():
+                st.warning("Enter at least a hostname or problem description.")
+            else:
+                create_asset_repair(
+                    conn,
+                    {
+                        "asset_id": asset_id,
+                        "hostname": hostname.strip() or None,
+                        "repair_date": str(repair_date),
+                        "problem_description": problem.strip(),
+                        "diagnosis": diagnosis.strip(),
+                        "repair_type": repair_type,
+                        "vendor_id": vendor_map.get(vendor_name),
+                        "cost_amount": cost,
+                        "currency": "INR",
+                        "warranty_claimed": 1 if warranty else 0,
+                        "warranty_details": warranty_details,
+                        "status": status,
+                        "remarks": remarks,
+                        "created_by": username,
+                    },
+                )
+                st.success("Repair logged." + (" Expense entry created automatically." if cost > 0 else ""))
+                st.rerun()
+
+    with tab_list:
+        f1, f2, f3 = st.columns(3)
+        loc_filter = f1.text_input("Filter location contains", key="repair_loc_filter")
+        type_filter = f2.selectbox("Repair type", ["All"] + ["hardware", "software", "battery", "display", "keyboard", "motherboard", "other"], key="repair_type_filter")
+        q = f3.text_input("Search hostname / problem", key="repair_search")
+        view = repairs_df.copy()
+        if not view.empty:
+            if loc_filter.strip() and "asset_location" in view.columns:
+                view = view[view["asset_location"].fillna("").astype(str).str.contains(loc_filter, case=False, na=False)]
+            if type_filter != "All":
+                view = view[view["repair_type"].astype(str) == type_filter]
+            if q.strip():
+                mask = (
+                    view["hostname"].fillna("").astype(str).str.contains(q, case=False, na=False)
+                    | view["problem_description"].fillna("").astype(str).str.contains(q, case=False, na=False)
+                )
+                view = view[mask]
+            show_cols = [c for c in ["repair_date", "hostname", "asset_location", "repair_type", "problem_description", "vendor_name", "cost_amount", "status", "created_by"] if c in view.columns]
+            st.dataframe(view[show_cols] if show_cols else view, use_container_width=True, hide_index=True)
+        else:
+            st.info("No repairs logged yet. Use the Log repair tab to add the first one.")
+
+    with tab_vendors:
+        st.caption("Manage repair vendors (in-house is supported via empty vendor).")
+        with st.expander("Add vendor"):
+            vc1, vc2 = st.columns(2)
+            vname = vc1.text_input("Vendor name", key="vendor_name_new")
+            vcontact = vc2.text_input("Contact person", key="vendor_contact_new")
+            vc3, vc4 = st.columns(2)
+            vphone = vc3.text_input("Phone", key="vendor_phone_new")
+            vemail = vc4.text_input("Email", key="vendor_email_new")
+            vaddr = st.text_input("Address", key="vendor_addr_new")
+            if st.button("Add vendor", key="vendor_add_btn"):
+                if not vname.strip():
+                    st.warning("Vendor name is required.")
+                else:
+                    create_repair_vendor(conn, {"name": vname.strip(), "contact_person": vcontact, "phone": vphone, "email": vemail, "address": vaddr, "is_active": 1})
+                    st.success("Vendor added.")
+                    st.rerun()
+        st.dataframe(vendors_df, use_container_width=True, hide_index=True)
+
+    with tab_analytics:
+        expenses_df = load_it_expenses_df(conn)
+        analytics = build_repair_cost_analytics(repairs_df, expenses_df)
+        a1, a2 = st.columns(2)
+        a1.metric("Total repair spend (INR)", f"{analytics['total_repair_spend']:,.0f}")
+        a2.metric("Total IT expenses (INR)", f"{analytics['total_expense_spend']:,.0f}")
+        st.markdown("##### Top costly assets")
+        st.dataframe(analytics["top_costly_assets"], use_container_width=True, hide_index=True)
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("##### Spend by location")
+            st.dataframe(analytics["by_location"], use_container_width=True, hide_index=True)
+        with c2:
+            st.markdown("##### Spend by vendor")
+            st.dataframe(analytics["by_vendor"], use_container_width=True, hide_index=True)
+        st.markdown("##### Monthly repair spend")
+        st.dataframe(analytics["by_month"], use_container_width=True, hide_index=True)
+
+
+def render_expenses_page(conn, username):
+    ensure_enterprise_extension_tables(conn)
+    seed_default_repair_vendors(conn)
+    st.markdown(
+        """<div class="panel"><div class="panel-title">Expense Register</div>
+        <div class="panel-sub">Basic IT expense tracking — repairs, consumables, licenses, upgrades, network, other.</div></div>""",
+        unsafe_allow_html=True,
+    )
+    expenses_df = load_it_expenses_df(conn)
+    assets_df = load_assets_df(conn)
+    vendors_df = load_repair_vendors_df(conn)
+
+    total = float(pd.to_numeric(expenses_df.get("amount"), errors="coerce").fillna(0).sum()) if not expenses_df.empty else 0.0
+    e1, e2, e3 = st.columns(3)
+    e1.metric("Expense entries", int(len(expenses_df)))
+    e2.metric("Total spend (INR)", f"{total:,.0f}")
+    if not expenses_df.empty and "category" in expenses_df.columns:
+        top_cat = expenses_df.groupby("category")["amount"].sum().sort_values(ascending=False)
+        e3.metric("Top category", f"{top_cat.index[0]} ({top_cat.iloc[0]:,.0f})" if len(top_cat) else "—")
+    else:
+        e3.metric("Top category", "—")
+
+    t1, t2 = st.tabs(["Add expense", "Expense list"])
+    with t1:
+        c1, c2, c3 = st.columns(3)
+        exp_date = c1.date_input("Expense date", key="exp_date")
+        category = c2.selectbox("Category", ["repairs", "consumables", "licenses", "upgrades", "network", "other"], key="exp_cat")
+        amount = c3.number_input("Amount (INR)", min_value=0.0, step=50.0, key="exp_amount")
+        description = st.text_input("Description", key="exp_desc")
+        c4, c5, c6 = st.columns(3)
+        payment = c4.selectbox("Payment mode", ["UPI", "bank transfer", "cash", "card", "other"], key="exp_pay")
+        bill_no = c5.text_input("Bill / invoice number", key="exp_bill")
+        vendor_options = ["— None —"]
+        vendor_map = {}
+        if not vendors_df.empty:
+            for _, row in vendors_df.iterrows():
+                vendor_options.append(str(row["name"]))
+                vendor_map[str(row["name"])] = int(row["id"])
+        vendor_sel = c6.selectbox("Vendor", vendor_options, key="exp_vendor")
+        asset_options = ["— None —"]
+        asset_map = {}
+        if not assets_df.empty:
+            for _, row in assets_df.iterrows():
+                label = f"{row.get('hostname') or row.get('asset_id') or row.get('id')} | {row.get('location','')}"
+                asset_options.append(label)
+                asset_map[label] = int(row["id"])
+        asset_sel = st.selectbox("Related asset (optional)", asset_options, key="exp_asset")
+        if st.button("Save expense", type="primary", key="exp_save"):
+            if amount <= 0:
+                st.warning("Amount must be greater than 0.")
+            else:
+                create_it_expense(
+                    conn,
+                    {
+                        "expense_date": str(exp_date),
+                        "category": category,
+                        "description": description,
+                        "amount": amount,
+                        "currency": "INR",
+                        "related_asset_id": asset_map.get(asset_sel),
+                        "vendor_id": vendor_map.get(vendor_sel),
+                        "payment_mode": payment,
+                        "bill_number": bill_no,
+                        "created_by": username,
+                    },
+                )
+                st.success("Expense saved.")
+                st.rerun()
+
+    with t2:
+        f1, f2 = st.columns(2)
+        cat_f = f1.selectbox("Category filter", ["All", "repairs", "consumables", "licenses", "upgrades", "network", "other"], key="exp_cat_f")
+        q = f2.text_input("Search description / bill", key="exp_search")
+        view = expenses_df.copy()
+        if not view.empty:
+            if cat_f != "All":
+                view = view[view["category"].astype(str) == cat_f]
+            if q.strip():
+                view = view[
+                    view["description"].fillna("").astype(str).str.contains(q, case=False, na=False)
+                    | view["bill_number"].fillna("").astype(str).str.contains(q, case=False, na=False)
+                ]
+            cols = [c for c in ["expense_date", "category", "description", "amount", "vendor_name", "payment_mode", "bill_number", "asset_hostname", "asset_location", "created_by"] if c in view.columns]
+            st.dataframe(view[cols] if cols else view, use_container_width=True, hide_index=True)
+            if "category" in view.columns:
+                st.markdown("##### Category summary")
+                summary = view.groupby("category", as_index=False).agg(Entries=("id", "size"), Total=("amount", "sum"))
+                summary["Total"] = summary["Total"].round(2)
+                st.dataframe(summary.sort_values("Total", ascending=False), use_container_width=True, hide_index=True)
+        else:
+            st.info("No expenses yet.")
 
 def build_asset_health(asset_df, ticket_df):
     if asset_df is None or asset_df.empty:
@@ -2250,7 +2742,7 @@ def get_navigation_groups(role):
         '📊 Dashboard': ['Home', 'Executive Command Center', 'Overview'],
         '🎫 Operations': ['Ticket Operations', 'Task Center', 'Team Chat'],
         '📈 Analytics': ['Reports', 'AVP Dashboard', 'Department Health', 'Vendor Dashboard'],
-        '🖥 Infrastructure': ['NAS Monitoring', 'Asset Health'],
+        '🖥 Infrastructure': ['NAS Monitoring', 'Asset Health', 'Repairs & Maintenance', 'Expense Register'],
         '⚙ Administration': ['Admin Tools'],
     }
     return {g: [p for p in plist if p in pages] for g, plist in groups.items() if any(p in pages for p in plist)}
@@ -2260,7 +2752,7 @@ def page_breadcrumb(page):
         'Home': 'Home', 'Executive Command Center': 'Home > Dashboard > Executive Command Center', 'Overview': 'Home > Dashboard > Overview',
         'Ticket Operations': 'Home > Operations > Ticket Operations', 'Task Center': 'Home > Operations > Task Center', 'Team Chat': 'Home > Operations > Team Chat',
         'Reports': 'Home > Analytics > Reports', 'AVP Dashboard': 'Home > Analytics > AVP Dashboard', 'Department Health': 'Home > Analytics > Department Health',
-        'Vendor Dashboard': 'Home > Analytics > Vendor Dashboard', 'NAS Monitoring': 'Home > Infrastructure > NAS Monitoring', 'Asset Health': 'Home > Infrastructure > Asset Health',
+        'Vendor Dashboard': 'Home > Analytics > Vendor Dashboard', 'NAS Monitoring': 'Home > Infrastructure > NAS Monitoring', 'Asset Health': 'Home > Infrastructure > Asset Health', 'Repairs & Maintenance': 'Home > Infrastructure > Repairs & Maintenance', 'Expense Register': 'Home > Infrastructure > Expense Register',
         'Admin Tools': 'Home > Administration > Admin Tools',
     }
     return mapping.get(page, f'Home > {page}')
@@ -3237,28 +3729,63 @@ def render_dashboard(conn):
             st.altair_chart(alt.Chart(dept).mark_bar().encode(x='department:N', y='Load_%:Q', color='Department_Health:N'), use_container_width=True)
 
     elif page == "Asset Health":
-        st.subheader("Asset Health Module")
+        ensure_enterprise_extension_tables(conn)
+        st.subheader("Asset Register")
         assets_df = load_assets_df(conn)
-        with st.expander("Register new asset"):
+        repairs_df = load_asset_repairs_df(conn)
+        with st.expander("Register new asset", expanded=False):
             c1, c2, c3, c4 = st.columns(4)
             asset_id = c1.text_input('Asset ID', key='asset_id_new')
-            asset_type = c2.selectbox('Asset Type', ['Laptop','Desktop','Printer','Camera','Switch','Firewall','Server','UPS'], key='asset_type_new')
-            asset_loc = c3.text_input('Location', key='asset_loc_new')
-            asset_vendor = c4.text_input('Vendor', key='asset_vendor_new')
-            c5, c6, c7 = st.columns(3)
-            purchase_date = c5.date_input('Purchase Date', key='asset_purchase_date')
-            warranty_end = c6.date_input('Warranty End', key='asset_warranty_end')
-            status = c7.selectbox('Status', ['Active','Under Repair','Retired'], key='asset_status_new')
+            hostname = c2.text_input('Hostname', key='asset_hostname_new')
+            asset_type = c3.selectbox('Asset Type', ['Laptop','Desktop','Printer','Camera','Switch','Firewall','Server','UPS','Desktop Server'], key='asset_type_new')
+            asset_loc = c4.text_input('Location', key='asset_loc_new')
+            c5, c6, c7, c8 = st.columns(4)
+            asset_vendor = c5.text_input('Vendor', key='asset_vendor_new')
+            serial_no = c6.text_input('Serial No', key='asset_serial_new')
+            user_name = c7.text_input('Assigned user', key='asset_user_new')
+            purchase_value = c8.number_input('Purchase value (INR)', min_value=0.0, step=1000.0, key='asset_pvalue_new')
+            c9, c10, c11, c12 = st.columns(4)
+            purchase_date = c9.date_input('Purchase Date', key='asset_purchase_date')
+            warranty_end = c10.date_input('Warranty End', key='asset_warranty_end')
+            status = c11.selectbox('Status', ['Active','Under Repair','Retired'], key='asset_status_new')
+            make_model = c12.text_input('Make / Model', key='asset_model_new')
             if st.button('Add Asset', key='asset_add_btn'):
-                create_asset(conn, {'asset_id': asset_id, 'asset_type': asset_type, 'location': asset_loc, 'vendor': asset_vendor, 'purchase_date': str(purchase_date), 'warranty_end': str(warranty_end), 'status': status})
+                create_asset(conn, {
+                    'asset_id': asset_id or hostname, 'asset_type': asset_type, 'location': asset_loc,
+                    'vendor': asset_vendor, 'purchase_date': str(purchase_date), 'warranty_end': str(warranty_end),
+                    'status': status, 'hostname': hostname, 'serial_no': serial_no, 'user_name': user_name,
+                    'purchase_value': purchase_value, 'make_model': make_model,
+                })
                 st.success('Asset added.')
                 st.rerun()
         asset_pack = build_asset_health(assets_df, df_ticket_filtered)
-        st.dataframe(asset_pack.get('registry', pd.DataFrame()), use_container_width=True)
+        reg = asset_pack.get('registry', pd.DataFrame())
+        # Attach repair spend per hostname
+        if not repairs_df.empty and not reg.empty:
+            spend = repairs_df.copy()
+            spend['cost_amount'] = pd.to_numeric(spend.get('cost_amount'), errors='coerce').fillna(0)
+            by_h = spend.groupby(spend['hostname'].fillna('').astype(str)).agg(Repair_Count=('id','size'), Repair_Spend=('cost_amount','sum')).reset_index()
+            if 'hostname' in reg.columns:
+                reg = reg.merge(by_h, left_on=reg['hostname'].fillna('').astype(str), right_on='hostname', how='left', suffixes=('', '_r'))
+                reg['Repair_Count'] = reg.get('Repair_Count', 0).fillna(0).astype(int)
+                reg['Repair_Spend'] = reg.get('Repair_Spend', 0).fillna(0).round(2)
+        st.dataframe(reg, use_container_width=True, hide_index=True)
         st.markdown('### Assets Near Warranty Expiry')
-        st.dataframe(asset_pack.get('near_expiry', pd.DataFrame()), use_container_width=True)
+        st.dataframe(asset_pack.get('near_expiry', pd.DataFrame()), use_container_width=True, hide_index=True)
         st.markdown('### Replacement Recommendations')
-        st.dataframe(asset_pack.get('recommendations', pd.DataFrame()), use_container_width=True)
+        st.dataframe(asset_pack.get('recommendations', pd.DataFrame()), use_container_width=True, hide_index=True)
+        st.markdown('### Repair spend by asset')
+        if not repairs_df.empty:
+            analytics = build_repair_cost_analytics(repairs_df, load_it_expenses_df(conn))
+            st.dataframe(analytics.get('by_asset', pd.DataFrame()), use_container_width=True, hide_index=True)
+        else:
+            st.caption('No repairs logged yet — open **Repairs & Maintenance** to add history.')
+
+    elif page == "Repairs & Maintenance":
+        render_repairs_page(conn, st.session_state.get('username', 'system'))
+
+    elif page == "Expense Register":
+        render_expenses_page(conn, st.session_state.get('username', 'system'))
 
     elif page == "Team Chat":
         st.markdown('''<div class="panel"><div class="panel-title">Team Chat</div><div class="panel-sub">Unread badges, presence indicators, mentions, and ticket-linked collaboration stay functionally unchanged while using a cleaner shell.</div></div>''', unsafe_allow_html=True)
