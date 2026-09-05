@@ -1339,9 +1339,9 @@ def bootstrap_auth_gate(conn):
         st.stop()
 
 def get_role_pages(role):
-    if role == "IT Manager": return ["Home", "Executive Command Center", "Overview", "Ticket Operations", "NAS Monitoring", "Reports", "Task Center", "Admin Tools", "AVP Dashboard", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health", "Repairs & Maintenance", "Expense Register", "License Inventory"]
-    if role == "IT AM": return ["Home", "Executive Command Center", "Overview", "Ticket Operations", "NAS Monitoring", "Reports", "Task Center", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health", "Repairs & Maintenance", "Expense Register", "License Inventory"]
-    if role == "AVP": return ["Home", "Executive Command Center", "Overview", "AVP Dashboard", "Reports", "Task Center", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health", "Repairs & Maintenance", "Expense Register", "License Inventory"]
+    if role == "IT Manager": return ["Home", "Executive Command Center", "Overview", "Ticket Operations", "NAS Monitoring", "Reports", "Task Center", "Admin Tools", "AVP Dashboard", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health", "Repairs & Maintenance", "Expense Register", "License Inventory", "Preventive Maintenance"]
+    if role == "IT AM": return ["Home", "Executive Command Center", "Overview", "Ticket Operations", "NAS Monitoring", "Reports", "Task Center", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health", "Repairs & Maintenance", "Expense Register", "License Inventory", "Preventive Maintenance"]
+    if role == "AVP": return ["Home", "Executive Command Center", "Overview", "AVP Dashboard", "Reports", "Task Center", "Team Chat", "Vendor Dashboard", "Department Health", "Asset Health", "Repairs & Maintenance", "Expense Register", "License Inventory", "Preventive Maintenance"]
     return ["Home", "Overview", "Ticket Operations", "NAS Monitoring", "Task Center", "Team Chat"]
 
 def create_task(conn, payload):
@@ -1761,12 +1761,45 @@ CREATE TABLE IF NOT EXISTS it_expenses (
 )
 """
 
+
+PMP_ASSETS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS pmp_assets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    hostname TEXT,
+    asset_type TEXT,
+    make_model TEXT,
+    location TEXT,
+    in_pm_scope INTEGER DEFAULT 0,
+    check_frequency TEXT,
+    age_text TEXT,
+    source TEXT DEFAULT 'pmp_excel',
+    UNIQUE(hostname)
+)
+"""
+
+PMP_CHECKS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS pmp_checks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pmp_asset_id INTEGER,
+    hostname TEXT,
+    period_label TEXT,
+    due_date TEXT,
+    done_date TEXT,
+    status TEXT,
+    remarks TEXT,
+    updated_by TEXT,
+    updated_at TEXT DEFAULT (datetime('now'))
+)
+"""
+
 def ensure_enterprise_extension_tables(conn):
     try:
         conn.execute(ASSET_REGISTRY_TABLE_SQL)
         conn.execute(REPAIR_VENDORS_TABLE_SQL)
         conn.execute(ASSET_REPAIRS_TABLE_SQL)
         conn.execute(IT_EXPENSES_TABLE_SQL)
+        conn.execute(PMP_ASSETS_TABLE_SQL)
+        conn.execute(PMP_CHECKS_TABLE_SQL)
         # Safe column adds for older asset_registry installs
         existing = {r[1] for r in conn.execute("PRAGMA table_info(asset_registry)").fetchall()}
         for col, decl in [
@@ -1784,15 +1817,109 @@ def ensure_enterprise_extension_tables(conn):
             ("o365_status", "TEXT"),
             ("warranty_text", "TEXT"),
             ("asset_source", "TEXT"),
+            ("entity", "TEXT"),
         ]:
             if col not in existing:
                 try:
                     conn.execute(f"ALTER TABLE asset_registry ADD COLUMN {col} {decl}")
                 except Exception:
                     pass
+        # entity columns on related tables
+        for table, cols in [
+            ("asset_repairs", [("entity", "TEXT")]),
+            ("it_expenses", [("entity", "TEXT")]),
+            ("pmp_assets", [("entity", "TEXT")]),
+            ("pmp_checks", [("entity", "TEXT")]),
+        ]:
+            try:
+                existing_t = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+                for col, decl in cols:
+                    if col not in existing_t:
+                        conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+            except Exception:
+                pass
+        conn.commit()
+        try:
+            backfill_entity_values(conn)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
+def infer_entity(hostname=None, location=None, default="Vega"):
+    """Classify row as Vega or Knitpro from hostname / location cues."""
+    h = (str(hostname) if hostname is not None else "").upper()
+    loc = (str(location) if location is not None else "").upper()
+    blob = h + " " + loc
+    if any(x in blob for x in ("KNIT", "KNITPRO", "VIPL")):
+        return "Knitpro"
+    if any(x in blob for x in ("VEGA", "RISE", "SERY", "SECTOR")):
+        return "Vega"
+    if "PLOT" in loc and "KNIT" in loc:
+        return "Knitpro"
+    return default
+
+
+def backfill_entity_values(conn):
+    """Fill missing entity on assets / repairs / pmp from hostname+location."""
+    try:
+        rows = conn.execute(
+            "SELECT id, hostname, location, entity FROM asset_registry WHERE entity IS NULL OR entity=''"
+        ).fetchall()
+        for rid, host, loc, _ in rows:
+            ent = infer_entity(host, loc)
+            conn.execute("UPDATE asset_registry SET entity=? WHERE id=?", (ent, rid))
+        # repairs
+        try:
+            rows = conn.execute(
+                "SELECT id, hostname, entity FROM asset_repairs WHERE entity IS NULL OR entity=''"
+            ).fetchall()
+            for rid, host, _ in rows:
+                conn.execute("UPDATE asset_repairs SET entity=? WHERE id=?", (infer_entity(host, None), rid))
+        except Exception:
+            pass
+        try:
+            rows = conn.execute(
+                "SELECT id, hostname, location, entity FROM pmp_assets WHERE entity IS NULL OR entity=''"
+            ).fetchall()
+            for rid, host, loc, _ in rows:
+                conn.execute("UPDATE pmp_assets SET entity=? WHERE id=?", (infer_entity(host, loc, default="Knitpro"), rid))
+        except Exception:
+            pass
+        try:
+            rows = conn.execute(
+                "SELECT id, hostname, entity FROM pmp_checks WHERE entity IS NULL OR entity=''"
+            ).fetchall()
+            for rid, host, _ in rows:
+                conn.execute("UPDATE pmp_checks SET entity=? WHERE id=?", (infer_entity(host, None, default="Knitpro"), rid))
+        except Exception:
+            pass
         conn.commit()
     except Exception:
         pass
+
+
+def filter_df_by_entity(df, entity_filter):
+    if df is None or df.empty or entity_filter in (None, "All"):
+        return df
+    if "entity" not in df.columns:
+        # derive on the fly
+        out = df.copy()
+        out["_entity"] = [
+            infer_entity(r.get("hostname"), r.get("location") if hasattr(r, "get") else None)
+            for _, r in out.iterrows()
+        ]
+        return out[out["_entity"] == entity_filter].drop(columns=["_entity"], errors="ignore")
+    return df[df["entity"].fillna("").astype(str) == str(entity_filter)]
+
+
+def get_entity_filter_options(role):
+    # IT Manager: All + each entity separately
+    if role in ("IT Manager", "Admin", "admin", "AVP"):
+        return ["All", "Vega", "Knitpro"]
+    # Other roles: can still switch, default All for flexibility
+    return ["All", "Vega", "Knitpro"]
 
 def _status_light(value, green_ok=True):
     if isinstance(value, str):
@@ -2121,16 +2248,16 @@ def build_month_over_month_comparison(df):
 
 def load_assets_df(conn):
     try:
-        return pd.read_sql_query('SELECT id, asset_id, asset_type, location, vendor, purchase_date, warranty_end, status, hostname, serial_no, user_name, purchase_value, make_model, notes, domain_name, windows_edition, windows_key, office_edition, office_key, o365_status, warranty_text, asset_source FROM asset_registry ORDER BY id DESC', conn)
+        return pd.read_sql_query('SELECT id, asset_id, asset_type, location, vendor, purchase_date, warranty_end, status, hostname, serial_no, user_name, purchase_value, make_model, notes, domain_name, windows_edition, windows_key, office_edition, office_key, o365_status, warranty_text, asset_source, entity FROM asset_registry ORDER BY id DESC', conn)
     except Exception:
-        return pd.DataFrame(columns=['id','asset_id','asset_type','location','vendor','purchase_date','warranty_end','status','hostname','serial_no','user_name','purchase_value','make_model','notes','domain_name','windows_edition','windows_key','office_edition','office_key','o365_status','warranty_text','asset_source'])
+        return pd.DataFrame(columns=['id','asset_id','asset_type','location','vendor','purchase_date','warranty_end','status','hostname','serial_no','user_name','purchase_value','make_model','notes','domain_name','windows_edition','windows_key','office_edition','office_key','o365_status','warranty_text','asset_source','entity'])
 
 def create_asset(conn, payload):
     conn.execute(
         """INSERT INTO asset_registry
         (asset_id, asset_type, location, vendor, purchase_date, warranty_end, status, hostname, serial_no, user_name, purchase_value, make_model, notes,
-         domain_name, windows_edition, windows_key, office_edition, office_key, o365_status, warranty_text, asset_source)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+         domain_name, windows_edition, windows_key, office_edition, office_key, o365_status, warranty_text, asset_source, entity)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             payload.get("asset_id"),
             payload.get("asset_type"),
@@ -2153,6 +2280,7 @@ def create_asset(conn, payload):
             payload.get("o365_status"),
             payload.get("warranty_text"),
             payload.get("asset_source"),
+            payload.get("entity") or infer_entity(payload.get("hostname"), payload.get("location")),
         ),
     )
     conn.commit()
@@ -2329,6 +2457,7 @@ def parse_inventory_excel(file_bytes_or_path):
                 "asset_id": host or serial or user,
                 "status": "Active",
                 "asset_source": "inventory_excel",
+                "entity": infer_entity(host, get(i_loc), default="Vega"),
             })
     return pd.DataFrame(rows_out)
 
@@ -2383,6 +2512,7 @@ def upsert_inventory_rows(conn, rows_df):
             "o365_status": row.get("o365_status"),
             "warranty_text": row.get("warranty_text"),
             "asset_source": row.get("asset_source") or "inventory_excel",
+            "entity": row.get("entity") or infer_entity(host, row.get("location"), default="Vega"),
         }
         if match_id:
             conn.execute(
@@ -2401,13 +2531,14 @@ def upsert_inventory_rows(conn, rows_df):
                     warranty_text=COALESCE(?, warranty_text),
                     purchase_date=COALESCE(?, purchase_date),
                     asset_type=COALESCE(?, asset_type),
-                    asset_source=COALESCE(?, asset_source)
+                    asset_source=COALESCE(?, asset_source),
+                    entity=COALESCE(?, entity)
                 WHERE id=?""",
                 (
                     payload["user_name"], payload["location"], payload["make_model"], payload["serial_no"],
                     payload["hostname"], payload["domain_name"], payload["windows_edition"], payload["windows_key"],
                     payload["office_edition"], payload["office_key"], payload["o365_status"], payload["warranty_text"],
-                    payload["purchase_date"], payload["asset_type"], payload["asset_source"], match_id,
+                    payload["purchase_date"], payload["asset_type"], payload["asset_source"], payload.get("entity"), match_id,
                 ),
             )
             updated += 1
@@ -2422,6 +2553,273 @@ def upsert_inventory_rows(conn, rows_df):
     conn.commit()
     return {"inserted": inserted, "updated": updated, "skipped": skipped}
 
+
+
+def _parse_pmp_date(val):
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return None
+    if hasattr(val, "date"):
+        try:
+            return str(pd.Timestamp(val).date())
+        except Exception:
+            pass
+    s = str(val).strip()
+    if not s or s.lower() in ("nan", "none", "nat"):
+        return None
+    # DD.M.YYYY or D.M.YYYY
+    for fmt in ("%d.%m.%Y", "%d.%m.%y", "%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
+        try:
+            return str(pd.to_datetime(s, format=fmt).date())
+        except Exception:
+            continue
+    dt = pd.to_datetime(s, errors="coerce", dayfirst=True)
+    if pd.notna(dt):
+        return str(dt.date())
+    return s
+
+
+def parse_pmp_excel(file_bytes_or_path):
+    import io
+    if hasattr(file_bytes_or_path, "read"):
+        bio = io.BytesIO(file_bytes_or_path.read())
+    elif isinstance(file_bytes_or_path, (bytes, bytearray)):
+        bio = io.BytesIO(file_bytes_or_path)
+    else:
+        bio = file_bytes_or_path
+    df = pd.read_excel(bio, sheet_name=0, header=None)
+    # Row 3 = month labels, row 4 = DUE/DONE headers, data from row 6
+    month_row = df.iloc[3].tolist() if len(df) > 3 else []
+    periods = []
+    c = 8
+    while c + 1 < len(month_row):
+        label = month_row[c]
+        if pd.isna(label):
+            c += 2
+            continue
+        periods.append((c, c + 1, str(label).strip()))
+        c += 2
+    assets = []
+    checks = []
+    for ridx in range(6, len(df)):
+        row = df.iloc[ridx]
+        host = row.iloc[2] if len(row) > 2 else None
+        if host is None or (isinstance(host, float) and pd.isna(host)):
+            continue
+        host = str(host).strip()
+        if not host or host.upper() in ("HOSTNAME", "PREPARED BY"):
+            continue
+        atype = str(row.iloc[1]).strip() if pd.notna(row.iloc[1]) else "Laptop"
+        age = str(row.iloc[3]).strip() if len(row) > 3 and pd.notna(row.iloc[3]) else None
+        make = str(row.iloc[4]).strip() if len(row) > 4 and pd.notna(row.iloc[4]) else None
+        loc = str(row.iloc[5]).strip() if len(row) > 5 and pd.notna(row.iloc[5]) else None
+        scope_raw = str(row.iloc[6]).strip().upper() if len(row) > 6 and pd.notna(row.iloc[6]) else "NO"
+        in_scope = 1 if scope_raw.startswith("Y") else 0
+        freq = str(row.iloc[7]).strip() if len(row) > 7 and pd.notna(row.iloc[7]) else None
+        ent = infer_entity(host, loc, default="Knitpro")
+        assets.append({
+            "hostname": host,
+            "asset_type": atype,
+            "make_model": make,
+            "location": loc,
+            "in_pm_scope": in_scope,
+            "check_frequency": freq,
+            "age_text": age,
+            "entity": ent,
+        })
+        for due_i, done_i, label in periods:
+            due_v = row.iloc[due_i] if due_i < len(row) else None
+            done_v = row.iloc[done_i] if done_i < len(row) else None
+            due_s = _parse_pmp_date(due_v)
+            done_s = _parse_pmp_date(done_v)
+            if not due_s and not done_s:
+                continue
+            status = "done" if done_s else ("overdue" if due_s else "scheduled")
+            checks.append({
+                "hostname": host,
+                "period_label": label,
+                "due_date": due_s,
+                "done_date": done_s,
+                "status": status,
+                "entity": ent,
+            })
+    return pd.DataFrame(assets), pd.DataFrame(checks)
+
+
+def upsert_pmp_from_frames(conn, assets_df, checks_df):
+    ensure_enterprise_extension_tables(conn)
+    inserted_a = updated_a = 0
+    for _, row in assets_df.iterrows():
+        host = row["hostname"]
+        existing = conn.execute("SELECT id FROM pmp_assets WHERE hostname=?", (host,)).fetchone()
+        if existing:
+            conn.execute(
+                """UPDATE pmp_assets SET asset_type=?, make_model=?, location=?, in_pm_scope=?, check_frequency=?, age_text=?, entity=? WHERE id=?""",
+                (row.get("asset_type"), row.get("make_model"), row.get("location"), int(row.get("in_pm_scope") or 0),
+                 row.get("check_frequency"), row.get("age_text"), row.get("entity") or infer_entity(host, row.get("location"), "Knitpro"), int(existing[0])),
+            )
+            updated_a += 1
+        else:
+            conn.execute(
+                """INSERT INTO pmp_assets (hostname, asset_type, make_model, location, in_pm_scope, check_frequency, age_text, entity)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (host, row.get("asset_type"), row.get("make_model"), row.get("location"), int(row.get("in_pm_scope") or 0),
+                 row.get("check_frequency"), row.get("age_text"), row.get("entity") or infer_entity(host, row.get("location"), "Knitpro")),
+            )
+            inserted_a += 1
+    conn.commit()
+    # map hostname -> id
+    id_map = {r[0]: r[1] for r in conn.execute("SELECT hostname, id FROM pmp_assets").fetchall()}
+    # replace checks for imported hostnames: delete existing periods then insert
+    inserted_c = 0
+    if checks_df is not None and not checks_df.empty:
+        hosts = checks_df["hostname"].dropna().unique().tolist()
+        for h in hosts:
+            conn.execute("DELETE FROM pmp_checks WHERE hostname=?", (h,))
+        for _, row in checks_df.iterrows():
+            host = row["hostname"]
+            conn.execute(
+                """INSERT INTO pmp_checks (pmp_asset_id, hostname, period_label, due_date, done_date, status, entity)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (id_map.get(host), host, row.get("period_label"), row.get("due_date"), row.get("done_date"), row.get("status"),
+                 row.get("entity") or infer_entity(host, None, "Knitpro")),
+            )
+            inserted_c += 1
+    conn.commit()
+    return {"assets_inserted": inserted_a, "assets_updated": updated_a, "checks": inserted_c}
+
+
+def load_pmp_assets_df(conn):
+    try:
+        return pd.read_sql_query("SELECT * FROM pmp_assets ORDER BY hostname", conn)
+    except Exception:
+        return pd.DataFrame()
+
+
+def load_pmp_checks_df(conn):
+    try:
+        return pd.read_sql_query(
+            """SELECT c.*, a.location, a.in_pm_scope, a.asset_type, a.make_model
+               FROM pmp_checks c LEFT JOIN pmp_assets a ON a.hostname = c.hostname
+               ORDER BY c.due_date IS NULL, c.due_date, c.hostname""",
+            conn,
+        )
+    except Exception:
+        return pd.DataFrame()
+
+
+def mark_pmp_done(conn, check_id, done_date, username, remarks=None):
+    conn.execute(
+        """UPDATE pmp_checks SET done_date=?, status='done', remarks=COALESCE(?, remarks), updated_by=?, updated_at=datetime('now') WHERE id=?""",
+        (done_date, remarks, username, int(check_id)),
+    )
+    conn.commit()
+
+
+def build_pmp_status_views(checks_df):
+    today = pd.Timestamp.now().normalize()
+    if checks_df is None or checks_df.empty:
+        return {"overdue": pd.DataFrame(), "due_month": pd.DataFrame(), "done": pd.DataFrame(), "compliance_pct": 0.0}
+    c = checks_df.copy()
+    c["due_ts"] = pd.to_datetime(c.get("due_date"), errors="coerce")
+    c["done_ts"] = pd.to_datetime(c.get("done_date"), errors="coerce")
+    open_mask = c["done_ts"].isna() & c["due_ts"].notna()
+    overdue = c[open_mask & (c["due_ts"] < today)].copy()
+    month_start = today.replace(day=1)
+    if today.month == 12:
+        month_end = today.replace(year=today.year + 1, month=1, day=1) - pd.Timedelta(days=1)
+    else:
+        month_end = today.replace(month=today.month + 1, day=1) - pd.Timedelta(days=1)
+    due_month = c[open_mask & (c["due_ts"] >= month_start) & (c["due_ts"] <= month_end)].copy()
+    done = c[c["done_ts"].notna()].copy()
+    scoped = c
+    total_due = int(c["due_ts"].notna().sum())
+    total_done = int(c["done_ts"].notna().sum())
+    compliance = round((total_done / total_due) * 100, 1) if total_due else 0.0
+    return {"overdue": overdue, "due_month": due_month, "done": done, "compliance_pct": compliance, "total_due": total_due, "total_done": total_done}
+
+
+def render_pmp_page(conn, username):
+    ensure_enterprise_extension_tables(conn)
+    st.markdown(
+        """<div class="panel"><div class="panel-title">Preventive Maintenance (PMP)</div>
+        <div class="panel-sub">Annual IT asset maintenance plan — import VIPL-IT-01-03 style sheets, track due/done, mark complete.</div></div>""",
+        unsafe_allow_html=True,
+    )
+    with st.expander("Import PMP Excel", expanded=False):
+        st.caption("Upload **PMP and IT Complaint.xlsx** (Annual IT PMP sheet).")
+        up = st.file_uploader("PMP workbook", type=["xlsx", "xls"], key="pmp_upload")
+        if up is not None:
+            try:
+                assets_df, checks_df = parse_pmp_excel(up)
+                st.write(f"Parsed **{len(assets_df)}** assets and **{len(checks_df)}** due/done rows. In scope: **{int(assets_df['in_pm_scope'].sum()) if not assets_df.empty else 0}**.")
+                st.dataframe(assets_df.head(20), use_container_width=True, hide_index=True)
+                if not checks_df.empty:
+                    st.dataframe(checks_df.head(20), use_container_width=True, hide_index=True)
+                if st.button("Import PMP data", type="primary", key="pmp_import_btn"):
+                    stats = upsert_pmp_from_frames(conn, assets_df, checks_df)
+                    st.success(f"Assets +{stats['assets_inserted']} / updated {stats['assets_updated']}; checks loaded: {stats['checks']}")
+                    st.rerun()
+            except Exception as e:
+                st.error(f"PMP import failed: {e}")
+
+    assets = filter_df_by_entity(load_pmp_assets_df(conn), st.session_state.get("entity_filter", "All"))
+    checks = filter_df_by_entity(load_pmp_checks_df(conn), st.session_state.get("entity_filter", "All"))
+    views = build_pmp_status_views(checks)
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("PMP assets", len(assets))
+    k2.metric("In PM scope", int(assets["in_pm_scope"].sum()) if not assets.empty and "in_pm_scope" in assets.columns else 0)
+    k3.metric("Overdue", len(views["overdue"]))
+    k4.metric("Compliance %", views["compliance_pct"])
+
+    t1, t2, t3, t4, t5 = st.tabs(["Overdue", "Due this month", "All checks", "Assets in scope", "Mark done"])
+    show_cols = [c for c in ["hostname", "location", "period_label", "due_date", "done_date", "status", "asset_type", "make_model"] if True]
+
+    with t1:
+        od = views["overdue"]
+        cols = [c for c in show_cols if c in od.columns] if not od.empty else []
+        st.dataframe(od[cols] if cols else od, use_container_width=True, hide_index=True)
+        if od.empty:
+            st.caption("No overdue PM checks.")
+    with t2:
+        dm = views["due_month"]
+        cols = [c for c in show_cols if c in dm.columns] if not dm.empty else []
+        st.dataframe(dm[cols] if cols else dm, use_container_width=True, hide_index=True)
+    with t3:
+        cols = [c for c in show_cols if c in checks.columns] if not checks.empty else []
+        st.dataframe(checks[cols] if cols else checks, use_container_width=True, hide_index=True)
+    with t4:
+        if not assets.empty:
+            scoped = assets[assets.get("in_pm_scope", 0) == 1] if "in_pm_scope" in assets.columns else assets
+            st.dataframe(scoped, use_container_width=True, hide_index=True)
+        else:
+            st.info("Import the PMP Excel to load assets.")
+    with t5:
+        open_checks = checks[checks["done_date"].isna()] if not checks.empty and "done_date" in checks.columns else pd.DataFrame()
+        if open_checks.empty:
+            st.caption("Nothing pending to mark done.")
+        else:
+            options = []
+            id_map = {}
+            for _, r in open_checks.iterrows():
+                label = f"#{int(r['id'])} | {r.get('hostname')} | due {r.get('due_date')} | {r.get('period_label')}"
+                options.append(label)
+                id_map[label] = int(r["id"])
+            sel = st.selectbox("Select open check", options, key="pmp_mark_sel")
+            d = st.date_input("Done date", key="pmp_done_date")
+            remark = st.text_input("Remarks", key="pmp_done_remark")
+            if st.button("Mark PM done", type="primary", key="pmp_mark_btn"):
+                mark_pmp_done(conn, id_map[sel], str(d), username, remark)
+                st.success("Marked done.")
+                st.rerun()
+
+    if not checks.empty and "location" in checks.columns:
+        st.markdown("### Compliance by location")
+        tmp = checks.copy()
+        tmp["has_due"] = tmp["due_date"].notna() if "due_date" in tmp.columns else False
+        tmp["has_done"] = tmp["done_date"].notna() if "done_date" in tmp.columns else False
+        g = tmp.groupby(tmp["location"].fillna("Unknown")).agg(Due=("has_due", "sum"), Done=("has_done", "sum")).reset_index()
+        g["Compliance_%"] = g.apply(lambda r: round((r["Done"] / r["Due"]) * 100, 1) if r["Due"] else 0.0, axis=1)
+        st.dataframe(g.sort_values("Compliance_%"), use_container_width=True, hide_index=True)
 
 def render_license_inventory_page(conn, role, username):
     ensure_enterprise_extension_tables(conn)
@@ -2455,8 +2853,9 @@ def render_license_inventory_page(conn, role, username):
                 st.error(f"Could not parse file: {e}")
 
     assets = load_assets_df(conn)
+    assets = filter_df_by_entity(assets, st.session_state.get("entity_filter", "All"))
     if assets.empty:
-        st.info("No assets yet. Import the inventory Excel above.")
+        st.info("No assets yet for this entity. Import the inventory Excel above or switch Entity in the sidebar.")
         return
 
     # KPIs
@@ -2589,8 +2988,8 @@ def create_asset_repair(conn, payload):
     conn.execute(
         """INSERT INTO asset_repairs
         (asset_id, hostname, repair_date, problem_description, diagnosis, repair_type, vendor_id,
-         cost_amount, currency, warranty_claimed, warranty_details, status, related_ticket_id, remarks, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+         cost_amount, currency, warranty_claimed, warranty_details, status, related_ticket_id, remarks, created_by, entity)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             payload.get("asset_id"),
             payload.get("hostname"),
@@ -2607,6 +3006,7 @@ def create_asset_repair(conn, payload):
             payload.get("related_ticket_id"),
             payload.get("remarks"),
             payload.get("created_by"),
+            payload.get("entity") or infer_entity(payload.get("hostname"), None),
         ),
     )
     conn.commit()
@@ -2750,9 +3150,9 @@ def render_repairs_page(conn, username):
         <div class="panel-sub">Log laptop/PC repairs, cost, vendor, and track spend per asset.</div></div>""",
         unsafe_allow_html=True,
     )
-    assets_df = load_assets_df(conn)
+    assets_df = filter_df_by_entity(load_assets_df(conn), st.session_state.get("entity_filter", "All"))
     vendors_df = load_repair_vendors_df(conn)
-    repairs_df = load_asset_repairs_df(conn)
+    repairs_df = filter_df_by_entity(load_asset_repairs_df(conn), st.session_state.get("entity_filter", "All"))
 
     k1, k2, k3, k4 = st.columns(4)
     total_spend = float(pd.to_numeric(repairs_df.get("cost_amount"), errors="coerce").fillna(0).sum()) if not repairs_df.empty else 0.0
@@ -2810,6 +3210,9 @@ def render_repairs_page(conn, username):
             if not problem.strip() and not hostname.strip():
                 st.warning("Enter at least a hostname or problem description.")
             else:
+                _ent = st.session_state.get("entity_filter", "All")
+                if _ent == "All":
+                    _ent = infer_entity(hostname, None)
                 create_asset_repair(
                     conn,
                     {
@@ -2827,6 +3230,7 @@ def render_repairs_page(conn, username):
                         "status": status,
                         "remarks": remarks,
                         "created_by": username,
+                        "entity": _ent,
                     },
                 )
                 st.success("Repair logged." + (" Expense entry created automatically." if cost > 0 else ""))
@@ -2900,8 +3304,8 @@ def render_expenses_page(conn, username):
         <div class="panel-sub">Basic IT expense tracking — repairs, consumables, licenses, upgrades, network, other.</div></div>""",
         unsafe_allow_html=True,
     )
-    expenses_df = load_it_expenses_df(conn)
-    assets_df = load_assets_df(conn)
+    expenses_df = filter_df_by_entity(load_it_expenses_df(conn), st.session_state.get("entity_filter", "All"))
+    assets_df = filter_df_by_entity(load_assets_df(conn), st.session_state.get("entity_filter", "All"))
     vendors_df = load_repair_vendors_df(conn)
 
     total = float(pd.to_numeric(expenses_df.get("amount"), errors="coerce").fillna(0).sum()) if not expenses_df.empty else 0.0
@@ -3113,7 +3517,7 @@ def get_navigation_groups(role):
         '📊 Dashboard': ['Home', 'Executive Command Center', 'Overview'],
         '🎫 Operations': ['Ticket Operations', 'Task Center', 'Team Chat'],
         '📈 Analytics': ['Reports', 'AVP Dashboard', 'Department Health', 'Vendor Dashboard'],
-        '🖥 Infrastructure': ['NAS Monitoring', 'Asset Health', 'Repairs & Maintenance', 'Expense Register', 'License Inventory'],
+        '🖥 Infrastructure': ['NAS Monitoring', 'Asset Health', 'Repairs & Maintenance', 'Expense Register', 'License Inventory', 'Preventive Maintenance'],
         '⚙ Administration': ['Admin Tools'],
     }
     return {g: [p for p in plist if p in pages] for g, plist in groups.items() if any(p in pages for p in plist)}
@@ -3123,7 +3527,7 @@ def page_breadcrumb(page):
         'Home': 'Home', 'Executive Command Center': 'Home > Dashboard > Executive Command Center', 'Overview': 'Home > Dashboard > Overview',
         'Ticket Operations': 'Home > Operations > Ticket Operations', 'Task Center': 'Home > Operations > Task Center', 'Team Chat': 'Home > Operations > Team Chat',
         'Reports': 'Home > Analytics > Reports', 'AVP Dashboard': 'Home > Analytics > AVP Dashboard', 'Department Health': 'Home > Analytics > Department Health',
-        'Vendor Dashboard': 'Home > Analytics > Vendor Dashboard', 'NAS Monitoring': 'Home > Infrastructure > NAS Monitoring', 'Asset Health': 'Home > Infrastructure > Asset Health', 'Repairs & Maintenance': 'Home > Infrastructure > Repairs & Maintenance', 'Expense Register': 'Home > Infrastructure > Expense Register', 'License Inventory': 'Home > Infrastructure > License Inventory',
+        'Vendor Dashboard': 'Home > Analytics > Vendor Dashboard', 'NAS Monitoring': 'Home > Infrastructure > NAS Monitoring', 'Asset Health': 'Home > Infrastructure > Asset Health', 'Repairs & Maintenance': 'Home > Infrastructure > Repairs & Maintenance', 'Expense Register': 'Home > Infrastructure > Expense Register', 'License Inventory': 'Home > Infrastructure > License Inventory', 'Preventive Maintenance': 'Home > Infrastructure > Preventive Maintenance',
         'Admin Tools': 'Home > Administration > Admin Tools',
     }
     return mapping.get(page, f'Home > {page}')
@@ -3384,6 +3788,24 @@ def render_dashboard(conn):
     allowed_pages = get_role_pages(role)
     render_global_search(conn, df_tickets)
     st.sidebar.markdown("---")
+    entity_options = get_entity_filter_options(role)
+    if "entity_filter" not in st.session_state:
+        st.session_state["entity_filter"] = "All"
+    # Keep valid selection
+    if st.session_state["entity_filter"] not in entity_options:
+        st.session_state["entity_filter"] = entity_options[0]
+    entity_filter = st.sidebar.selectbox(
+        "Entity (Vega / Knitpro)",
+        entity_options,
+        index=entity_options.index(st.session_state["entity_filter"]),
+        key="entity_filter_widget",
+        help="IT Manager: use All for combined view, or pick Vega / Knitpro to separate data.",
+    )
+    st.session_state["entity_filter"] = entity_filter
+    if entity_filter == "All":
+        st.sidebar.caption("Showing **all entities**")
+    else:
+        st.sidebar.caption(f"Scoped to **{entity_filter}** only")
     site_filter = st.sidebar.selectbox("Site", ["All"] + OFFICIAL_LOCATIONS)
     status_filter = st.sidebar.selectbox("Ticket Status", ["All"] + STATUS_OPTIONS)
     tech_filter = st.sidebar.selectbox("Technician", ["All"] + list(TECH_MAP.keys()))
@@ -3409,7 +3831,9 @@ def render_dashboard(conn):
     df_ticket_filtered = filtered_tickets(df_tickets, site_filter, status_filter, tech_filter)
     df_nas_filtered = filtered_nas(df_nas, server_filter)
     st.markdown(f'''<div class="sticky-topbar"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px"><div><div class="crumb">{page_breadcrumb(page)}</div><div class="hero-title" style="font-size:24px;margin:0">{page}</div></div><div class="last-updated">Updated:<br>{pd.Timestamp.now().strftime('%d %b %Y')}<br>{pd.Timestamp.now().strftime('%I:%M %p')}</div></div></div>''', unsafe_allow_html=True)
-    st.markdown("<div class='app-banner'><div class='app-title'>🛠️ Vega & Knitpro IT Command Suite</div><div class='app-subtitle'>Single-window support operations, NAS monitoring, reporting, tasking, and infrastructure analytics</div></div>", unsafe_allow_html=True)
+    _ent = st.session_state.get("entity_filter", "All")
+    _ent_note = "All entities (Vega + Knitpro)" if _ent == "All" else f"Entity scope: {_ent}"
+    st.markdown(f"<div class='app-banner'><div class='app-title'>🛠️ Vega & Knitpro IT Command Suite</div><div class='app-subtitle'>Single-window support operations, NAS monitoring, reporting, tasking, and infrastructure analytics · <b>{_ent_note}</b></div></div>", unsafe_allow_html=True)
     if page == "Home":
         render_home_page(user, df_ticket_filtered, df_nas_filtered, conn)
 
@@ -4102,8 +4526,9 @@ def render_dashboard(conn):
     elif page == "Asset Health":
         ensure_enterprise_extension_tables(conn)
         st.subheader("Asset Register")
-        assets_df = load_assets_df(conn)
-        repairs_df = load_asset_repairs_df(conn)
+        _ef = st.session_state.get("entity_filter", "All")
+        assets_df = filter_df_by_entity(load_assets_df(conn), _ef)
+        repairs_df = filter_df_by_entity(load_asset_repairs_df(conn), _ef)
         with st.expander("Register new asset", expanded=False):
             c1, c2, c3, c4 = st.columns(4)
             asset_id = c1.text_input('Asset ID', key='asset_id_new')
@@ -4121,11 +4546,13 @@ def render_dashboard(conn):
             status = c11.selectbox('Status', ['Active','Under Repair','Retired'], key='asset_status_new')
             make_model = c12.text_input('Make / Model', key='asset_model_new')
             if st.button('Add Asset', key='asset_add_btn'):
+                _ef = st.session_state.get("entity_filter", "All")
+                _ent = _ef if _ef != "All" else infer_entity(hostname, asset_loc)
                 create_asset(conn, {
                     'asset_id': asset_id or hostname, 'asset_type': asset_type, 'location': asset_loc,
                     'vendor': asset_vendor, 'purchase_date': str(purchase_date), 'warranty_end': str(warranty_end),
                     'status': status, 'hostname': hostname, 'serial_no': serial_no, 'user_name': user_name,
-                    'purchase_value': purchase_value, 'make_model': make_model,
+                    'purchase_value': purchase_value, 'make_model': make_model, 'entity': _ent,
                 })
                 st.success('Asset added.')
                 st.rerun()
@@ -4160,6 +4587,9 @@ def render_dashboard(conn):
 
     elif page == "License Inventory":
         render_license_inventory_page(conn, role, st.session_state.get('username', 'system'))
+
+    elif page == "Preventive Maintenance":
+        render_pmp_page(conn, st.session_state.get('username', 'system'))
 
     elif page == "Team Chat":
         st.markdown('''<div class="panel"><div class="panel-title">Team Chat</div><div class="panel-sub">Unread badges, presence indicators, mentions, and ticket-linked collaboration stay functionally unchanged while using a cleaner shell.</div></div>''', unsafe_allow_html=True)
