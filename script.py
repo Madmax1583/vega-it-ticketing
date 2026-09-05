@@ -594,7 +594,7 @@ def current_period_ticket_df(df, freq="Daily"):
         iso = today.isocalendar()
         x = x[(x["date_parsed"].dt.isocalendar().year == iso.year) & (x["date_parsed"].dt.isocalendar().week == iso.week)]
     else:
-        start = today - pd.Timedelta(days=29)
+        start = today - pd.Timedelta(29, unit="D")
         x = x[x["date_parsed"] >= start]
     return x
 
@@ -2726,9 +2726,9 @@ def build_pmp_status_views(checks_df):
     overdue = c[open_mask & (c["due_ts"] < today)].copy()
     month_start = today.replace(day=1)
     if today.month == 12:
-        month_end = today.replace(year=today.year + 1, month=1, day=1) - pd.Timedelta(days=1)
+        month_end = today.replace(year=today.year + 1, month=1, day=1) - pd.Timedelta(1, unit="D")
     else:
-        month_end = today.replace(month=today.month + 1, day=1) - pd.Timedelta(days=1)
+        month_end = today.replace(month=today.month + 1, day=1) - pd.Timedelta(1, unit="D")
     due_month = c[open_mask & (c["due_ts"] >= month_start) & (c["due_ts"] <= month_end)].copy()
     done = c[c["done_ts"].notna()].copy()
     scoped = c
@@ -3429,7 +3429,8 @@ def build_capacity_planning_dashboard(nas_df):
         try:
             if pd.isna(days_value):
                 return None
-            return (today + pd.Timedelta(days=float(days_value))).date().isoformat()
+            # unit='D' avoids NumPy generic timedelta deprecation
+            return (today + pd.Timedelta(float(days_value), unit="D")).date().isoformat()
         except Exception:
             return None
 
