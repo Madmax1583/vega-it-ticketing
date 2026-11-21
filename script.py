@@ -1,4 +1,4 @@
-import io
+﻿import io
 import os
 import base64
 import hashlib
@@ -28,13 +28,14 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 from supabase import create_client
+from utils.time_utils import now_utc, now_ist, to_ist, format_ist, ist_date
 
 # ==========================================
 # 1. STREAMLIT CONFIG & GLOBAL STYLE SHEET
 # ==========================================
 st.set_page_config(
     page_title="Vega & Knitpro IT Operations Dashboard",
-    page_icon="🛠️",
+    page_icon="ðŸ› ï¸",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -723,13 +724,13 @@ def suggest_subcategory(category, complaint):
     return "Unclassified"
 
 AI_SUGGESTIONS = {
-    "CCTV/Camera": {"title_en": "📷 AI Video Infrastructure Diagnostics", "title_hi": "📷 एआई वीडियो इन्फ्रास्ट्रक्चर डायग्नोस्टिक्स", "English": ["Check whether the camera POE switch port light is blinking.", "Ping the camera IP address through CMD to confirm network continuity.", "If NVR shows no video, restart the camera channel or re-login the device."], "Hindi": ["जांचें कि कैमरा POE स्विच पोर्ट की लाइट ब्लिंक कर रही है या नहीं।", "नेटवर्क कनेक्टिविटी जांचने के लिए कैमरा IP एड्रेस को पिंग करें।", "यदि NVR 'No Video' दिखाए, तो कैमरा चैनल रीस्टार्ट या री-लॉगिन करें।"]},
-    "Laptop/Hardware": {"title_en": "💻 AI Endpoint Hardware Diagnostics", "title_hi": "💻 एआई एंडपॉइंट हार्डवेयर डायग्नोस्टिक्स", "English": ["Perform a hard reset by disconnecting power and holding the power button for 30 seconds.", "Connect to an external display to isolate panel versus motherboard issues.", "Check Device Manager and reinstall chipset or hardware drivers if needed."], "Hindi": ["पावर डिस्कनेक्ट करके 30 सेकंड तक पावर बटन दबाकर हार्ड रीसेट करें।", "LCD और मदरबोर्ड समस्या अलग करने के लिए बाहरी मॉनिटर लगाएं।", "Device Manager जांचें और आवश्यक होने पर ड्राइवर पुनः इंस्टॉल करें।"]},
-    "Email/Outlook": {"title_en": "📧 AI Communication Layer Diagnostics", "title_hi": "📧 एआई कम्यूनिकेशन लेयर डायग्नोस्टिक्स", "English": ["Run outlook.exe /safe to isolate add-in conflicts.", "Check PST or OST file size and compact it if very large.", "Clear Credential Manager entries if password prompts repeat."], "Hindi": ["Add-in conflict जांचने के लिए outlook.exe /safe चलाएं।", "PST या OST फ़ाइल का आकार जांचें और जरूरत हो तो compact करें।", "बार-बार पासवर्ड आने पर Credential Manager entries साफ करें।"]},
-    "Printer": {"title_en": "🖨️ AI Print Management Diagnostics", "title_hi": "🖨️ एआई प्रिंट मैनेजमेंट डायग्नोस्टिक्स", "English": ["Verify Printer Properties, configured port, and SNMP setting.", "Restart Print Spooler and clear stuck jobs in the PRINTERS folder.", "Inspect cartridge, rollers, and scanner glass for quality issues."], "Hindi": ["Printer Properties, port configuration और SNMP setting जांचें।", "Print Spooler restart करें और stuck jobs साफ करें।", "कार्ट्रिज, रोलर्स और स्कैनर ग्लास जांचें।"]},
-    "SAP": {"title_en": "🏢 AI Enterprise ERP Diagnostics", "title_hi": "🏢 एआई एंटरप्राइज ईआरपी डायग्नोस्टिक्स", "English": ["Verify SAP logon configuration and network reachability.", "Check for locked or hung sessions through SAP tools.", "Repair SAP GUI or clear cache if the client is unstable."], "Hindi": ["SAP logon configuration और network connectivity जांचें।", "Locked या hung sessions जांचें।", "Client unstable होने पर SAP GUI repair या cache clear करें।"]},
-    "Network": {"title_en": "🌐 AI Network Routing Diagnostics", "title_hi": "🌐 एआई नेटवर्क राउटिंग डायग्नोस्टिक्स", "English": ["Reset Winsock and inspect the adapter driver for frequent drops.", "Release and renew IP configuration if conflict is suspected.", "Check the SSID and frequency band being used by the device."], "Hindi": ["बार-बार डिस्कनेक्ट होने पर Winsock reset और adapter driver जांचें।", "IP conflict शक होने पर release और renew करें।", "SSID और frequency band की पुष्टि करें।"]},
-    "Server/UPS": {"title_en": "🖥️ Server & Power Infrastructure Diagnostics", "title_hi": "🖥️ सर्वर और पावर इन्फ्रास्ट्रक्चर डायग्नोस्टिक्स", "English": ["Check UPS load and input power if alarms are active.", "Verify rack airflow and server room temperature.", "Review DNS and authentication dependencies if logins fail."], "Hindi": ["अलार्म आने पर UPS load और input power जांचें।", "Rack airflow और server room temperature जांचें।", "Login fail होने पर DNS और authentication dependencies देखें।"]},
+    "CCTV/Camera": {"title_en": "ðŸ“· AI Video Infrastructure Diagnostics", "title_hi": "ðŸ“· à¤à¤†à¤ˆ à¤µà¥€à¤¡à¤¿à¤¯à¥‹ à¤‡à¤¨à¥à¤«à¥à¤°à¤¾à¤¸à¥à¤Ÿà¥à¤°à¤•à¥à¤šà¤° à¤¡à¤¾à¤¯à¤—à¥à¤¨à¥‹à¤¸à¥à¤Ÿà¤¿à¤•à¥à¤¸", "English": ["Check whether the camera POE switch port light is blinking.", "Ping the camera IP address through CMD to confirm network continuity.", "If NVR shows no video, restart the camera channel or re-login the device."], "Hindi": ["à¤œà¤¾à¤‚à¤šà¥‡à¤‚ à¤•à¤¿ à¤•à¥ˆà¤®à¤°à¤¾ POE à¤¸à¥à¤µà¤¿à¤š à¤ªà¥‹à¤°à¥à¤Ÿ à¤•à¥€ à¤²à¤¾à¤‡à¤Ÿ à¤¬à¥à¤²à¤¿à¤‚à¤• à¤•à¤° à¤°à¤¹à¥€ à¤¹à¥ˆ à¤¯à¤¾ à¤¨à¤¹à¥€à¤‚à¥¤", "à¤¨à¥‡à¤Ÿà¤µà¤°à¥à¤• à¤•à¤¨à¥‡à¤•à¥à¤Ÿà¤¿à¤µà¤¿à¤Ÿà¥€ à¤œà¤¾à¤‚à¤šà¤¨à¥‡ à¤•à¥‡ à¤²à¤¿à¤ à¤•à¥ˆà¤®à¤°à¤¾ IP à¤à¤¡à¥à¤°à¥‡à¤¸ à¤•à¥‹ à¤ªà¤¿à¤‚à¤— à¤•à¤°à¥‡à¤‚à¥¤", "à¤¯à¤¦à¤¿ NVR 'No Video' à¤¦à¤¿à¤–à¤¾à¤, à¤¤à¥‹ à¤•à¥ˆà¤®à¤°à¤¾ à¤šà¥ˆà¤¨à¤² à¤°à¥€à¤¸à¥à¤Ÿà¤¾à¤°à¥à¤Ÿ à¤¯à¤¾ à¤°à¥€-à¤²à¥‰à¤—à¤¿à¤¨ à¤•à¤°à¥‡à¤‚à¥¤"]},
+    "Laptop/Hardware": {"title_en": "ðŸ’» AI Endpoint Hardware Diagnostics", "title_hi": "ðŸ’» à¤à¤†à¤ˆ à¤à¤‚à¤¡à¤ªà¥‰à¤‡à¤‚à¤Ÿ à¤¹à¤¾à¤°à¥à¤¡à¤µà¥‡à¤¯à¤° à¤¡à¤¾à¤¯à¤—à¥à¤¨à¥‹à¤¸à¥à¤Ÿà¤¿à¤•à¥à¤¸", "English": ["Perform a hard reset by disconnecting power and holding the power button for 30 seconds.", "Connect to an external display to isolate panel versus motherboard issues.", "Check Device Manager and reinstall chipset or hardware drivers if needed."], "Hindi": ["à¤ªà¤¾à¤µà¤° à¤¡à¤¿à¤¸à¥à¤•à¤¨à¥‡à¤•à¥à¤Ÿ à¤•à¤°à¤•à¥‡ 30 à¤¸à¥‡à¤•à¤‚à¤¡ à¤¤à¤• à¤ªà¤¾à¤µà¤° à¤¬à¤Ÿà¤¨ à¤¦à¤¬à¤¾à¤•à¤° à¤¹à¤¾à¤°à¥à¤¡ à¤°à¥€à¤¸à¥‡à¤Ÿ à¤•à¤°à¥‡à¤‚à¥¤", "LCD à¤”à¤° à¤®à¤¦à¤°à¤¬à¥‹à¤°à¥à¤¡ à¤¸à¤®à¤¸à¥à¤¯à¤¾ à¤…à¤²à¤— à¤•à¤°à¤¨à¥‡ à¤•à¥‡ à¤²à¤¿à¤ à¤¬à¤¾à¤¹à¤°à¥€ à¤®à¥‰à¤¨à¤¿à¤Ÿà¤° à¤²à¤—à¤¾à¤à¤‚à¥¤", "Device Manager à¤œà¤¾à¤‚à¤šà¥‡à¤‚ à¤”à¤° à¤†à¤µà¤¶à¥à¤¯à¤• à¤¹à¥‹à¤¨à¥‡ à¤ªà¤° à¤¡à¥à¤°à¤¾à¤‡à¤µà¤° à¤ªà¥à¤¨à¤ƒ à¤‡à¤‚à¤¸à¥à¤Ÿà¥‰à¤² à¤•à¤°à¥‡à¤‚à¥¤"]},
+    "Email/Outlook": {"title_en": "ðŸ“§ AI Communication Layer Diagnostics", "title_hi": "ðŸ“§ à¤à¤†à¤ˆ à¤•à¤®à¥à¤¯à¥‚à¤¨à¤¿à¤•à¥‡à¤¶à¤¨ à¤²à¥‡à¤¯à¤° à¤¡à¤¾à¤¯à¤—à¥à¤¨à¥‹à¤¸à¥à¤Ÿà¤¿à¤•à¥à¤¸", "English": ["Run outlook.exe /safe to isolate add-in conflicts.", "Check PST or OST file size and compact it if very large.", "Clear Credential Manager entries if password prompts repeat."], "Hindi": ["Add-in conflict à¤œà¤¾à¤‚à¤šà¤¨à¥‡ à¤•à¥‡ à¤²à¤¿à¤ outlook.exe /safe à¤šà¤²à¤¾à¤à¤‚à¥¤", "PST à¤¯à¤¾ OST à¤«à¤¼à¤¾à¤‡à¤² à¤•à¤¾ à¤†à¤•à¤¾à¤° à¤œà¤¾à¤‚à¤šà¥‡à¤‚ à¤”à¤° à¤œà¤°à¥‚à¤°à¤¤ à¤¹à¥‹ à¤¤à¥‹ compact à¤•à¤°à¥‡à¤‚à¥¤", "à¤¬à¤¾à¤°-à¤¬à¤¾à¤° à¤ªà¤¾à¤¸à¤µà¤°à¥à¤¡ à¤†à¤¨à¥‡ à¤ªà¤° Credential Manager entries à¤¸à¤¾à¤« à¤•à¤°à¥‡à¤‚à¥¤"]},
+    "Printer": {"title_en": "ðŸ–¨ï¸ AI Print Management Diagnostics", "title_hi": "ðŸ–¨ï¸ à¤à¤†à¤ˆ à¤ªà¥à¤°à¤¿à¤‚à¤Ÿ à¤®à¥ˆà¤¨à¥‡à¤œà¤®à¥‡à¤‚à¤Ÿ à¤¡à¤¾à¤¯à¤—à¥à¤¨à¥‹à¤¸à¥à¤Ÿà¤¿à¤•à¥à¤¸", "English": ["Verify Printer Properties, configured port, and SNMP setting.", "Restart Print Spooler and clear stuck jobs in the PRINTERS folder.", "Inspect cartridge, rollers, and scanner glass for quality issues."], "Hindi": ["Printer Properties, port configuration à¤”à¤° SNMP setting à¤œà¤¾à¤‚à¤šà¥‡à¤‚à¥¤", "Print Spooler restart à¤•à¤°à¥‡à¤‚ à¤”à¤° stuck jobs à¤¸à¤¾à¤« à¤•à¤°à¥‡à¤‚à¥¤", "à¤•à¤¾à¤°à¥à¤Ÿà¥à¤°à¤¿à¤œ, à¤°à¥‹à¤²à¤°à¥à¤¸ à¤”à¤° à¤¸à¥à¤•à¥ˆà¤¨à¤° à¤—à¥à¤²à¤¾à¤¸ à¤œà¤¾à¤‚à¤šà¥‡à¤‚à¥¤"]},
+    "SAP": {"title_en": "ðŸ¢ AI Enterprise ERP Diagnostics", "title_hi": "ðŸ¢ à¤à¤†à¤ˆ à¤à¤‚à¤Ÿà¤°à¤ªà¥à¤°à¤¾à¤‡à¤œ à¤ˆà¤†à¤°à¤ªà¥€ à¤¡à¤¾à¤¯à¤—à¥à¤¨à¥‹à¤¸à¥à¤Ÿà¤¿à¤•à¥à¤¸", "English": ["Verify SAP logon configuration and network reachability.", "Check for locked or hung sessions through SAP tools.", "Repair SAP GUI or clear cache if the client is unstable."], "Hindi": ["SAP logon configuration à¤”à¤° network connectivity à¤œà¤¾à¤‚à¤šà¥‡à¤‚à¥¤", "Locked à¤¯à¤¾ hung sessions à¤œà¤¾à¤‚à¤šà¥‡à¤‚à¥¤", "Client unstable à¤¹à¥‹à¤¨à¥‡ à¤ªà¤° SAP GUI repair à¤¯à¤¾ cache clear à¤•à¤°à¥‡à¤‚à¥¤"]},
+    "Network": {"title_en": "ðŸŒ AI Network Routing Diagnostics", "title_hi": "ðŸŒ à¤à¤†à¤ˆ à¤¨à¥‡à¤Ÿà¤µà¤°à¥à¤• à¤°à¤¾à¤‰à¤Ÿà¤¿à¤‚à¤— à¤¡à¤¾à¤¯à¤—à¥à¤¨à¥‹à¤¸à¥à¤Ÿà¤¿à¤•à¥à¤¸", "English": ["Reset Winsock and inspect the adapter driver for frequent drops.", "Release and renew IP configuration if conflict is suspected.", "Check the SSID and frequency band being used by the device."], "Hindi": ["à¤¬à¤¾à¤°-à¤¬à¤¾à¤° à¤¡à¤¿à¤¸à¥à¤•à¤¨à¥‡à¤•à¥à¤Ÿ à¤¹à¥‹à¤¨à¥‡ à¤ªà¤° Winsock reset à¤”à¤° adapter driver à¤œà¤¾à¤‚à¤šà¥‡à¤‚à¥¤", "IP conflict à¤¶à¤• à¤¹à¥‹à¤¨à¥‡ à¤ªà¤° release à¤”à¤° renew à¤•à¤°à¥‡à¤‚à¥¤", "SSID à¤”à¤° frequency band à¤•à¥€ à¤ªà¥à¤·à¥à¤Ÿà¤¿ à¤•à¤°à¥‡à¤‚à¥¤"]},
+    "Server/UPS": {"title_en": "ðŸ–¥ï¸ Server & Power Infrastructure Diagnostics", "title_hi": "ðŸ–¥ï¸ à¤¸à¤°à¥à¤µà¤° à¤”à¤° à¤ªà¤¾à¤µà¤° à¤‡à¤¨à¥à¤«à¥à¤°à¤¾à¤¸à¥à¤Ÿà¥à¤°à¤•à¥à¤šà¤° à¤¡à¤¾à¤¯à¤—à¥à¤¨à¥‹à¤¸à¥à¤Ÿà¤¿à¤•à¥à¤¸", "English": ["Check UPS load and input power if alarms are active.", "Verify rack airflow and server room temperature.", "Review DNS and authentication dependencies if logins fail."], "Hindi": ["à¤…à¤²à¤¾à¤°à¥à¤® à¤†à¤¨à¥‡ à¤ªà¤° UPS load à¤”à¤° input power à¤œà¤¾à¤‚à¤šà¥‡à¤‚à¥¤", "Rack airflow à¤”à¤° server room temperature à¤œà¤¾à¤‚à¤šà¥‡à¤‚à¥¤", "Login fail à¤¹à¥‹à¤¨à¥‡ à¤ªà¤° DNS à¤”à¤° authentication dependencies à¤¦à¥‡à¤–à¥‡à¤‚à¥¤"]},
 }
 
 if "local_tickets" not in st.session_state:
@@ -1287,7 +1288,7 @@ def login_page(conn):
             password = st.text_input("Password", type=pw_type, placeholder="Enter your password", key="login_password")
             
             login_clicked = st.button("Login", use_container_width=True, key="login_button")
-            st.markdown('<div class="login-support">Need account support? <span class="linkish">Contact administrator</span></div><div class="login-footer"><span class="linkish">Terms</span><span class="linkish">Policy</span><span>© 2026 Vega Industries Pvt. Ltd.</span></div>', unsafe_allow_html=True)
+            st.markdown('<div class="login-support">Need account support? <span class="linkish">Contact administrator</span></div><div class="login-footer"><span class="linkish">Terms</span><span class="linkish">Policy</span><span>Â© 2026 Vega Industries Pvt. Ltd.</span></div>', unsafe_allow_html=True)
 
     if login_clicked:
         pending_user = get_user_by_username(conn, username)
@@ -1925,17 +1926,17 @@ def _status_light(value, green_ok=True):
     if isinstance(value, str):
         v = value.lower()
         if v in ['healthy', 'good', 'low', 'green']:
-            return '🟢'
+            return 'ðŸŸ¢'
         if v in ['attention', 'medium', 'yellow']:
-            return '🟡'
-        return '🔴'
+            return 'ðŸŸ¡'
+        return 'ðŸ”´'
     try:
         x = float(value)
         if green_ok:
-            return '🟢' if x >= 85 else ('🟡' if x >= 65 else '🔴')
-        return '🟢' if x <= 20 else ('🟡' if x <= 40 else '🔴')
+            return 'ðŸŸ¢' if x >= 85 else ('ðŸŸ¡' if x >= 65 else 'ðŸ”´')
+        return 'ðŸŸ¢' if x <= 20 else ('ðŸŸ¡' if x <= 40 else 'ðŸ”´')
     except Exception:
-        return '🟡'
+        return 'ðŸŸ¡'
 
 def build_executive_command_metrics(ticket_df, task_df, vendor_df, status_df, nas_df):
     t = add_priority_and_sla(ticket_df)
@@ -2290,13 +2291,13 @@ def mask_license_key(key, reveal=False):
     if key is None or (isinstance(key, float) and pd.isna(key)):
         return ""
     s = str(key).strip()
-    if not s or s.lower() in ("nan", "none", "n/a", "√", "mac"):
-        return s if s.lower() in ("√", "mac") else ""
+    if not s or s.lower() in ("nan", "none", "n/a", "âˆš", "mac"):
+        return s if s.lower() in ("âˆš", "mac") else ""
     if reveal:
         return s
     if len(s) <= 5:
-        return "•••••"
-    return ("•" * max(8, len(s) - 5)) + s[-5:]
+        return "â€¢â€¢â€¢â€¢â€¢"
+    return ("â€¢" * max(8, len(s) - 5)) + s[-5:]
 
 
 def parse_inventory_excel(file_bytes_or_path):
@@ -2742,7 +2743,7 @@ def render_pmp_page(conn, username):
     ensure_enterprise_extension_tables(conn)
     st.markdown(
         """<div class="panel"><div class="panel-title">Preventive Maintenance (PMP)</div>
-        <div class="panel-sub">Annual IT asset maintenance plan — import VIPL-IT-01-03 style sheets, track due/done, mark complete.</div></div>""",
+        <div class="panel-sub">Annual IT asset maintenance plan â€” import VIPL-IT-01-03 style sheets, track due/done, mark complete.</div></div>""",
         unsafe_allow_html=True,
     )
     with st.expander("Import PMP Excel", expanded=False):
@@ -3122,7 +3123,7 @@ def render_excel_import_center(conn, role, username):
         results.append((sname, use_kind, df_s))
 
     for sname, use_kind, df_s in results:
-        with st.expander(f"📄 {sname} → **{use_kind}**", expanded=True):
+        with st.expander(f"ðŸ“„ {sname} â†’ **{use_kind}**", expanded=True):
             st.dataframe(df_s.head(8), use_container_width=True, hide_index=True)
             if use_kind == "inventory":
                 try:
@@ -3132,7 +3133,7 @@ def render_excel_import_center(conn, role, username):
                     st.dataframe(parsed.head(10), use_container_width=True, hide_index=True)
                     if st.button(f"Import inventory from {sname}", key=f"imp_inv_{sname}"):
                         stats = upsert_inventory_rows(conn, parsed)
-                        st.success(f"Inventory — inserted {stats['inserted']}, updated {stats['updated']}, skipped {stats['skipped']}")
+                        st.success(f"Inventory â€” inserted {stats['inserted']}, updated {stats['updated']}, skipped {stats['skipped']}")
                 except Exception as e:
                     st.error(f"Inventory parse error: {e}")
             elif use_kind == "pmp":
@@ -3142,7 +3143,7 @@ def render_excel_import_center(conn, role, username):
                     st.dataframe(assets_df.head(10), use_container_width=True, hide_index=True)
                     if st.button(f"Import PMP from {sname}", key=f"imp_pmp_{sname}"):
                         stats = upsert_pmp_from_frames(conn, assets_df, checks_df)
-                        st.success(f"PMP — assets +{stats['assets_inserted']} / upd {stats['assets_updated']}, checks {stats['checks']}")
+                        st.success(f"PMP â€” assets +{stats['assets_inserted']} / upd {stats['assets_updated']}, checks {stats['checks']}")
                 except Exception as e:
                     st.error(f"PMP parse error: {e}")
             elif use_kind == "tickets":
@@ -3157,7 +3158,7 @@ def render_excel_import_center(conn, role, username):
                     st.dataframe(parsed.head(12), use_container_width=True, hide_index=True)
                     if st.button(f"Import tickets from {sname}", key=f"imp_tix_{sname}"):
                         stats = import_tickets_rows(parsed)
-                        st.success(f"Tickets — inserted {stats['inserted']}, skipped(dedup) {stats['skipped']}")
+                        st.success(f"Tickets â€” inserted {stats['inserted']}, skipped(dedup) {stats['skipped']}")
                 except Exception as e:
                     st.error(f"Ticket parse error: {e}")
             elif use_kind == "nas":
@@ -3167,7 +3168,7 @@ def render_excel_import_center(conn, role, username):
                     st.dataframe(parsed.head(12), use_container_width=True, hide_index=True)
                     if st.button(f"Import NAS from {sname}", key=f"imp_nas_{sname}"):
                         stats = import_nas_rows(parsed)
-                        st.success(f"NAS — inserted {stats['inserted']}, skipped {stats['skipped']}")
+                        st.success(f"NAS â€” inserted {stats['inserted']}, skipped {stats['skipped']}")
                 except Exception as e:
                     st.error(f"NAS parse error: {e}")
             elif use_kind == "offline_backup":
@@ -3181,7 +3182,7 @@ def render_excel_import_center(conn, role, username):
                         nas_like["storage_used"] = None
                         nas_like["status"] = nas_like.get("status", "Success")
                         stats = import_nas_rows(nas_like)
-                        st.success(f"Offline → NAS log — inserted {stats['inserted']}, skipped {stats['skipped']}")
+                        st.success(f"Offline â†’ NAS log â€” inserted {stats['inserted']}, skipped {stats['skipped']}")
                 except Exception as e:
                     st.error(f"Offline parse error: {e}")
             else:
@@ -3196,7 +3197,7 @@ def render_license_inventory_page(conn, role, username):
         unsafe_allow_html=True,
     )
     if not reveal_keys:
-        st.caption("🔒 License keys are masked for your role.")
+        st.caption("ðŸ”’ License keys are masked for your role.")
 
     with st.expander("Import inventory Excel", expanded=True):
         st.caption("Upload **All user inventory with License information** (.xlsx). Multi-section sheets (Vega / Sery / Rise / Sales) are supported.")
@@ -3213,7 +3214,7 @@ def render_license_inventory_page(conn, role, username):
                 st.dataframe(preview, use_container_width=True, hide_index=True)
                 if st.button("Import / upsert into Asset Register", type="primary", key="inv_import_btn"):
                     stats = upsert_inventory_rows(conn, parsed)
-                    st.success(f"Import done — inserted: {stats['inserted']}, updated: {stats['updated']}, skipped: {stats['skipped']}")
+                    st.success(f"Import done â€” inserted: {stats['inserted']}, updated: {stats['updated']}, skipped: {stats['skipped']}")
                     st.rerun()
             except Exception as e:
                 st.error(f"Could not parse file: {e}")
@@ -3534,7 +3535,7 @@ def render_repairs_page(conn, username):
     with tab_log:
         st.caption("Link a repair to a registered asset when possible.")
         c1, c2 = st.columns(2)
-        asset_options = ["— None —"]
+        asset_options = ["â€” None â€”"]
         asset_map = {}
         if not assets_df.empty:
             for _, row in assets_df.iterrows():
@@ -3542,7 +3543,7 @@ def render_repairs_page(conn, username):
                 asset_options.append(label)
                 asset_map[label] = int(row["id"])
         chosen_asset = c1.selectbox("Asset", asset_options, key="repair_asset_sel")
-        hostname = c2.text_input("Hostname (auto or manual)", value="" if chosen_asset == "— None —" else chosen_asset.split(" | ")[0], key="repair_hostname")
+        hostname = c2.text_input("Hostname (auto or manual)", value="" if chosen_asset == "â€” None â€”" else chosen_asset.split(" | ")[0], key="repair_hostname")
         asset_id = asset_map.get(chosen_asset)
 
         c3, c4, c5 = st.columns(3)
@@ -3558,7 +3559,7 @@ def render_repairs_page(conn, username):
         diagnosis = st.text_input("Diagnosis", key="repair_diagnosis")
 
         c6, c7, c8 = st.columns(3)
-        vendor_options = ["— In-house / None —"]
+        vendor_options = ["â€” In-house / None â€”"]
         vendor_map = {}
         if not vendors_df.empty:
             for _, row in vendors_df.iterrows():
@@ -3667,7 +3668,7 @@ def render_expenses_page(conn, username):
     seed_default_repair_vendors(conn)
     st.markdown(
         """<div class="panel"><div class="panel-title">Expense Register</div>
-        <div class="panel-sub">Basic IT expense tracking — repairs, consumables, licenses, upgrades, network, other.</div></div>""",
+        <div class="panel-sub">Basic IT expense tracking â€” repairs, consumables, licenses, upgrades, network, other.</div></div>""",
         unsafe_allow_html=True,
     )
     expenses_df = filter_df_by_entity(load_it_expenses_df(conn), st.session_state.get("entity_filter", "All"))
@@ -3680,9 +3681,9 @@ def render_expenses_page(conn, username):
     e2.metric("Total spend (INR)", f"{total:,.0f}")
     if not expenses_df.empty and "category" in expenses_df.columns:
         top_cat = expenses_df.groupby("category")["amount"].sum().sort_values(ascending=False)
-        e3.metric("Top category", f"{top_cat.index[0]} ({top_cat.iloc[0]:,.0f})" if len(top_cat) else "—")
+        e3.metric("Top category", f"{top_cat.index[0]} ({top_cat.iloc[0]:,.0f})" if len(top_cat) else "â€”")
     else:
-        e3.metric("Top category", "—")
+        e3.metric("Top category", "â€”")
 
     t1, t2 = st.tabs(["Add expense", "Expense list"])
     with t1:
@@ -3694,14 +3695,14 @@ def render_expenses_page(conn, username):
         c4, c5, c6 = st.columns(3)
         payment = c4.selectbox("Payment mode", ["UPI", "bank transfer", "cash", "card", "other"], key="exp_pay")
         bill_no = c5.text_input("Bill / invoice number", key="exp_bill")
-        vendor_options = ["— None —"]
+        vendor_options = ["â€” None â€”"]
         vendor_map = {}
         if not vendors_df.empty:
             for _, row in vendors_df.iterrows():
                 vendor_options.append(str(row["name"]))
                 vendor_map[str(row["name"])] = int(row["id"])
         vendor_sel = c6.selectbox("Vendor", vendor_options, key="exp_vendor")
-        asset_options = ["— None —"]
+        asset_options = ["â€” None â€”"]
         asset_map = {}
         if not assets_df.empty:
             for _, row in assets_df.iterrows():
@@ -3881,11 +3882,11 @@ def _filter_df_by_month(df, selected_month):
 def get_navigation_groups(role):
     pages = get_role_pages(role)
     groups = {
-        '📊 Dashboard': ['Home', 'Executive Command Center', 'Overview'],
-        '🎫 Operations': ['Ticket Operations', 'Task Center', 'Team Chat'],
-        '📈 Analytics': ['Reports', 'AVP Dashboard', 'Department Health', 'Vendor Dashboard'],
-        '🖥 Infrastructure': ['NAS Monitoring', 'Asset Health', 'Repairs & Maintenance', 'Expense Register', 'License Inventory', 'Preventive Maintenance', 'Excel Import Center'],
-        '⚙ Administration': ['Admin Tools'],
+        'ðŸ“Š Dashboard': ['Home', 'Executive Command Center', 'Overview'],
+        'ðŸŽ« Operations': ['Ticket Operations', 'Task Center', 'Team Chat'],
+        'ðŸ“ˆ Analytics': ['Reports', 'AVP Dashboard', 'Department Health', 'Vendor Dashboard'],
+        'ðŸ–¥ Infrastructure': ['NAS Monitoring', 'Asset Health', 'Repairs & Maintenance', 'Expense Register', 'License Inventory', 'Preventive Maintenance', 'Excel Import Center'],
+        'âš™ Administration': ['Admin Tools'],
     }
     return {g: [p for p in plist if p in pages] for g, plist in groups.items() if any(p in pages for p in plist)}
 
@@ -3931,7 +3932,7 @@ def inject_enterprise_ui_css():
     .feed-item { padding: 12px 0; border-bottom:1px solid rgba(148,163,184,.12); }
     .feed-item:last-child { border-bottom:none; }
     .insight-card { background: linear-gradient(180deg, rgba(30,41,59,.92), rgba(15,23,42,.96)); border:1px solid rgba(96,165,250,.16); border-radius:16px; padding:14px; min-height:100px; }
-/* High-contrast text — defeat Streamlit theme wash-out on dark bg */
+/* High-contrast text â€” defeat Streamlit theme wash-out on dark bg */
     :root { --muted: #CBD5E1; --text: #F8FAFC; }
     html, body, .stApp, [data-testid="stAppViewContainer"],
     [data-testid="stAppViewContainer"] * {
@@ -3959,7 +3960,7 @@ def inject_enterprise_ui_css():
         opacity: 1 !important;
         filter: none !important;
     }
-    /* Captions & secondary body copy — readable slate, not washed-out */
+    /* Captions & secondary body copy â€” readable slate, not washed-out */
     [data-testid="stMarkdownContainer"] p,
     [data-testid="stCaptionContainer"],
     [data-testid="stCaptionContainer"] *,
@@ -3999,7 +4000,7 @@ def render_section_title(title, subtitle=None):
 def render_block_title(title):
     st.markdown(f'<div class="v-block-title">{title}</div>', unsafe_allow_html=True)
 
-def render_kpi_card(title, value, subtitle='', icon='📊', trend=None, tone='primary'):
+def render_kpi_card(title, value, subtitle='', icon='ðŸ“Š', trend=None, tone='primary'):
     trend_cls = 'trend-up' if tone == 'success' else ('trend-warn' if tone == 'warning' else ('trend-down' if tone == 'danger' else ''))
     trend_html = f'<div class="kpi-sub {trend_cls}">{trend}</div>' if trend else ''
     st.markdown(f'<div class="kpi-card"><div class="kpi-top"><div><div class="kpi-title">{title}</div><div class="kpi-value">{value}</div></div><div class="kpi-icon">{icon}</div></div><div class="kpi-sub">{subtitle}</div>{trend_html}</div>', unsafe_allow_html=True)
@@ -4010,15 +4011,15 @@ def render_info_feed(title, rows, fields):
         st.info('No recent activity available.')
     else:
         for _, row in rows.iterrows():
-            primary = ' · '.join([str(row.get(f, '')) for f in fields[:2] if str(row.get(f, '')) not in ['', 'nan']])
-            meta = ' · '.join([str(row.get(f, '')) for f in fields[2:] if str(row.get(f, '')) not in ['', 'nan']])
+            primary = ' Â· '.join([str(row.get(f, '')) for f in fields[:2] if str(row.get(f, '')) not in ['', 'nan']])
+            meta = ' Â· '.join([str(row.get(f, '')) for f in fields[2:] if str(row.get(f, '')) not in ['', 'nan']])
             st.markdown(f'<div class="feed-item"><div class="feed-title">{primary}</div><div class="feed-meta">{meta}</div></div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
 def render_home_page(user, ticket_df, nas_df, conn):
     today = pd.Timestamp.now()
     st.markdown('<div class="crumb">Home</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="app-hero"><div class="eyebrow">Welcome</div><div class="hero-title">Welcome {user.get("display_name", "User")}</div><div class="hero-sub">Today: {today.strftime("%d %b %Y")} · Role: {user.get("role", "User")}</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="app-hero"><div class="eyebrow">Welcome</div><div class="hero-title">Welcome {user.get("display_name", "User")}</div><div class="hero-sub">Today: {today.strftime("%d %b %Y")} Â· Role: {user.get("role", "User")}</div></div>', unsafe_allow_html=True)
     st.markdown('')
     qa = st.columns(6)
     actions = [('New Ticket','Ticket Operations'),('Create Task','Task Center'),('Open Reports','Reports'),('Team Chat','Team Chat'),('View Assets','Asset Health'),('NAS Dashboard','NAS Monitoring')]
@@ -4033,11 +4034,11 @@ def render_home_page(user, ticket_df, nas_df, conn):
     cap = build_capacity_planning_dashboard(nas_df)
     nas_health = round(max(0, 100 - cap['latest_storage'].mean()), 1) if cap is not None and not cap.empty and 'latest_storage' in cap.columns else 0
     k1, k2, k3, k4, k5 = st.columns(5)
-    with k1: render_kpi_card('Open Tickets', metrics.get('pending',0), 'Current backlog', '🎫', tone='warning')
-    with k2: render_kpi_card('Resolved Today', metrics.get('today_closed',0), 'Closed today', '✅', tone='success')
-    with k3: render_kpi_card('SLA %', round(100 - add_priority_and_sla(ticket_df).get('sla_breach', pd.Series(dtype=bool)).fillna(False).mean()*100,1) if not ticket_df.empty else 0, 'Compliance view', '🎯')
-    with k4: render_kpi_card('MTTR', metrics.get('avg_resolution',0), 'Average minutes', '⏱')
-    with k5: render_kpi_card('NAS Health', nas_health, 'Storage posture', '🖥', tone='success' if nas_health >= 70 else 'warning')
+    with k1: render_kpi_card('Open Tickets', metrics.get('pending',0), 'Current backlog', 'ðŸŽ«', tone='warning')
+    with k2: render_kpi_card('Resolved Today', metrics.get('today_closed',0), 'Closed today', 'âœ…', tone='success')
+    with k3: render_kpi_card('SLA %', round(100 - add_priority_and_sla(ticket_df).get('sla_breach', pd.Series(dtype=bool)).fillna(False).mean()*100,1) if not ticket_df.empty else 0, 'Compliance view', 'ðŸŽ¯')
+    with k4: render_kpi_card('MTTR', metrics.get('avg_resolution',0), 'Average minutes', 'â±')
+    with k5: render_kpi_card('NAS Health', nas_health, 'Storage posture', 'ðŸ–¥', tone='success' if nas_health >= 70 else 'warning')
     recent_tickets = prepare_ticket_view(ticket_df) if ticket_df is not None else pd.DataFrame()
     if recent_tickets is not None and not recent_tickets.empty:
         if 'date_parsed' not in recent_tickets.columns:
@@ -4079,32 +4080,32 @@ def render_insight_cards(insights_df, columns_count=3):
     cols = st.columns(columns_count)
     for i, insight in enumerate(insights_df[insights_df.columns[0]].astype(str).tolist()[:12]):
         with cols[i % columns_count]:
-            st.markdown(f'<div class="insight-card">💡 {insight}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="insight-card">ðŸ’¡ {insight}</div>', unsafe_allow_html=True)
 
 def render_global_search(conn, ticket_df):
-    with st.sidebar.expander('🔎 Global Search', expanded=False):
+    with st.sidebar.expander('ðŸ”Ž Global Search', expanded=False):
         q = st.text_input('Search tickets, users, departments, technicians, vendors, assets, locations, tasks', key='global_search_q')
         if q:
             qt = str(q).lower(); results = []
             if ticket_df is not None and not ticket_df.empty:
                 t = ticket_df.astype(str).apply(lambda c: c.str.lower()); mask = t.apply(lambda c: c.str.contains(qt, na=False)).any(axis=1)
                 if mask.any():
-                    for _, r in ticket_df.loc[mask].head(8).iterrows(): results.append(f"🎫 Ticket #{r.get('id','')} · {r.get('complaint','')} · {r.get('location','')}")
+                    for _, r in ticket_df.loc[mask].head(8).iterrows(): results.append(f"ðŸŽ« Ticket #{r.get('id','')} Â· {r.get('complaint','')} Â· {r.get('location','')}")
             task_df = load_tasks_df(conn)
             if task_df is not None and not task_df.empty:
                 t = task_df.astype(str).apply(lambda c: c.str.lower()); mask = t.apply(lambda c: c.str.contains(qt, na=False)).any(axis=1)
                 if mask.any():
-                    for _, r in task_df.loc[mask].head(5).iterrows(): results.append(f"📌 Task #{r.get('id','')} · {r.get('title','')} · {r.get('assigned_to','')}")
+                    for _, r in task_df.loc[mask].head(5).iterrows(): results.append(f"ðŸ“Œ Task #{r.get('id','')} Â· {r.get('title','')} Â· {r.get('assigned_to','')}")
             vendor_df = load_vendor_followups_df(conn)
             if vendor_df is not None and not vendor_df.empty:
                 t = vendor_df.astype(str).apply(lambda c: c.str.lower()); mask = t.apply(lambda c: c.str.contains(qt, na=False)).any(axis=1)
                 if mask.any():
-                    for _, r in vendor_df.loc[mask].head(5).iterrows(): results.append(f"🏭 Vendor · {r.get('vendor_name','')} · Ticket {r.get('ticket_id','')}")
+                    for _, r in vendor_df.loc[mask].head(5).iterrows(): results.append(f"ðŸ­ Vendor Â· {r.get('vendor_name','')} Â· Ticket {r.get('ticket_id','')}")
             assets_df = load_assets_df(conn) if 'load_assets_df' in globals() else pd.DataFrame()
             if assets_df is not None and not assets_df.empty:
                 t = assets_df.astype(str).apply(lambda c: c.str.lower()); mask = t.apply(lambda c: c.str.contains(qt, na=False)).any(axis=1)
                 if mask.any():
-                    for _, r in assets_df.loc[mask].head(5).iterrows(): results.append(f"📦 Asset · {r.get('asset_id','')} · {r.get('location','')}")
+                    for _, r in assets_df.loc[mask].head(5).iterrows(): results.append(f"ðŸ“¦ Asset Â· {r.get('asset_id','')} Â· {r.get('location','')}")
             [st.caption(r) for r in results[:12]] if results else st.caption('No matching records found.')
 
 def render_ticket_classification_admin(conn):
@@ -4144,7 +4145,7 @@ def render_dashboard(conn):
     inject_enterprise_ui_css()
     df_tickets = prepare_ticket_view(load_tickets())
     df_nas = load_nas_data()
-    st.sidebar.markdown(f"👤 **{display_name}** ({role})")
+    st.sidebar.markdown(f"ðŸ‘¤ **{display_name}** ({role})")
     notif_df = load_notifications_df(conn, user.get("username"))
     unread_count = int((notif_df["is_read"] == 0).sum()) if not notif_df.empty and "is_read" in notif_df.columns else 0
     st.sidebar.caption(f"Notifications: {unread_count}")
@@ -4182,7 +4183,7 @@ def render_dashboard(conn):
     for group, pages in get_navigation_groups(role).items():
         with st.sidebar.expander(group, expanded=(current_page in pages)):
             for p in pages:
-                label = f"➤ {p}" if p == current_page else p
+                label = f"âž¤ {p}" if p == current_page else p
                 if st.button(label, key=f"nav_{group}_{p}", use_container_width=True):
                     st.session_state["page"] = p
                     st.rerun()
@@ -4200,7 +4201,7 @@ def render_dashboard(conn):
     st.markdown(f'''<div class="sticky-topbar"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px"><div><div class="crumb">{page_breadcrumb(page)}</div><div class="hero-title" style="font-size:24px;margin:0">{page}</div></div><div class="last-updated">Updated:<br>{pd.Timestamp.now().strftime('%d %b %Y')}<br>{pd.Timestamp.now().strftime('%I:%M %p')}</div></div></div>''', unsafe_allow_html=True)
     _ent = st.session_state.get("entity_filter", "All")
     _ent_note = "All entities (Vega + Knitpro)" if _ent == "All" else f"Entity scope: {_ent}"
-    st.markdown(f"<div class='app-banner'><div class='app-title'>🛠️ Vega & Knitpro IT Command Suite</div><div class='app-subtitle'>Single-window support operations, NAS monitoring, reporting, tasking, and infrastructure analytics · <b>{_ent_note}</b></div></div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='app-banner'><div class='app-title'>ðŸ› ï¸ Vega & Knitpro IT Command Suite</div><div class='app-subtitle'>Single-window support operations, NAS monitoring, reporting, tasking, and infrastructure analytics Â· <b>{_ent_note}</b></div></div>", unsafe_allow_html=True)
     if page == "Home":
         render_home_page(user, df_ticket_filtered, df_nas_filtered, conn)
 
@@ -4300,7 +4301,13 @@ def render_dashboard(conn):
                         else:
                             start_val = f"{date_str} {start_input.strftime('%H:%M:%S')}"; close_val = f"{date_str} {close_input.strftime('%H:%M:%S')}"
                             duration = max(1, int((datetime.combine(ticket_date, close_input) - datetime.combine(ticket_date, start_input)).total_seconds() // 60))
-                        new_row = {"date": date_str, "user_name": user_name.strip(), "department": department.strip(), "complaint": complaint_desc.strip(), "location": location, "attended_by": attended_by, "status": status, "category": category, "remarks": tech_remarks.strip(), "start_time": start_val, "close_time": close_val, "resolution_time": duration}
+                        lodged_at_utc = now_utc()
+created_at_iso = lodged_at_utc.isoformat()
+if start_val:
+    start_val = f"{start_val}+05:30"
+if close_val:
+    close_val = f"{close_val}+05:30"
+new_row = {"date": date_str, "created_at": created_at_iso, "user_name": user_name.strip(), "department": department.strip(), "complaint": complaint_desc.strip(), "location": location, "attended_by": attended_by, "status": status, "category": category, "remarks": tech_remarks.strip(), "start_time": start_val, "close_time": close_val, "resolution_time": duration}
                         try:
                             new_id = save_ticket(new_row)
                             add_notification(conn, attended_by.lower(), f"New ticket assigned: {user_name.strip()} - {category}")
@@ -4318,7 +4325,7 @@ def render_dashboard(conn):
                     if details:
                         title = details["title_en"] if ai_lang == "English" else details["title_hi"]
                         steps = details["English"] if ai_lang == "English" else details["Hindi"]
-                        html = f"<div class='panel-card'><div style='font-weight:700;color:#f87171;margin-bottom:8px'>{title}</div>" + "".join([f"<div style='margin-bottom:6px'>• {step}</div>" for step in steps]) + "</div>"
+                        html = f"<div class='panel-card'><div style='font-weight:700;color:#f87171;margin-bottom:8px'>{title}</div>" + "".join([f"<div style='margin-bottom:6px'>â€¢ {step}</div>" for step in steps]) + "</div>"
                         st.markdown(html, unsafe_allow_html=True)
                     else: st.info("No specific category found. Use standard physical, network, and access checks.")
         with right:
@@ -4346,7 +4353,7 @@ def render_dashboard(conn):
                         if new_status == "On Hold - User Busy" and not final_remarks:
                             final_remarks = "Technician reached user, but action postponed due to business activity."
                         payload = {"status": new_status, "attended_by": new_tech, "resolution_time": int(new_duration), "remarks": final_remarks}
-                        if new_status == "Resolved" and not target_row.get("close_time"): payload["close_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        if new_status == "Resolved" and not target_row.get("close_time"): payload["close_time"] = now_ist().isoformat()
                         try:
                             update_ticket(target_id, payload)
                             add_notification(conn, new_tech.lower(), f"Ticket updated: {format_ticket_number(target_id, target_row['location'])}")
@@ -4769,12 +4776,12 @@ def render_dashboard(conn):
         exec_metrics = build_executive_command_metrics(df_ticket_filtered, task_df, vendor_df, status_df, df_nas_filtered)
         ribbon = st.columns(6)
         ribbon_items = [
-            ("Open Tickets", exec_metrics.get("Total Open Tickets", 0), "Current backlog", "🎫", "warning"),
-            ("SLA Breaches", exec_metrics.get("Critical SLA Breaches", 0), "Attention needed", "🚨", "danger"),
-            ("Vendor Open Cases", exec_metrics.get("Open Vendor Cases", 0), "Pending with vendors", "🏭", "warning"),
-            ("Tasks Due", exec_metrics.get("Overdue Tasks", 0), "Overdue tasks", "📌", "warning"),
-            ("NAS Health", exec_metrics.get("NAS Health Score", 0), "Infrastructure health", "🖥", "success"),
-            ("Resolution %", exec_metrics.get("Resolution Rate %", 0), "Closure efficiency", "✅", "success"),
+            ("Open Tickets", exec_metrics.get("Total Open Tickets", 0), "Current backlog", "ðŸŽ«", "warning"),
+            ("SLA Breaches", exec_metrics.get("Critical SLA Breaches", 0), "Attention needed", "ðŸš¨", "danger"),
+            ("Vendor Open Cases", exec_metrics.get("Open Vendor Cases", 0), "Pending with vendors", "ðŸ­", "warning"),
+            ("Tasks Due", exec_metrics.get("Overdue Tasks", 0), "Overdue tasks", "ðŸ“Œ", "warning"),
+            ("NAS Health", exec_metrics.get("NAS Health Score", 0), "Infrastructure health", "ðŸ–¥", "success"),
+            ("Resolution %", exec_metrics.get("Resolution Rate %", 0), "Closure efficiency", "âœ…", "success"),
         ]
         for col, item in zip(ribbon, ribbon_items):
             with col:
@@ -4822,7 +4829,7 @@ def render_dashboard(conn):
                         tone = 'danger' if direction == 'Increase' else ('success' if direction == 'Decrease' else 'primary')
                     else:
                         tone = 'primary'
-                    render_kpi_card(metric_name, row['Current_Month'], f"Prev: {row['Previous_Month']}", '📈', direction, tone)
+                    render_kpi_card(metric_name, row['Current_Month'], f"Prev: {row['Previous_Month']}", 'ðŸ“ˆ', direction, tone)
         with st.expander("Detailed executive tables", expanded=False):
             if aging_pack.get('most_aged', pd.DataFrame()) is not None and not aging_pack.get('most_aged', pd.DataFrame()).empty:
                 st.markdown("#### Most aged tickets")
@@ -4944,7 +4951,7 @@ def render_dashboard(conn):
             analytics = build_repair_cost_analytics(repairs_df, load_it_expenses_df(conn))
             st.dataframe(analytics.get('by_asset', pd.DataFrame()), use_container_width=True, hide_index=True)
         else:
-            st.caption('No repairs logged yet — open **Repairs & Maintenance** to add history.')
+            st.caption('No repairs logged yet â€” open **Repairs & Maintenance** to add history.')
 
     elif page == "Repairs & Maintenance":
         render_repairs_page(conn, st.session_state.get('username', 'system'))
@@ -4989,7 +4996,7 @@ def render_dashboard(conn):
                 unread = unread_map.get(tid, 0)
                 label = f"{row['title']} (#{tid})"
                 if unread > 0:
-                    label += f" • unread {unread}"
+                    label += f" â€¢ unread {unread}"
                 thread_labels.append(label)
                 thread_map[label] = tid
             selected_thread_label = st.selectbox("Select thread", thread_labels, key="team_chat_thread")
@@ -5019,9 +5026,9 @@ def render_dashboard(conn):
                             else:
                                 words.append(token)
                         st.markdown(" ".join(words))
-                        meta = f"{row['sender']} • {row['created_at']}"
+                        meta = f"{row['sender']} â€¢ {row['created_at']}"
                         if 'linked_ticket_id' in row and pd.notna(row['linked_ticket_id']):
-                            meta += f" • Ticket #{int(row['linked_ticket_id'])}"
+                            meta += f" â€¢ Ticket #{int(row['linked_ticket_id'])}"
                         st.caption(meta)
             prompt = st.chat_input("Type a message or mention @user")
             if prompt:
@@ -5040,3 +5047,4 @@ if __name__ == "__main__":
     seed_supabase_users_if_needed()
     bootstrap_auth_gate(conn)
     render_dashboard(conn)
+
